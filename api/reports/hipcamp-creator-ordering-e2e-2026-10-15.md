@@ -1,0 +1,34 @@
+# Hipcamp → Find Creators: corrected-ordering end-to-end verification
+
+One bounded signed-in **normal discovery** run used the production Qloo planner, official YouTube search, corrected general lead selector, channel screening, representative metadata research, optional captions, Qloo bridge resolver, evidence freeze and v4.0.1 scorer. No creator/channel/video was supplied or injected. The diagnostic runner only recorded the returned leads and frozen evidence before deleting its temporary test user. Local trace: `/tmp/hipcamp-creator-discovery-ordering-e2e.json`.
+
+## Search and candidate funnel
+
+| Qloo-grounded search | Returned distinct channels | Search provenance |
+|---|---:|---|
+| `Half Dome hike` | 11 | Half Dome, `0BF2D589-1C2F-4FEE-82F6-AFD2579BEB8A`; Qloo response `928a7e12-d945-47d9-aff0-9414d7ed9033` |
+| `Glacier Point backpacking` | 12 | Glacier Point, `B28795F3-4874-4E1F-B7B2-CF127F4B54A3`; same response |
+| `folk music documentary 21st century` | 11 | Three supplied Qloo tag IDs |
+| `female protagonist friendship wilderness` | 12 | Three supplied Qloo tag IDs |
+
+The four official searches yielded **46 distinct channels** after two within-query duplicates and no cross-query duplicates. The existing 15-lead ceiling retained 15; the corrected selector rotated directions while ordering exact named-subject activity titles first within named directions. It selected **Through My Lens fifth overall**, from the actual `Half Dome hike` result for [Half Dome Hike in Yosemite: My Honest Review](https://www.youtube.com/watch?v=TBMurjUZHLA). One of the first five leads was screened out as an organization, so Through My Lens became the fourth researched packet within the normal `maxCandidates=5` budget. Five channels were researched and assessed, one organization was excluded, and nine selected leads remained uninspected after the packet ceiling. No candidate was manually promoted.
+
+Two searches reused valid official-API cache entries and two made new ledger reservations. Run ledger usage was **two search and ten shared YouTube requests**. The completed run saved one eligible, zero conditional and four insufficient-evidence assessments before temporary-user cleanup.
+
+## Through My Lens evidence path
+
+1. **Search and screening:** Official YouTube `search.list` returned channel `UCWyPjY3I86JQt1u3mV8OyUw` through video `TBMurjUZHLA`. The channel's own description identified a person who shoots and edits their travel videos; the ordinary classifier returned `creator`. Official channel country was `US`.
+2. **Representative research:** Its up-to-20 latest accessible uploads formed a 20-video sample, all **20/20** analyzed without a failed metadata batch. The discovered Half Dome video was within that predeclared sample. It was preserved as a search-origin reference to the transcript chooser, but its source row correctly had `sourceRole=representative_sample`, not a second frequency-counted discovery row. The validated source observation was `Half Dome`, `substantive`, grounded in the official title `Half Dome Hike in Yosemite: My Honest Review`. No transcript observation was needed for this bridge. A planned caption for a different video returned a transient retrieval error; metadata assessment continued.
+3. **Qloo validation:** The creator-observed exact place was independently resolved and found in Hipcamp's actual Qloo place recommendation. The frozen bridge named **Half Dome** and retained Qloo source IDs `8db80258-0b58-4b07-bfb2-c1f717964c70`, `8db47f35-5dc3-4660-91e8-206dc24ebf75`, and `928a7e12-d945-47d9-aff0-9414d7ed9033`. Its creator source was the frozen personal video record for [the Half Dome hike](https://www.youtube.com/watch?v=TBMurjUZHLA). Six other observed phrases remained ambiguous or unsupported and were not promoted.
+4. **Frozen activity and goal capability:** The same sampled Half Dome video supplied one `substantive` bridge-linked creator activity. A separate sampled [Black Canyon complete guide](https://www.youtube.com/watch?v=yrjrKHhD4aw) supplied a validated title-grounded demonstrated format, `Complete guide to a national park`, for `content_creation_capability`. Both source memberships and the format basis were read from the saved evidence/source rows before test cleanup.
+5. **Assessment and saved recommendation:** Frozen evidence was valid. Scoring Engine **4.0.1** saved **eligible 50/100**, with **C=.75, R=.25, G=.75**, in the eligible group. C comes from one specific named Qloo bridge; R is conservative because only one sampled video substantively addresses the bridged culture; G reflects the source-backed content format. No score or eligibility rule was changed.
+
+The earlier **direct** Hipcamp × Through My Lens comparison also scored eligible **50/100** with the same C/R/G ratings. This discovery added search-hit provenance and attempted an optional caption; the search-hit video was already in the representative sample, so it did not alter the R count. The caption error did not remove valid metadata evidence. There is **no assessment difference** to explain between these two runs.
+
+## What the earlier five R=null results meant
+
+Creator R in v4 §6.1 asks whether the **bridged cultural territory** appears in the creator's representative work. The research worker freezes `partnerActivity` only when an observed sampled cultural phrase maps to an independently admitted Qloo bridge; the scorer also ignores activity without an admissible bridge and without a sampled source. Thus R has an **intentional evidentiary dependency on C's admitted bridge**, while G can independently record content-production capability.
+
+The earlier five candidates had no admitted Hipcamp/Qloo pair bridge, so their frozen packets contained no bridge-linked sample activity and the scorer returned R=null. Joe Houston, Jacey Out West and The Human Craft did have observed cultural material, but it was ambiguous or lacked a supported Hipcamp pair projection. AeroMint Drama and Azure MacCannell had no retained cultural signal. These outcomes mean the **pair-specific relevance requirement was unmet**; they do not establish that the creators have no independently documented content or business capability. No extraction, freeze or scorer-input loss was demonstrated for those five. Their exact earlier G source IDs were omitted from that historical report and deleted with the test user, as previously disclosed.
+
+Focused trace assertions confirmed the live search hit, fifth selection position, US creator screening, 20/20 extraction, frozen Half Dome source, bridge, valid v4.0.1 snapshot and 50/100 eligible outcome. This is the first verified source-supported eligible **primary discovery** recommendation for this pairing. The test fixture was cleaned up after reading the saved result; hosted persistence and broader recommendation-quality evaluation are separate checks.

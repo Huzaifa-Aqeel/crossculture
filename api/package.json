@@ -1,0 +1,19 @@
+{
+  "name": "crossculture-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=../.env.local --watch src/server.mjs",
+    "start": "node --env-file-if-exists=../.env.local src/server.mjs",
+    "inspect-qloo": "node scripts/inspect-qloo.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1152.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@supabase/supabase-js": "^2.117.3",
+    "pg": "^8.23.1",
+    "youtube-transcript": "^1.3.1",
+    "zod": "^4.6.5"
+  }
+}
