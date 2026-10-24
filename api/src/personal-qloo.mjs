@@ -130,30 +130,6 @@ export async function personalQlooRecommendBrands(ownerUserId, seedQlooId,
     cacheStatus: "new", sampleData: provider !== qlooCall };
 }
 
-// Only named non-person cultural entities may seed creator video searches.
-// This is a brand-to-entity affinity, never a YouTube creator recommendation.
-export async function personalQlooRecommendCulturalEntities(ownerUserId, seedQlooId, targetType,
-  { provider = qlooCall, now = new Date() } = {}) {
-  if (!QLOO_UUID.test(seedQlooId ?? "") || !["artist", "place", "movie"].includes(targetType))
-    throw new Error("A confirmed brand and supported cultural entity type are required.");
-  const context = { target_type: targetType, signals: [seedQlooId], limit: 6, explain: true };
-  const identity = qlooCacheIdentity({ operation: "qloo_recommend", context, ownerUserId });
-  const cached = await readQlooCache(identity, { now });
-  if (cached.status === "fresh" && !(cached.sampleData && provider === qlooCall)) return {
-    envelope: cached.result, responseId: cached.responseId, sampleData: cached.sampleData,
-    cacheStatus: cached.status };
-  const envelope = await provider("qloo_recommend", context);
-  if (!["ok", "partial"].includes(envelope?.status) || !Array.isArray(envelope.results)) return {
-    envelope, responseId: null, sampleData: provider !== qlooCall, cacheStatus: "uncached" };
-  const ids = [...new Set(envelope.results.filter((item) => item?.subtype === `urn:entity:${targetType}`)
-    .map((item) => item.entity_id).filter((id) => QLOO_UUID.test(id ?? "")))];
-  const saved = await storeQlooResponse(identity, { result: envelope, providerStatus: envelope.status,
-    resolvedEntityIds: ids, rights: { storage: "permitted", scope: "private" },
-    collectedAt: now, respondedAt: now, freshUntil: new Date(now.getTime() + DAY),
-    retainUntil: new Date(now.getTime() + 7 * DAY), sampleData: provider !== qlooCall });
-  return { envelope, responseId: saved.id, sampleData: provider !== qlooCall, cacheStatus: "new" };
-}
-
 // Product-context discovery has a different input and provenance from a
 // native brand recommendation. Keep its private cache key and returned query
 // lineage separate so it can never be mistaken for Brand A affinity.
@@ -198,8 +174,12 @@ function normalizeTags(results) {
     const name = typeof item?.name === "string" ? item.name.trim() : "";
     if (!id || !name || seen.has(id)) continue;
     seen.add(id);
+    const sourceDescription = item?.description ?? item?.properties?.description;
+    const description = typeof sourceDescription === "string"
+      ? sourceDescription.replace(/\s+/g, " ").trim().slice(0, 500) : "";
     tags.push({ id, name, type: typeof item?.type === "string" ? item.type : null,
-      affinity: Number.isFinite(item?.affinity) ? item.affinity : null });
+      affinity: Number.isFinite(item?.affinity) ? item.affinity : null,
+      ...(description ? { description } : {}) });
   }
   return tags;
 }

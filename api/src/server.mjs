@@ -4,8 +4,6 @@ import { verifiedUser } from "./auth.mjs";
 import { normalizeQlooBrands } from "./brand-resolution.mjs";
 import { persistSelectedBrand, persistVerifiedCommerceSite } from "./catalog.mjs";
 import { personalQlooDescribe } from "./personal-qloo.mjs";
-import { startYoutubeRun, getYoutubeRun, listYoutubeRuns, workOneYoutubeRun,
-  purgeYoutubeResearch } from "./youtube-research.mjs";
 import { verifySelectedCommerceBrand, verifyCommerceBusinessSite } from "./commerce-native.mjs";
 import { previewCommerceSeedProducts } from "./commerce-preview.mjs";
 import { purgeDueQlooResponses } from "./qloo-cache.mjs";
@@ -54,10 +52,8 @@ createServer(async (request, response) => {
   const personalProposalRoute = pathname.match(/^\/personal\/matches\/([a-f0-9-]{36})\/proposal$/);
   const personalOfferRoute = pathname.match(/^\/personal\/matches\/([a-f0-9-]{36})\/current-offers$/);
   const personalAudienceRoute = pathname.match(/^\/personal\/matches\/([a-f0-9-]{36})\/audience-fit$/);
-  const youtubeRunRoute = pathname.match(/^\/youtube\/runs\/([a-f0-9-]{36})$/);
   if (!(pathname === "/me" || pathname.startsWith("/entities/") || pathname === "/projects" ||
-      projectRoute || projectProductsRoute || pathname.startsWith("/personal/") ||
-      pathname === "/youtube/runs" || youtubeRunRoute)) {
+      projectRoute || projectProductsRoute || pathname.startsWith("/personal/"))) {
     return send(response, 404, { message: "Not found." });
   }
   try {
@@ -65,26 +61,6 @@ createServer(async (request, response) => {
     if (!user) return send(response, 401, { message: "Sign in to access personal research." });
     if (request.method === "GET" && pathname === "/me") return send(response, 200, { id: user.id,
       email: user.email, contextDiscoveryAvailable: process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED === "1" });
-    if (pathname === "/youtube/runs") {
-      if (request.method === "GET") return send(response, 200, { runs: await listYoutubeRuns(user.id) });
-      if (request.method === "POST") {
-        const input = await readJson(request);
-        const record = brandResolutions.get(input.resolutionId);
-        if (!record || record.userId !== user.id || record.purpose !== "youtube_seed" ||
-            Date.now() - record.createdAt > 15 * 60_000) return send(response, 400,
-          { message: "This brand search has expired. Search again." });
-        const candidate = record.result.qloo.candidates.find((item) => item.id === input.qlooId);
-        if (!candidate) return send(response, 400, { message: "Choose a brand from these results." });
-        const result = await startYoutubeRun(user.id, { brandName: candidate.name,
-          brandQlooId: candidate.id, campaignMode: input.campaignMode ?? "ongoing" });
-        brandResolutions.delete(input.resolutionId);
-        return send(response, 202, result);
-      }
-    }
-    if (youtubeRunRoute && request.method === "GET") {
-      const run = await getYoutubeRun(user.id, youtubeRunRoute[1]);
-      return send(response, run ? 200 : 404, run ? { run } : { message: "Research run not found." });
-    }
     if (pathname === "/personal/runs") {
       if (request.method === "POST") {
         const created = await startPersonalRun(user.id, await readJson(request));
@@ -148,7 +124,7 @@ createServer(async (request, response) => {
     }
     if (request.method === "POST" && pathname === "/entities/resolve") {
       const { name, purpose } = await readJson(request);
-      if (!["commerce_seed", "commerce_partner", "youtube_seed"].includes(purpose)) return send(response, 400,
+      if (!["commerce_seed", "commerce_partner"].includes(purpose)) return send(response, 400,
         { message: "Choose a brand partnership lookup." });
       const query = String(name ?? "").trim();
       if (query.length < 2 || query.length > 90) return send(response, 400,
@@ -224,7 +200,6 @@ setInterval(() => {
 
 if (process.env.DATABASE_URL) {
   let working = false;
-  let youtubeWorking = false;
   const processPersonalQueue = async () => {
     if (working) return;
     working = true;
@@ -235,18 +210,6 @@ if (process.env.DATABASE_URL) {
   };
   void processPersonalQueue();
   setInterval(processPersonalQueue, 3000).unref();
-  const processYoutubeQueue = async () => {
-    if (youtubeWorking) return;
-    youtubeWorking = true;
-    try { await workOneYoutubeRun(); }
-    catch (error) { if (process.env.DEBUG_PERSONAL_RUNS === "1")
-      process.stderr.write(`Video research worker unavailable: ${error instanceof Error ? error.message : String(error)}\n`); }
-    finally { youtubeWorking = false; }
-  };
-  void processYoutubeQueue();
-  setInterval(processYoutubeQueue, 5000).unref();
-  void purgeYoutubeResearch().catch(() => {});
-  setInterval(() => void purgeYoutubeResearch().catch(() => {}), 60 * 60 * 1000).unref();
   void purgeDueQlooResponses(100).catch((error) =>
     process.stderr.write(`Qloo retention purge failed: ${error instanceof Error ? error.message : "unknown error"}\n`));
   setInterval(() => void purgeDueQlooResponses(100).catch(() => {}), 15 * 60 * 1000).unref();

@@ -33,7 +33,7 @@ try {
   assert.ok(ready, "API did not start");
   const anonymous = await fetch(`${base}/me`);
   assert.equal(anonymous.status, 401);
-  assert.equal((await fetch(`${base}/youtube/runs`)).status, 401);
+  assert.equal((await fetch(`${base}/youtube/runs`)).status, 404);
   const spoofed = await fetch(`${base}/me`, { headers: { authorization: "Bearer invalid", "x-user-id": created.user.id } });
   assert.equal(spoofed.status, 401);
   const { data: signedIn, error: signInError } = await publicClient.auth.signInWithPassword({ email, password });
@@ -42,14 +42,13 @@ try {
   const verified = await fetch(`${base}/me`, { headers });
   assert.equal(verified.status, 200);
   assert.equal((await verified.json()).id, created.user.id);
-  const creatorRuns = await fetch(`${base}/youtube/runs`, { headers });
-  assert.equal(creatorRuns.status, 200);
-  assert.deepEqual((await creatorRuns.json()).runs, []);
-  const invalidCreatorStart = await fetch(`${base}/youtube/runs`, { method: "POST",
+  const retiredCreatorRuns = await fetch(`${base}/youtube/runs`, { headers });
+  assert.equal(retiredCreatorRuns.status, 404);
+  const retiredCreatorStart = await fetch(`${base}/youtube/runs`, { method: "POST",
     headers: { ...headers, "content-type": "application/json" },
     body: JSON.stringify({ resolutionId: randomUUID(), qlooId: randomUUID(),
       campaignMode: "ongoing" }) });
-  assert.equal(invalidCreatorStart.status, 400);
+  assert.equal(retiredCreatorStart.status, 404);
   for (const route of ["/demo/entities/resolve", "/runs", "/pairs", "/concepts/test"]) {
     const retired = await fetch(`${base}${route}`, { method: "POST", headers });
     assert.equal(retired.status, 404, `${route} must be retired`);
@@ -59,6 +58,11 @@ try {
     body: JSON.stringify({ name: "Any brand", purpose: "creator" }),
   });
   assert.equal(retiredCreatorLookup.status, 400);
+  const retiredYoutubeLookup = await fetch(`${base}/entities/resolve`, {
+    method: "POST", headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Any brand", purpose: "youtube_seed" }),
+  });
+  assert.equal(retiredYoutubeLookup.status, 400);
   const staleConfirmation = await fetch(`${base}/entities/confirm`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ resolutionId: randomUUID(), qlooId: "fake" }) });
   assert.equal(staleConfirmation.status, 404);
   console.log("Local API rejects anonymous/spoofed identity and accepts a verified Supabase user.");
