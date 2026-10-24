@@ -17,9 +17,6 @@ const collaboration = z.object({ videoId,
 const extractSchema = z.object({ culturalSignals: z.array(observation).max(30),
   demonstratedFormats: z.array(format).max(15),
   collaborationObservations: z.array(collaboration).max(15) }).strict();
-const planSchema = z.object({ queries: z.array(z.object({ q: z.string().min(4).max(100),
-  signalIds: z.array(z.string().min(2)).min(1).max(4),
-  rationale: z.string().min(10).max(180) }).strict()).min(1).max(5) }).strict();
 const channelSchema = z.object({ kind: z.enum(["creator", "organization", "unknown"]),
   basisField: z.enum(["name", "summary"]).nullable(), basisText: z.string().max(180).nullable(),
   reason: z.string().min(8).max(180) }).strict();
@@ -134,147 +131,6 @@ export function llmJson(system, data, schema, options = {}) {
   return request;
 }
 
-function focusedNamedQuery(item, entity) {
-  const words = item.q.slice(entity.name.length).trim().split(/\s+/);
-  if (words.length <= 3) return item;
-  // Keep the named subject and a searchable video format. Extra adjectives and
-  // inferred brand traits narrow retrieval without adding Qloo provenance.
-  const formatWord = {
-    movie: /^(?:review|analysis|essay|scene|ending|reaction|breakdown|film|movie|discussion)$/i,
-    person: /^(?:career|analysis|interview|profile|story|training|highlights|documentary|performance|match|game)$/i,
-    artist: /^(?:performance|cover|interview|analysis|music|song|album|concert|lesson)$/i,
-    place: /^(?:visit|visiting|guide|travel|hiking|climbing|camping|trip|vlog|documentary)$/i,
-  }[entity.type];
-  const fallback = { movie: "film analysis", person: "career analysis",
-    artist: "music performance", place: "visit guide" }[entity.type];
-  const suffix = words.slice(0, 2).every((word) => formatWord.test(word))
-    ? words.slice(0, 2).join(" ") : fallback;
-  return { ...item, q: `${entity.name} ${suffix}` };
-}
-
-function usableAutomaticPlace(entity) {
-  // Qloo can return commercial lodging as "places". It is a legitimate entity,
-  // but an automatic creator subject needs an independently recognizable
-  // cultural destination; an LLM-selected place still goes through validation.
-  return !/\b(?:hotel|apartments?|resort|inn|motel|hostel)\b/i.test(entity.name) &&
-    /\b(?:museum|park|trail|mount|mountain|lake|river|beach|gallery|theat(?:er|re)|monument|canyon|dome|aquarium|library|garden)\b/i.test(entity.name);
-}
-
-export async function planCreatorQueries({ brandName, objective, tags, namedPlaces = [],
-  namedResponseId = null, namedEntities = [] }, options = {}) {
-  const valid = (tags ?? []).filter((tag) => typeof tag?.id === "string" &&
-    typeof tag?.name === "string" && tag.name.trim().length >= 3);
-  // Entity tags can include unrelated place/music/media taxonomies. For brand-led
-  // search directions use Qloo's cultural namespace when it is present.
-  const cultural = valid.filter((tag) => String(tag.type ?? "").endsWith(":qloo"));
-  const usable = (cultural.length ? cultural : valid).slice(0, 12);
-  const names = new Set();
-  const entities = [];
-  for (const item of [...namedEntities, ...namedPlaces.map((place) => ({ ...place,
-    type: "place", responseId: namedResponseId }))]) {
-    if (entities.length >= 30) break;
-    if (typeof item?.id !== "string" || typeof item?.name !== "string" ||
-        item.name.trim().length < 3 || item.name.trim().length > 70 ||
-        !["place", "movie", "person", "artist"].includes(item.type) || names.has(item.id)) continue;
-    names.add(item.id);
-    entities.push(item);
-  }
-  if (!usable.length && !entities.length) return [];
-  const response = await llmJson(`Plan 3 to 5 diverse US YouTube VIDEO search directions for a brand partnership.
-Use only supplied Qloo cultural tags and named entities. Include direct and credible adjacent or cross-category directions.
-If named entities are supplied, include one or two short video-subject searches anchored to exact named entities. Prefer a named movie, person or artist when supplied; retain variety with other cultural tags. Start each named query with the exact entity name and use only its ID. For a place, add a visit/activity subject; for a movie, a review/analysis/scene subject; for a person, an interview/profile/performance subject; for an artist, a performance/music/cover subject. Do not add unrelated brand attributes, demographics, price, ownership or food to a named query.
-Do not combine unrelated tags merely because they were returned for the same brand.
-Do not include the initiating brand name in the search query; search for creator subjects and formats.
-Return {"queries":[{"q":"...","signalIds":["exact supplied ID"],"rationale":"..."}]}.
-Do not claim a creator affinity, audience demographic, sponsorship or proven bridge.`,
-  { brandName, objective, market: "US", language: "en", tags: usable,
-    namedPlaces: entities.filter((item) => item.type === "place").map(({ id, name }) => ({ id, name })),
-    namedEntities: entities }, planSchema,
-  { maxTokens: 850, ...options });
-  const allowed = new Set([...usable.map((tag) => tag.id), ...entities.map((item) => item.id)]);
-  const entityById = new Map(entities.map((item) => [item.id, item]));
-  const seen = new Set();
-  let namedCount = 0;
-  const accepted = response.queries.filter((item) => item.signalIds.every((id) => allowed.has(id)) &&
-    !/\b(?:best|top)\s+.*\b(?:influencer|creator)s?\b/i.test(item.q)).filter((item) => {
-    const namedIds = item.signalIds.filter((id) => entityById.has(id));
-    if (!namedIds.length && [...item.q.matchAll(/(?<![\p{L}\p{N}])\p{Lu}\p{Ll}+(?:\s+\p{Lu}\p{Ll}+)+(?![\p{L}\p{N}])/gu)].some(([phrase]) =>
-      !usable.some((tag) => tag.name.trim().toLowerCase() === phrase.toLowerCase()))) return false;
-    if (namedIds.length) {
-      if (namedCount >= 3 || item.signalIds.length !== 1 || namedIds.length !== 1) return false;
-      const { name, type } = entityById.get(namedIds[0]);
-      const suffix = item.q.slice(name.length).trim();
-      const activity = type === "movie"
-        ? /\b(?:review|analysis|essay|explain(?:ed|ing)?|discussion|film|movie|scene|ending|reaction|breakdown)\b/i
-        : type === "person"
-          ? /\b(?:interview|profile|story|career|training|highlights|analysis|documentary|performance|match|game)\b/i
-          : type === "artist"
-            ? /\b(?:performance|cover|interview|analysis|music|song|album|concert|lesson)\b/i
-            : /\b(?:hik(?:e|ing)|climb(?:ing)?|backpack(?:ing)?|camp(?:ing)?|trail|trek(?:king)?|travel|visit(?:ing)?|explor(?:e|ing)|documentary|vlog|guide|trip|adventure)\b/i;
-      if (!item.q.toLocaleLowerCase().startsWith(name.toLocaleLowerCase()) ||
-          item.q[name.length] !== " " ||
-          !activity.test(suffix) ||
-          suffix.split(/\s+/).length > 4 || /\b(?:cheap|inexpensive|women-owned|luxury|salad|sponsor)\b/i.test(suffix)) return false;
-    }
-    if (namedIds.length) item = focusedNamedQuery(item, entityById.get(namedIds[0]));
-    const key = item.q.toLowerCase().replace(/\s+/g, " ");
-    if (seen.has(key)) return false;
-    seen.add(key);
-    if (namedIds.length) namedCount += 1;
-    return true;
-  }).map((item) => {
-    const entity = entityById.get(item.signalIds[0]);
-    return entity ? focusedNamedQuery(item, entity) : item;
-  });
-  // A model may spend the whole plan on broad tags or one named territory.
-  // Fill missing *types* from Qloo's supplied order, without choosing a known
-  // creator, a historical successful anchor, or an unsupported proper name.
-  const presentTypes = new Set(accepted.map((item) =>
-    entityById.get(item.signalIds[0])?.type).filter(Boolean));
-  for (const entity of entities.filter((item) => item.responseId)) {
-    if (presentTypes.size >= 2 || presentTypes.has(entity.type)) continue;
-    if (entity.type === "place" && !usableAutomaticPlace(entity)) continue;
-    if (namedCount >= 3) {
-      const duplicateType = accepted.findLastIndex((item) =>
-        entityById.get(item.signalIds[0])?.type &&
-        accepted.filter((other) => entityById.get(other.signalIds[0])?.type ===
-          entityById.get(item.signalIds[0])?.type).length > 1);
-      if (duplicateType < 0) break;
-      accepted.splice(duplicateType, 1);
-      namedCount -= 1;
-    }
-    const suffix = { movie: "film analysis", person: "career analysis",
-      artist: "music performance", place: "visit guide" }[entity.type];
-    const q = `${entity.name} ${suffix}`;
-    if (seen.has(q.toLowerCase())) continue;
-    accepted.unshift({ q, signalIds: [entity.id],
-      rationale: `This exact Qloo named ${entity.type} is a source-grounded video search subject.` });
-    seen.add(q.toLowerCase());
-    presentTypes.add(entity.type);
-    namedCount += 1;
-  }
-  if (presentTypes.size === 1 && namedCount < 2) {
-    const second = entities.find((entity) => entity.responseId &&
-      presentTypes.has(entity.type) &&
-      !accepted.some((item) => item.signalIds.includes(entity.id)));
-    if (second) {
-      const suffix = { movie: "film analysis", person: "career analysis",
-        artist: "music performance", place: "visit guide" }[second.type];
-      accepted.splice(accepted.findIndex((item) => entityById.get(item.signalIds[0])?.type) + 1,
-        0, { q: `${second.name} ${suffix}`, signalIds: [second.id],
-          rationale: `A second exact Qloo named ${second.type} preserves subject coverage.` });
-    }
-  }
-  if (accepted.length > 5) accepted.splice(5);
-  return accepted.slice(0, 5).map((item) => ({ ...item, regionCode: "US", relevanceLanguage: "en",
-    namedEntityId: item.signalIds.find((id) => entityById.has(id)) ?? null,
-    namedEntityName: entityById.get(item.signalIds.find((id) => entityById.has(id)))?.name ?? null,
-    namedEntityType: entityById.get(item.signalIds.find((id) => entityById.has(id)))?.type ?? null,
-    qlooResponseIds: entityById.get(item.signalIds.find((id) => entityById.has(id)))?.responseId
-      ? [entityById.get(item.signalIds.find((id) => entityById.has(id))).responseId] : [],
-    plannerVersion: "creator-search-v4", objective }));
-}
-
 export async function classifyCreatorChannel(channel, seedName, { fetchFn = fetch } = {}) {
   const name = String(channel?.name ?? "").trim();
   const summary = String(channel?.summary ?? "").trim();
@@ -299,6 +155,28 @@ If ambiguous, choose unknown. Do not infer nationality, audience demographics or
       reason: "Channel ownership could not be corroborated from its public description." };
   }
   return response;
+}
+
+const inventoryIdentitySchema = z.object({ kind: z.enum(["creator", "organization", "unknown"]),
+  videoId: videoId.nullable(), basisField: z.enum(["title", "description"]).nullable(),
+  basisText: z.string().min(3).max(140).nullable(),
+  reason: z.string().min(8).max(180) }).strict();
+
+export async function classifyCreatorChannelFromInventory(channel, videos,
+  { classify = llmJson } = {}) {
+  const sample = videos.slice(0, 12);
+  if (!sample.length) return { kind: "unknown", reason: "No public uploads were available." };
+  const output = await classify(`The channel description did not resolve whether its owner is an independent creator. Check upload metadata for an explicit self-identification of the channel owner. A personal topic, first-person sentence, guest name, or video byline alone is not proof. Return unknown if ownership is unclear. Cite one exact title or description substring and its exact video ID for any creator/organization judgment.`,
+  { channel: { id: channel.id, name: channel.name, description: channel.description },
+    videos: sample.map((item) => ({ id: item.id, title: item.title,
+      description: item.description.slice(0, 450) })) }, inventoryIdentitySchema,
+  { maxTokens: 350 });
+  if (output.kind === "unknown") return output;
+  const video = sample.find((item) => item.id === output.videoId);
+  const source = output.basisField === "title" ? video?.title : video?.description;
+  if (!source || !output.basisText || !source.toLowerCase().includes(output.basisText.toLowerCase()))
+    return { kind: "unknown", reason: "Channel owner evidence did not match a public upload." };
+  return output;
 }
 
 function basisInVideo(item, video) {
@@ -392,7 +270,7 @@ function verifiedCollaboration(item, video) {
 
 export async function extractCreatorMetadata(profile, { tags = [], fetchFn = fetch, onError = null,
   reusable = null, bedrockSendFn, recoveryMaxCalls = 5 } = {}) {
-  const videos = profile.videos.slice(0, 20);
+  const videos = profile.videos;
   const byId = new Map(videos.map((video) => [video.sourceId, video]));
   const reusedIds = new Set(reusable?.sourceCoverage?.extractedVideoIds ?? []);
   const output = { culturalSignals: [...(reusable?.culturalSignals ?? [])],
@@ -481,35 +359,103 @@ const transcriptPlanSchema = z.object({ choice: z.object({ videoId,
   predictedDecisionImpact: z.string().min(12).max(180) }).strict().nullable() }).strict();
 const transcriptFindingSchema = z.object({ findings: z.array(z.object({
   offsetMs: z.number().int().nonnegative(), phrase: z.string().min(3).max(100),
+  subject: z.string().min(3).max(80), subjectOffsetMs: z.number().int().nonnegative(),
+  observation: z.string().min(8).max(180),
   centrality, kind: z.enum(["cultural_reference", "expertise", "explicit_sponsorship_disclosure",
-    "affiliate_reference", "product_mention", "contradiction"])
+    "affiliate_reference", "product_mention", "contradiction"]),
+  speaker: z.enum(["creator", "guest", "interviewer", "advertiser", "unknown"]),
+  speakerBasis: z.string().min(2).max(100).nullable(),
+  stance: z.enum(["supportive", "critical", "neutral", "unclear"]),
+  stanceBasis: z.string().min(3).max(100).nullable(),
 }).strict()).max(12) }).strict();
 
 export async function chooseCreatorTranscript(profile, metadata, seedTags, attemptedVideoIds,
-  researchQuestion, { fetchFn = fetch, targetedVideos = [] } = {}) {
+  researchQuestion, { fetchFn = fetch, targetedVideos = [], classify = llmJson,
+    challenge = false, evidenceState = [] } = {}) {
   const attempted = new Set(attemptedVideoIds);
-  const sample = profile.videos.slice(0, 20).map((video) => ({ ...video,
-    sourceRole: "representative_sample" }));
-  const sampleIds = new Set(sample.map((video) => video.sourceId));
-  const targeted = targetedVideos.filter((video) => video?.sourceRole === "discovery_hit" &&
-    videoId.safeParse(video.sourceId).success && !sampleIds.has(video.sourceId)).slice(0, 3);
-  const options = [...sample, ...targeted].filter((video) => !attempted.has(video.sourceId))
-    .map((video) => ({ videoId: video.sourceId, title: video.title,
+  const discoveryIds = new Set(targetedVideos.filter((video) => video?.sourceRole === "discovery_hit")
+    .map((video) => video.sourceId));
+  const all = profile.videos.filter((video) => videoId.safeParse(video?.sourceId).success);
+  const attemptedVideos = all.filter((video) => attempted.has(video.sourceId));
+  const attempts = attemptedVideos.map((video) => Date.parse(video.publishedAt ?? ""))
+    .filter(Number.isFinite);
+  const attemptedVocabulary = attemptedVideos.map((video) =>
+    new Set(`${video.title} ${video.description ?? ""}`.toLowerCase().match(/[a-z]{4,}/g) ?? []));
+  const questionTerms = new Set(String(researchQuestion ?? "").toLowerCase().match(/[a-z]{4,}/g) ?? []);
+  const signalTerms = new Set(seedTags.flatMap((tag) =>
+    String(tag.name ?? "").toLowerCase().match(/[a-z]{4,}/g) ?? []));
+  const observedIds = new Set((metadata.culturalSignals ?? []).filter((signal) =>
+    ["central", "substantive", "contradictory"].includes(signal.centrality))
+    .map((signal) => signal.videoId));
+  const options = all.filter((video) => !attempted.has(video.sourceId)).map((video) => {
+    const text = `${video.title} ${video.description ?? ""} ${(video.tags ?? []).join(" ")}`.toLowerCase();
+    const words = new Set(text.match(/[a-z]{4,}/g) ?? []);
+    const overlap = [...signalTerms].filter((word) => words.has(word)).length;
+    const questionOverlap = [...questionTerms].filter((word) => words.has(word)).length;
+    const published = Date.parse(video.publishedAt ?? "");
+    const periodDistance = Number.isFinite(published) && attempts.length
+      ? Math.min(...attempts.map((date) => Math.abs(date - published))) : 0;
+    const titleWords = new Set(String(video.title ?? "").toLowerCase().match(/[a-z]{4,}/g) ?? []);
+    const topicNovelty = attemptedVocabulary.length ? Math.min(...attemptedVocabulary.map((words) => {
+      const shared = [...titleWords].filter((word) => words.has(word)).length;
+      return 1 - shared / Math.max(1, titleWords.size + words.size - shared);
+    })) : 0;
+    return { videoId: video.sourceId, title: video.title,
       description: video.description?.slice(0, 350) ?? "", publishedAt: video.publishedAt,
-      captionIndicator: video.captionIndicator, sourceRole: video.sourceRole }));
+      captionIndicator: video.captionIndicator,
+      sourceRole: video.sourceRole ?? (discoveryIds.has(video.sourceId) ? "discovery_hit" : "inventory"),
+      observed: Number(observedIds.has(video.sourceId)), overlap, questionOverlap,
+      discovery: Number(discoveryIds.has(video.sourceId)), periodDistance, topicNovelty };
+  }).sort((a, b) => challenge
+    ? b.periodDistance - a.periodDistance || b.topicNovelty - a.topicNovelty ||
+      b.observed - a.observed || b.overlap - a.overlap ||
+      String(b.publishedAt ?? "").localeCompare(String(a.publishedAt ?? ""))
+    : b.observed - a.observed || b.overlap - a.overlap ||
+      b.questionOverlap - a.questionOverlap || b.discovery - a.discovery ||
+      String(b.publishedAt ?? "").localeCompare(String(a.publishedAt ?? "")));
   if (!options.length || !researchQuestion) return null;
-  const result = await llmJson(`Choose one as-yet-unprocessed video only if its spoken content could materially resolve the stated research question.
-Do not claim to know the speech. Return {"choice":null} when no option has a reasoned prospect.
+  // Review the entire verified inventory progressively. A weak first batch
+  // cannot make later uploads unreachable, and no transcript-count rule stops
+  // research while a decision-changing video remains available.
+  for (let start = 0; start < options.length; start += 20) {
+    const prospects = options.slice(start, start + 20);
+    const batch = prospects.map(({
+      observed, overlap, questionOverlap, discovery, periodDistance, topicNovelty, ...video }) => video);
+    const result = await classify(`Choose one as-yet-unprocessed video only if its spoken content could materially resolve the stated research question.
+Use the current evidence state to avoid repeating a conclusion already established by checked videos. Do not claim to know the unprocessed video's speech. Return {"choice":null} when no option has a reasoned prospect of changing the decision.
 Otherwise return {"choice":{"videoId":"...","researchQuestion":"...","whyThisVideo":"...","predictedDecisionImpact":"..."}}.
 Do not choose by popularity or engagement.`,
-  { channel: profile.name, researchQuestion, tags: seedTags.slice(0, 8).map(({ name }) => name),
-    metadataSignals: metadata.culturalSignals.slice(0, 20), options }, transcriptPlanSchema,
-  { fetchFn, maxTokens: 360 });
-  return options.some((video) => video.videoId === result.choice?.videoId) ? result.choice : null;
+    { channel: profile.name, researchQuestion, tags: seedTags.map(({ name }) => name),
+      currentEvidence: evidenceState,
+      metadataSignals: (metadata.culturalSignals ?? []).filter((signal) =>
+        batch.some((video) => video.videoId === signal.videoId)).slice(0, 20), options: batch },
+    transcriptPlanSchema, { fetchFn, maxTokens: 360 });
+    if (batch.some((video) => video.videoId === result.choice?.videoId)) return result.choice;
+    // A signal-free batch gives the verifier an independent chance to inspect
+    // channel content. If the rest has no metadata or discovery prospect either,
+    // more generic batches add volume without a reasoned path to new evidence.
+    const hasProspect = (video) => video.observed || video.overlap ||
+      video.questionOverlap || video.discovery;
+    if (!prospects.some(hasProspect) && !options.slice(start + 20).some(hasProspect)) break;
+  }
+  return null;
 }
 
 // Raw segments exist only in this call frame and in the transient LLM request.
 // The return value contains structured, timestamped observations only.
+function groundedObservation(observation, subject, context) {
+  const tokens = (value) => String(value ?? "").toLowerCase().match(/[a-z]{4,}/g) ?? [];
+  const subjectWords = new Set(tokens(subject).map((word) => word.slice(0, 5)));
+  const generic = new Set(["speaker", "creator", "video", "passage", "content",
+    "about", "their", "there", "which", "shows", "talks", "discusses", "mentions"]
+    .map((word) => word.slice(0, 5)));
+  const claims = tokens(observation).map((word) => word.slice(0, 5))
+    .filter((word) => !subjectWords.has(word) && !generic.has(word));
+  const source = new Set(tokens(context).map((word) => word.slice(0, 5)));
+  return claims.some((word) => source.has(word))
+    ? observation.trim() : `Discusses ${subject.trim()}`;
+}
+
 export async function extractCreatorTranscript(videoIdValue, segments,
   { fetchFn = fetch, focusEntityName = null } = {}) {
   if (!videoId.safeParse(videoIdValue).success || !Array.isArray(segments) || !segments.length) return [];
@@ -519,24 +465,42 @@ export async function extractCreatorTranscript(videoIdValue, segments,
   for (let start = 0; start < bounded.length; start += 100) {
     const chunk = bounded.slice(start, start + 100);
     const result = await llmJson(`Extract only material, source-grounded observations from spoken captions.
-Return {"findings":[{"offsetMs":0,"phrase":"normalized named cultural entity or capability",
+Return {"findings":[{"offsetMs":0,"phrase":"exact short spoken phrase",
+"subject":"exact named subject in this or nearby caption segment","subjectOffsetMs":0,
+"observation":"Short paraphrase of what the spoken passage actually does or says",
 "centrality":"central|substantive|incidental|contradictory|unknown",
-"kind":"cultural_reference|expertise|explicit_sponsorship_disclosure|affiliate_reference|product_mention|contradiction"}]}.
-Use the exact supplied segment offset and a phrase actually spoken there. Keep distinct sponsorship, affiliate and ordinary mention types.
-Do not quote, paraphrase full speech, invent a partnership, or return transcript text.`,
+"kind":"cultural_reference|expertise|explicit_sponsorship_disclosure|affiliate_reference|product_mention|contradiction",
+"speaker":"creator|guest|interviewer|advertiser|unknown","speakerBasis":null,
+"stance":"supportive|critical|neutral|unclear","stanceBasis":null}]}.
+Use the exact supplied segment offset and a phrase actually spoken there. Identify the concrete cultural subject with an exact short substring in that segment or within two adjacent segments, and return its own segment offset. Omit fragments whose subject is unclear, such as 'this stuff' or 'it'. Keep distinct sponsorship, affiliate and ordinary mention types.
+Creator speaker requires an explicit spoken self-identification or speaker cue tied to the channel owner; otherwise choose unknown. Guest, interviewer and advertiser also require explicit cues. Check negation, quotation, hypothetical claims, sarcasm and later disagreement in the supplied context before assigning supportive stance. For supportive or critical stance, cite an exact spoken substring as stanceBasis; otherwise use neutral or unclear. A topic mention alone is neutral.
+The observation must describe only the checked passage, without adding a motive, endorsement, or visual action not established by speech. Do not quote or paraphrase full speech, invent a partnership, or return transcript text.`,
     { videoId: videoIdValue, segments: chunk }, transcriptFindingSchema,
     { fetchFn, maxTokens: 1200 });
     for (const item of result.findings) {
-      const segment = chunk.find((part) => part.offsetMs === item.offsetMs &&
+      const segmentIndex = chunk.findIndex((part) => part.offsetMs === item.offsetMs &&
         part.text.toLowerCase().includes(item.phrase.toLowerCase()));
-      if (!segment) continue;
+      if (segmentIndex < 0) continue;
+      const segment = chunk[segmentIndex];
+      const subjectIndex = chunk.findIndex((part) => part.offsetMs === item.subjectOffsetMs &&
+        part.text.toLowerCase().includes(item.subject.toLowerCase()));
+      if (subjectIndex < 0 || Math.abs(subjectIndex - segmentIndex) > 2 ||
+          /^(?:it|this stuff|that stuff|something|anything|this|that|they)$/i.test(item.subject)) continue;
+      if (item.speaker !== "unknown" &&
+          (!item.speakerBasis || !segment.text.toLowerCase().includes(item.speakerBasis.toLowerCase()))) continue;
+      if (["supportive", "critical"].includes(item.stance) &&
+          (!item.stanceBasis || !segment.text.toLowerCase().includes(item.stanceBasis.toLowerCase()))) continue;
       if (item.kind === "explicit_sponsorship_disclosure" &&
           !/\b(?:sponsored by|paid partnership|paid promotion|sponsor(?:ed)? this video)\b/i.test(segment.text)) continue;
       if (item.kind === "affiliate_reference" &&
           !/\b(?:affiliate|commission|referral code)\b/i.test(segment.text)) continue;
       output.push({ videoId: videoIdValue, offsetMs: item.offsetMs,
-        durationMs: segment.durationMs, entity: item.phrase.trim(),
+        durationMs: segment.durationMs, entity: item.subject.trim(),
+        observation: groundedObservation(item.observation, item.subject,
+          chunk.slice(Math.max(0, segmentIndex - 2), segmentIndex + 3)
+            .map((part) => part.text).join(" ")),
         centrality: item.centrality, kind: item.kind,
+        speaker: item.speaker, stance: item.stance,
         sourceUrl: `https://www.youtube.com/watch?v=${videoIdValue}&t=${Math.floor(item.offsetMs / 1000)}s`,
         extractionVersion: "creator-transcript-v1" });
     }
@@ -556,17 +520,27 @@ Do not quote, paraphrase full speech, invent a partnership, or return transcript
         before: bounded[index - 1]?.text ?? "", spoken: segment.text,
         after: bounded[index + 1]?.text ?? "" }));
       const result = await llmJson(`Check whether the exact named subject is discussed in these spoken captions.
-Return at most one source-grounded finding with phrase exactly equal to the supplied name and the exact offset of its spoken mention. Use cultural_reference for a genuine discussion, contradiction for a clearly critical treatment, or [] when the name is incidental, ambiguous, or unrelated. Do not infer from the video title or return transcript text.`,
+Return at most one source-grounded finding with phrase and subject exactly equal to the supplied name and both offsets equal to its spoken mention. Include a short observation of what is said in local context, speaker, speakerBasis, stance and stanceBasis; only assign creator when spoken context explicitly identifies the channel owner, and only assign supportive or critical with an exact stanceBasis substring. Use cultural_reference for genuine discussion, contradiction for clear criticism, or [] when incidental, ambiguous, or unrelated. Do not infer from the video title or return transcript text.`,
       { videoId: videoIdValue, name: focus, contexts }, transcriptFindingSchema,
       { fetchFn, maxTokens: 260 });
       const item = result.findings[0];
       const mention = mentions.find(({ segment }) => segment.offsetMs === item?.offsetMs);
       if (mention && item.phrase.toLowerCase() === focus.toLowerCase() &&
-          ["cultural_reference", "contradiction"].includes(item.kind)) {
+          item.subject.toLowerCase() === focus.toLowerCase() &&
+          item.subjectOffsetMs === item.offsetMs &&
+          ["cultural_reference", "contradiction"].includes(item.kind) &&
+          (item.speaker === "unknown" || item.speakerBasis &&
+            mention.segment.text.toLowerCase().includes(item.speakerBasis.toLowerCase())) &&
+          (!["supportive", "critical"].includes(item.stance) || item.stanceBasis &&
+            mention.segment.text.toLowerCase().includes(item.stanceBasis.toLowerCase()))) {
         const segment = mention.segment;
         const focused = { videoId: videoIdValue, offsetMs: segment.offsetMs,
           durationMs: segment.durationMs, entity: focus,
+          observation: groundedObservation(item.observation, focus,
+            [contexts[mentions.indexOf(mention)]?.before, segment.text,
+              contexts[mentions.indexOf(mention)]?.after].join(" ")),
           centrality: item.centrality, kind: item.kind,
+          speaker: item.speaker, stance: item.stance,
           sourceUrl: `https://www.youtube.com/watch?v=${videoIdValue}&t=${Math.floor(segment.offsetMs / 1000)}s`,
           extractionVersion: "creator-transcript-v1" };
         return [...output.slice(0, 30), focused];

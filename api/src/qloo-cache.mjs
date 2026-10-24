@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import pg from "pg";
 
 const VERSION = "qloo-cache-v1";
-const OPERATIONS = new Set(["qloo_describe", "qloo_find_tags", "qloo_recommend", "qloo_rank", "qloo_entity_tags"]);
+const OPERATIONS = new Set(["qloo_describe", "qloo_find_tags", "qloo_recommend", "qloo_rank",
+  "qloo_entity_tags", "qloo_audience_demographics"]);
 let pool;
 
 function database() {

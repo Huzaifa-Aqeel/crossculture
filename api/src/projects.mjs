@@ -12,11 +12,14 @@ function database() {
 
 const projectId = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const projection = `p.id,p.name,p.objective,p.notes,p.created_at as "createdAt",p.updated_at as "updatedAt",
-  e.id as "seedEntityId",e.canonical_name as "seedName"`;
+  e.id as "seedEntityId",e.canonical_name as "seedName",
+  exists (select 1 from catalog.entity_identifiers i where i.entity_id=e.id
+    and i.provider='qloo' and i.status='confirmed') as "seedNative"`;
 
 export async function listProjects(userId) {
   const result = await database().query(`select ${projection} from public.projects p
     join catalog.entities e on e.id = p.seed_entity_id where p.user_id = $1
+      and p.objective in ('product_bundle','cross_sell')
     order by p.updated_at desc limit 100`, [userId]);
   return result.rows;
 }
@@ -24,7 +27,8 @@ export async function listProjects(userId) {
 export async function getProject(userId, id) {
   if (!projectId(id)) return null;
   const result = await database().query(`select ${projection} from public.projects p
-    join catalog.entities e on e.id = p.seed_entity_id where p.user_id = $1 and p.id = $2`, [userId, id]);
+    join catalog.entities e on e.id = p.seed_entity_id where p.user_id = $1 and p.id = $2
+      and p.objective in ('product_bundle','cross_sell')`, [userId, id]);
   return result.rows[0] ?? null;
 }
 
@@ -34,11 +38,15 @@ export async function createProject(userId, input) {
     throw new Error("Enter a project name, starting brand, and goal.");
   }
   const db = database();
+  const contextEligible = process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED === "1" &&
+    ["product_bundle", "cross_sell"].includes(input.objective);
   const created = await db.query(`insert into public.projects(user_id,seed_entity_id,name,objective)
     select $1,e.id,$2,$3 from catalog.entities e
-    join catalog.entity_identifiers i on i.entity_id=e.id
-    where e.id=$4 and e.kind='brand' and i.provider='qloo' and i.status='confirmed'
-    returning id`, [userId, name, input.objective, input.seedEntityId]);
+    where e.id=$4 and e.kind='brand' and
+      (exists (select 1 from catalog.entity_identifiers i where i.entity_id=e.id
+        and i.provider='qloo' and i.status='confirmed') or
+       ($5::boolean and e.identity_status='verified' and e.official_website like 'https://%'))
+    returning id`, [userId, name, input.objective, input.seedEntityId, contextEligible]);
   if (!created.rows[0]) throw new Error("Confirm a starting brand before creating a project.");
   return getProject(userId, created.rows[0].id);
 }
@@ -52,7 +60,7 @@ export async function updateProject(userId, id, input) {
   }
   const current = await getProject(userId, id);
   if (!current) return null;
-  if (!projectObjectives.has(input.objective) && input.objective !== current.objective) {
+  if (!projectObjectives.has(input.objective)) {
     throw new Error("Choose a goal available for new research.");
   }
   const changed = await database().query(`update public.projects set name=$3,objective=$4,notes=$5,updated_at=now()

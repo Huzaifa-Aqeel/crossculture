@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "task": "Is the cited existing-product mechanism defensible for this objective? This does not judge Qloo discovery, partner willingness, or offer eligibility.",
+  "frozenAt": "2026-10-21",
+  "cases": [
+    {
+      "id": "outdoor_sling_spf",
+      "category": "outdoor_technical",
+      "objective": "product_bundle",
+      "seed": { "brand": "United by Blue", "product": "(Re)volution 1L Go-Anywhere Bag", "url": "https://unitedbyblue.com/products/revolution-1l-go-anywhere-sling" },
+      "partner": { "brand": "AllTrails", "product": "Sunscreen + Carabiner", "url": "https://shop.alltrails.com/products/sunscreen-carabiner" },
+      "reviewerA": { "label": "good", "reason": "The small bag carries trip essentials; clip-on SPF serves a distinct sun-protection function on the same outing." },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": { "kind": "live_app", "verdict": "supported", "mechanismPass": true, "notes": "Signed-in native discovery; exact sling variant was later available on a read-only UCP recheck." }
+    },
+    {
+      "id": "outdoor_two_carry_products",
+      "category": "outdoor_technical",
+      "objective": "product_bundle",
+      "seed": { "brand": "United by Blue", "product": "(R)evolution 9L Sidekick", "url": "https://unitedbyblue.com/products/9l-sidekick" },
+      "partner": { "brand": "Rareform", "product": "Mystery Tote Bundle", "url": "https://www.rareform.com/products/mystery-tote-bundle" },
+      "reviewerA": { "label": "bad", "reason": "Both selected offers primarily provide ordinary carrying capacity; the observed proposal did not establish an incremental bundle function." },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": { "kind": "live_app", "verdict": "needs_verification", "mechanismPass": false, "notes": "Signed-in native discovery; no specific joint benefit was verified." }
+    },
+    {
+      "id": "home_bathmat_towels",
+      "category": "home_kitchen",
+      "objective": "product_bundle",
+      "seed": { "brand": "Cold Picnic", "product": "Embrace Bathmat - Blue", "url": "https://coldpicnic.com/products/embrace-bathmat" },
+      "partner": { "brand": "Brooklinen", "product": "Super-Plush Turkish Cotton Bath Towels", "url": "https://www.brooklinen.com/products/super-plush-mib-bt" },
+      "reviewerA": { "label": "good", "reason": "Towels dry the person and an absorbent bathmat protects the bathroom floor after bathing; the roles form a concrete shared task." },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": { "kind": "focused_pair_replay", "verdict": "needs_verification", "mechanismPass": false, "notes": "Read-only live replay through shared pair research with exact merchant links and focused search phrases. Exact URL paths matched this pair. Product mechanism was unknown; cultural relationship was also unknown because this replay did not supply Qloo evidence. This was not native discovery." }
+    },
+    {
+      "id": "home_pan_frame",
+      "category": "home_kitchen",
+      "objective": "product_bundle",
+      "seed": { "brand": "Great Jones", "product": "Patty Cake pan", "url": "https://greatjonesgoods.com/products/patty-cake" },
+      "partner": { "brand": "Framebridge", "product": "The Perfect Gift: 8x10", "url": "https://www.framebridge.com/products/perfect-gift-8x10" },
+      "reviewerA": { "label": "bad", "reason": "General giftability does not give the baking pan and gift frame complementary roles in one specific task." },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": { "kind": "live_app", "verdict": "needs_verification", "mechanismPass": false, "notes": "Signed-in native discovery; the generic gifting mechanism was not verified." }
+    },
+    {
+      "id": "apparel_rain_jacket_sling",
+      "category": "apparel_lifestyle",
+      "objective": "cross_sell",
+      "seed": { "brand": "Cotopaxi", "product": "Cielo Rain Jacket - Men's", "url": "https://www.cotopaxi.com/products/cielo-rain-jacket-mens" },
+      "partner": { "brand": "United by Blue", "product": "(Re)volution 1L Go-Anywhere Bag", "url": "https://unitedbyblue.com/products/revolution-1l-go-anywhere-sling" },
+      "reviewerA": { "label": "good", "reason": "For Cross-Sell, the sling adds a carrying function to the rain-shell outing; the claim is limited to that observed jacket, not the whole apparel assortment or bag waterproofing." },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": { "kind": "live_app", "verdict": "supported", "mechanismPass": true, "notes": "Signed-in native Cross-Sell discovery; this does not assert the bag is waterproof." }
+    },
+    {
+      "id": "apparel_leggings_handbag",
+      "category": "apparel_lifestyle",
+      "objective": "product_bundle",
+      "seed": { "brand": "Lacausa", "product": "Venus Leggings", "url": "https://lacausa.com/products/venus-leggings-pacific" },
+      "partner": { "brand": "BAGGU", "product": "Small Recycled Leather Bowler Bag", "url": "https://checkout.baggu.com/products/small-recycled-leather-bowler-bag-brown-1" },
+      "reviewerA": { "label": "bad", "reason": "Wearing leggings and carrying a handbag are parallel ordinary functions; the observed rationale did not identify a distinctive combined task." },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": { "kind": "live_app", "verdict": "supported", "mechanismPass": true, "notes": "Signed-in native discovery; likely generic-use false positive for the Bundle objective." }
+    },
+    {
+      "id": "cpg_oil_skillet",
+      "category": "cpg_personal_care",
+      "objective": "product_bundle",
+      "seed": { "brand": "Brightland", "product": "Alive Extra Virgin Olive Oil", "url": "https://brightland.co/products/alive" },
+      "partner": { "brand": "Great Jones", "product": "King Sear skillet", "url": "https://greatjonesgoods.com/products/king-sear" },
+      "reviewerA": { "label": "good", "reason": "The selected oil can be used for cooking and the skillet cooks the meal; Great Jones also publishes a King Sear recipe using olive oil. The exact earlier selected variant's current availability remains a separate question." },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": { "kind": "live_app", "verdict": "needs_verification", "mechanismPass": false, "notes": "Signed-in native discovery; mechanism reason was joint_use_unverified, so this is a possible mechanism false negative rather than a proven full-opportunity false negative." }
+    },
+    {
+      "id": "cpg_oil_cocktail",
+      "category": "cpg_personal_care",
+      "objective": "product_bundle",
+      "seed": { "brand": "Brightland", "product": "Alive Extra Virgin Olive Oil", "url": "https://brightland.co/products/alive" },
+      "partner": { "brand": "Curious Elixirs", "product": "Curious No. 2 booze-free cocktail", "url": "https://curiouselixirs.com/pages/two" },
+      "reviewerA": { "label": "bad", "reason": "The observed idea relied on a generic shared meal setting; no specific incremental use of the ready-to-drink cocktail with the oil was verified." },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": { "kind": "live_app", "verdict": "needs_verification", "mechanismPass": false, "notes": "Signed-in native discovery; product mechanism was not verified." }
+    }
+  ]
+}

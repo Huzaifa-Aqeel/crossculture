@@ -1,6 +1,6 @@
 # CrossCulture
 
-CrossCulture is a partnership planning app for discovering and comparing brand partners and YouTube creators. The product contract is in [FR v1.7](CrossCulture_Functional_Requirements_v1.7.md), and the sole scoring specification is [Scoring Engine v4](CrossCulture_Scoring_Engine_v4.md).
+CrossCulture is a partnership planning app for finding brand partners around specific product bundles and cross-sells, and for researching creator partnerships from a brand's cultural directions. [Brand × Brand Architecture v2.2](CrossCulture_Brand_Brand_Architecture_v2.2_Clarified.md) governs the commerce workflow, and [Scoring Engine v1.1](CrossCulture_Brand_Brand_Scoring_Engine_v1.1.md) governs commerce opportunity assessment and ranking. [BUILD_PLAN.md](BUILD_PLAN.md) describes the separate Qloo-led creator research path.
 
 ## Repository layout
 
@@ -16,4 +16,4 @@ Install dependencies with `npm ci` in both `api/` and `web/`. Configure the Supa
 
 The API requires a database connection, Supabase authentication configuration, and the relevant provider credentials for live research. Qloo research uses the separately installed `qloo` MCP command. Provider keys are server-only; only Supabase's publishable configuration belongs in `NEXT_PUBLIC_` variables. The local Qloo hackathon kit is a development reference and is not vendored in this repository.
 
-Sample fixtures under `api/fixtures/` are labeled sample data. Live research depends on configured provider access and available request budgets. See [BUILD_PLAN.md](BUILD_PLAN.md) for the current verification state.
+Brand × Brand research depends on configured Qloo, Shopify Catalog, and selective Tavily access. Creator research uses Qloo cultural directions and YouTube video/content evidence without Tavily. Its private saved runs, channel metadata, and extracted observations expire after 15 days; raw transcripts are not saved. See [BUILD_PLAN.md](BUILD_PLAN.md) for the current verification state. Product-context discovery for brands absent from Qloo remains disabled until its separate live evidence gate passes.

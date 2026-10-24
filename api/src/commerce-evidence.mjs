@@ -1,0 +1,253 @@
+import { observedProductType, productMechanism, verifiedMechanismFacts,
+  mechanismFactSourceKinds } from "./commerce-products.mjs";
+
+const QLOO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SPECIFIC_TAG = /^urn:tag:(?:aesthetic_property|keyword):qloo:[a-z0-9_]+$/;
+const CONTEXT_TAG = /^urn:tag:[a-z_]+:qloo:[a-z0-9_]+$/;
+const GENERIC_THEME = /^(?:design|lifestyle|fashion|indie|minimalist|artsy|creative|home goods|functionality)$/i;
+const SHOP_ID = /^gid:\/\/shopify\/Shop\/[A-Za-z0-9_-]+$/;
+const validated = new WeakSet();
+const host = (url) => { try { const parsed = new URL(url); return parsed.protocol === "https:" ? parsed.hostname : null; }
+  catch { return null; } };
+const domain = (url) => host(url)?.replace(/^www\./, "") ?? null;
+const plainIdentity = (value) => String(value ?? "").toLowerCase()
+  .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+// A merchant may sell a product co-branded with someone else. Recognize only
+// an explicit title prefix; do not infer ownership from catalog seller data.
+export function hasExplicitThirdPartyCoBrand(product, merchantName) {
+  const title = String(product?.title ?? "").trim();
+  const match = title.match(/^(.{2,80}?)\s+(?:×|[xX])\s+([A-Z][\p{L}\p{N}.'-]+)(?:\s|$)/u);
+  return Boolean(match && plainIdentity(match[1]) === plainIdentity(merchantName) &&
+    plainIdentity(match[2]) !== plainIdentity(merchantName));
+}
+function verifiedSelectedProductPage(page, detail, seed, seedStore) {
+  if (page?.inspected !== true || !page.url || !detail?.product?.url ||
+      plainIdentity(page.title) !== plainIdentity(detail.product.title) ||
+      ![domain(seed.officialWebsite), domain(`https://${seedStore?.domain}`)]
+        .includes(domain(page.url))) return false;
+  try {
+    const actual = new URL(page.url);
+    const selected = new URL(detail.product.url);
+    return actual.origin === selected.origin && actual.pathname === selected.pathname &&
+      actual.pathname.startsWith("/products/") &&
+      typeof page.description === "string" && page.description.length <= 700;
+  } catch { return false; }
+}
+const sameSelected = (detail, selected) => Boolean(detail?.product?.id && detail.product.id === selected?.productId &&
+  detail?.variant?.id && detail.variant.id === selected?.variantId && detail.product.title);
+const priceCheck = (variant, limit) => !limit ? "supported" :
+  variant?.price?.currency !== limit.currencyCode || !Number.isInteger(variant.price?.amount)
+    ? "unknown" : variant.price.amount <= limit.amountMinor ? "supported" : "contradicted";
+
+// Only the server's verified identity, Qloo, and selected-detail adapters feed this
+// normalizer. Client/LLM states and ranking labels are deliberately ignored.
+export function validateCommerceEvidence(raw) {
+  if (!["product_bundle", "cross_sell"].includes(raw?.objective)) throw new Error("Commerce objective required.");
+  const { seed, partner, seedStore, partnerStore, seedDetail, partnerDetail,
+    selectedSeed, selectedPartner, userConstraints = {} } = raw;
+  const cultureEvidence = raw.cultureEvidence ?? {};
+  const brandsVerified = seed?.identityStatus === "verified" && partner?.identityStatus === "verified" &&
+    seed.id && partner.id && seed.id !== partner.id && host(seed.officialWebsite) &&
+    host(partner.officialWebsite);
+  const storesVerified = SHOP_ID.test(seedStore?.shopId ?? "") && SHOP_ID.test(partnerStore?.shopId ?? "") &&
+    seedStore.shopId !== partnerStore.shopId && host(`https://${seedStore.domain}`) &&
+    host(`https://${partnerStore.domain}`) &&
+    (seedStore.officialHost ?? seedStore.domain) === host(seed.officialWebsite) &&
+    (partnerStore.officialHost ?? partnerStore.domain) === host(partner.officialWebsite);
+  const selectedSeedValid = sameSelected(seedDetail, selectedSeed) &&
+    (!seedDetail.variant.seller?.id || seedDetail.variant.seller.id === seedStore?.shopId);
+  const selectedPartnerValid = sameSelected(partnerDetail, selectedPartner) &&
+    (!partnerDetail.variant.seller?.id || partnerDetail.variant.seller.id === partnerStore?.shopId);
+  const seedCoBrand = hasExplicitThirdPartyCoBrand(seedDetail?.product, seed?.name);
+  const partnerCoBrand = hasExplicitThirdPartyCoBrand(partnerDetail?.product, partner?.name);
+  const explicitCoBrand = seedCoBrand || partnerCoBrand;
+  const ownershipVerb = /\b(?:made|manufactured|designed|produced|owns)\b/i;
+  const namesOwnership = (name) => {
+    const normalizedName = plainIdentity(name);
+    const benefit = plainIdentity(raw.mechanismProposal?.benefit);
+    return normalizedName && new RegExp(`(?:^| )${normalizedName} (?:made|manufactured|designed|produced|owns)(?: |$)`)
+      .test(benefit);
+  };
+  const proposedOwnershipClaim = (seedCoBrand && ownershipVerb.test(raw.mechanismProposal?.seedRole ?? "")) ||
+    (partnerCoBrand && ownershipVerb.test(raw.mechanismProposal?.partnerRole ?? "")) ||
+    (seedCoBrand && namesOwnership(seed?.name)) || (partnerCoBrand && namesOwnership(partner?.name));
+  const identity = brandsVerified && storesVerified && selectedSeedValid && selectedPartnerValid &&
+    !(explicitCoBrand && proposedOwnershipClaim)
+    ? "supported" : seedDetail?.variant?.seller?.id &&
+      seedDetail.variant.seller.id !== seedStore?.shopId || partnerDetail?.variant?.seller?.id &&
+      partnerDetail.variant.seller.id !== partnerStore?.shopId ? "contradicted" : "unknown";
+
+  let culturalRelationship = "unknown";
+  let culturalExplanation = "no_named_theme";
+  let culturalTheme = null;
+  if (raw.discoveryBasis === "qloo_native_brand" &&
+      QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
+      cultureEvidence.seedQlooId === seed.qlooId && cultureEvidence.partnerQlooId === partner.qlooId &&
+      cultureEvidence.unconstrained === true &&
+      ["ok", "partial"].includes(cultureEvidence.envelope?.status) &&
+      Array.isArray(cultureEvidence.envelope.results) &&
+      cultureEvidence.envelope.results.some((item) => item.entity_id === partner.qlooId)) {
+    culturalRelationship = "native_recommendation_verified";
+  } else if (raw.discoveryBasis === "user_specified" &&
+      cultureEvidence.kind === "direct_unconstrained_native" &&
+      QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
+      cultureEvidence.seedQlooId === seed.qlooId &&
+      cultureEvidence.partnerQlooId === partner.qlooId &&
+      cultureEvidence.unconstrained === true &&
+      ["ok", "partial"].includes(cultureEvidence.envelope?.status) &&
+      Array.isArray(cultureEvidence.envelope.results) &&
+      cultureEvidence.envelope.results.some((item) =>
+        item.entity_id === partner.qlooId &&
+        (!item.type || ["urn:entity", "urn:entity:brand"].includes(item.type)))) {
+    culturalRelationship = "native_recommendation_verified";
+  } else if (raw.discoveryBasis === "qloo_context_brand" && !seed?.qlooId &&
+      QLOO_ID.test(partner?.qlooId ?? "") && cultureEvidence.kind === "product_context" &&
+      cultureEvidence.sourceProductId === selectedSeed?.productId &&
+      cultureEvidence.sourceVariantId === selectedSeed?.variantId &&
+      typeof cultureEvidence.query === "string" && cultureEvidence.query.length >= 3 &&
+      !GENERIC_THEME.test(cultureEvidence.query) &&
+      typeof cultureEvidence.sourceQuote === "string" &&
+      cultureEvidence.sourceQuote.toLowerCase().includes(cultureEvidence.query.toLowerCase()) &&
+      [seedDetail?.product?.title,
+        ...(raw.sourceAuthority?.seedDescription ? [typeof seedDetail?.product?.description === "string"
+          ? seedDetail.product.description : seedDetail?.product?.description?.plain ??
+          seedDetail?.product?.description?.html] : []),
+        ...(verifiedSelectedProductPage(cultureEvidence.sourceProductPage,
+          seedDetail, seed, seedStore) ? [cultureEvidence.sourceProductPage.description] : [])]
+        .some((value) => typeof value === "string" && value.toLowerCase()
+          .includes(cultureEvidence.sourceQuote.toLowerCase())) &&
+      cultureEvidence.partnerQlooId === partner.qlooId &&
+      ["ok", "partial"].includes(cultureEvidence.recommendation?.status) &&
+      cultureEvidence.recommendation.results?.some((item) => item.entity_id === partner.qlooId) &&
+      cultureEvidence.candidatePage?.inspected === true &&
+      host(cultureEvidence.candidatePage.url) === host(partner.officialWebsite) &&
+      String(cultureEvidence.candidatePage.snippet ?? "").toLowerCase()
+        .includes(cultureEvidence.query.toLowerCase()) &&
+      (cultureEvidence.signalKind === "tag" &&
+        CONTEXT_TAG.test(cultureEvidence.signalId ?? "") &&
+        cultureEvidence.resolution?.tags?.filter((tag) =>
+          CONTEXT_TAG.test(tag.id ?? "") &&
+          plainIdentity(tag.name) === plainIdentity(cultureEvidence.query)).length === 1 &&
+        cultureEvidence.resolution.tags.some((tag) => tag.id === cultureEvidence.signalId &&
+          plainIdentity(tag.name) === plainIdentity(cultureEvidence.query)) &&
+        cultureEvidence.candidateTags?.some((tag) => tag.id === cultureEvidence.signalId) ||
+      cultureEvidence.signalKind === "entity" && QLOO_ID.test(cultureEvidence.signalId ?? "") &&
+        cultureEvidence.resolution?.envelope?.results?.some((item) =>
+          item.entity_id === cultureEvidence.signalId &&
+          item.name?.toLowerCase() === cultureEvidence.query.toLowerCase() &&
+          (item.subtype ?? item.type) === `urn:entity:${cultureEvidence.signalType}`) &&
+        cultureEvidence.focusedEnvelope?.results?.some((item) =>
+          item.entity_id === cultureEvidence.signalId && Number.isFinite(item.affinity)))) {
+    culturalRelationship = "context_relationship_corroborated";
+    culturalExplanation = "specific_theme";
+    culturalTheme = cultureEvidence.query.slice(0, 120);
+  } else if (raw.discoveryBasis === "user_specified" && cultureEvidence.kind === "direct_pair" &&
+      cultureEvidence.seedQlooId === seed?.qlooId &&
+      cultureEvidence.partnerQlooId === partner?.qlooId &&
+      Array.isArray(cultureEvidence.focusEnvelope?.results) &&
+      cultureEvidence.focusEnvelope.results.some((item) =>
+        item.entity_id === partner.qlooId && Number.isFinite(item.affinity)) &&
+      SPECIFIC_TAG.test(cultureEvidence.sharedTagId ?? "") &&
+      String(cultureEvidence.theme ?? "").trim().length >= 8 &&
+      !GENERIC_THEME.test(cultureEvidence.theme) &&
+      Array.isArray(cultureEvidence.seedTags) && Array.isArray(cultureEvidence.partnerTags) &&
+      cultureEvidence.seedTags.some((tag) => tag.id === cultureEvidence.sharedTagId &&
+        tag.name === cultureEvidence.theme) &&
+      cultureEvidence.partnerTags.some((tag) => tag.id === cultureEvidence.sharedTagId &&
+        tag.name === cultureEvidence.theme) &&
+      cultureEvidence.seedPage?.inspected === true && cultureEvidence.partnerPage?.inspected === true &&
+      host(cultureEvidence.seedPage.url) === host(seed.officialWebsite) &&
+      host(cultureEvidence.partnerPage.url) === host(partner.officialWebsite) &&
+      String(cultureEvidence.seedPage.snippet ?? "").toLowerCase().includes(String(cultureEvidence.theme).toLowerCase()) &&
+      String(cultureEvidence.partnerPage.snippet ?? "").toLowerCase().includes(String(cultureEvidence.theme).toLowerCase())) {
+    culturalRelationship = "direct_pair_supported";
+    culturalExplanation = "specific_theme";
+    culturalTheme = String(cultureEvidence.theme).slice(0, 120);
+  }
+  const mechanism = productMechanism(seedDetail?.product, partnerDetail?.product, raw.objective,
+    raw.mechanismProposal, seedDetail?.variant, partnerDetail?.variant, raw.sourceAuthority,
+    raw.rubricVerification);
+  const occasion = String(userConstraints.occasion ?? "").trim().toLowerCase();
+  const exactHero = Boolean(userConstraints.heroProduct &&
+    userConstraints.heroProduct.productId === selectedSeed?.productId &&
+    userConstraints.heroProduct.variantId === selectedSeed?.variantId);
+  const checkedFacts = verifiedMechanismFacts(raw.mechanismProposal, seedDetail?.product,
+    partnerDetail?.product, seedDetail?.variant, partnerDetail?.variant,
+    raw.sourceAuthority ?? { seedDescription: false, partnerDescription: false });
+  const seedFactKinds = mechanismFactSourceKinds(checkedFacts.seedFacts, seedDetail?.product,
+    seedDetail?.variant, raw.sourceAuthority?.seedDescription === true);
+  const selectedItemSpecific = seedFactKinds.some((kind) =>
+    ["product_description", "variant_title", "variant_option"].includes(kind));
+  const matchesFocus = mechanism.evidence === "supported" && (
+    (exactHero && raw.rubricVerification?.seedRoleGroundedInSelectedItem === true &&
+      selectedItemSpecific && raw.rubricVerification?.distinctConcreteJointValue === true) ||
+    (occasion.length >= 4 && mechanism.occasion?.toLowerCase() === occasion));
+  const descriptionText = (product) => typeof product?.description === "string"
+    ? product.description : product?.description?.plain;
+  const sourceText = [seedDetail?.product?.title, partnerDetail?.product?.title,
+    ...(raw.sourceAuthority?.seedDescription !== false ? [descriptionText(seedDetail?.product)] : []),
+    ...(raw.sourceAuthority?.partnerDescription !== false ? [descriptionText(partnerDetail?.product)] : [])]
+    .filter((value) => typeof value === "string").join(" ").toLowerCase();
+  const preferences = [...new Set((userConstraints.softPreferences ?? [])
+    .filter((value) => typeof value === "string" && value.length >= 3).map((value) => value.toLowerCase()))];
+  const matchedPreferences = preferences.filter((value) => sourceText.includes(value));
+  const clearObjectiveContribution = mechanism.evidence === "supported" &&
+    (raw.objective === "cross_sell"
+      ? raw.rubricVerification?.reason === "specific_assortment_contribution" &&
+        raw.sourceAuthority?.seedDescription === true &&
+        raw.sourceAuthority?.partnerDescription === true &&
+        observedProductType(seedDetail?.product) !== observedProductType(partnerDetail?.product)
+      : mechanism.reasonCodes.includes("occasion_terms_source_grounded"));
+  const bothMarket = raw.marketOffers?.seed?.state === "supported" &&
+    raw.marketOffers?.partner?.state === "supported" ? "supported" :
+    [raw.marketOffers?.seed, raw.marketOffers?.partner].some((offer) => offer?.state === "contradicted")
+      ? "contradicted" : "unknown";
+  const hardConstraints = {
+    ...(userConstraints.mustShipToMarket ? { shipping: bothMarket } : {}),
+    ...(userConstraints.mustBeAvailableNow ? {
+      seedAvailability: seedDetail?.variant?.availability?.available === true ? "supported" :
+        seedDetail?.variant?.availability?.available === false ? "contradicted" : "unknown",
+      partnerAvailability: partnerDetail?.variant?.availability?.available === true ? "supported" :
+        partnerDetail?.variant?.availability?.available === false ? "contradicted" : "unknown" } : {}),
+    ...(userConstraints.priceLimit ? { partnerPrice: priceCheck(partnerDetail?.variant,
+      userConstraints.priceLimit) } : {}),
+  };
+  const input = { objective: raw.objective, discoveryBasis: raw.discoveryBasis,
+    identity, culturalRelationship, culturalExplanation, culturalTheme,
+    seedOffer: selectedSeedValid ? "supported" : "unknown",
+    partnerOffer: selectedPartnerValid ? "supported" : "unknown",
+    seedAssortment: selectedSeedValid && raw.assortmentScope?.observedFamilies?.length &&
+      ["partial", "adequate_for_claim"].includes(raw.assortmentScope?.coverage) &&
+      raw.assortmentScope?.anchorClaimRefs?.includes("seed_product") &&
+      !/\b(?:never sells?|does not sell|doesn't sell|no products? in|entire assortment|all categories)\b/i
+        .test(raw.mechanismProposal?.benefit ?? "") ? "supported" : "unknown",
+    mechanism: mechanism.mechanism,
+    attributeEvidence: selectedSeedValid && selectedPartnerValid ? mechanism.attributeEvidence : "unknown",
+    jointUseCoherence: mechanism.jointUseCoherence,
+    incrementalValue: mechanism.incrementalValue,
+    seedRole: mechanism.productRoles?.[0], partnerRole: mechanism.productRoles?.[1],
+    rationale: mechanism.benefit, productRefs: ["seed_product", "partner_product"],
+    evidenceRefs: ["seed_product", "partner_product"],
+    assortmentScope: raw.assortmentScope,
+    objectiveSuitability: matchesFocus ? "matches_explicit_focus" : clearObjectiveContribution
+      ? "clearly_serves_objective" : "adequately_serves_objective",
+    productQuality: mechanism.quality, partnerDifferentiation: mechanism.partnerDifferentiation,
+    verifiedMatchedPreferencesCount: matchedPreferences.length,
+    unresolvedPreferencesCount: preferences.length - matchedPreferences.length,
+    preferenceRationale: matchedPreferences.map((value) => `Selected product text confirms ${value}`),
+    evidenceCoverage: bothMarket === "supported" && raw.sourceAuthority?.seedDescription === true &&
+      raw.sourceAuthority?.partnerDescription === true ? "good" : "limited",
+    rankingReasonCodes: [matchesFocus ? "explicit_focus_match" : "objective_served",
+      mechanism.quality === "distinct_concrete_joint_value" ? "distinct_product_attributes"
+        : "credible_product_roles",
+      ...(mechanism.partnerDifferentiation === "evidenced_partner_specific_reason"
+        ? ["partner_specific_fact_verified"] : [])],
+    hardConstraints, reviewFlags: [...(raw.reviewFlags ?? []), ...mechanism.reasonCodes,
+      ...(explicitCoBrand ? ["selected_offer_explicit_third_party_cobrand"] : []),
+      ...(explicitCoBrand && proposedOwnershipClaim ? ["selected_offer_ownership_claim_unverified"] : [])],
+    evaluatedAt: new Date().toISOString() };
+  validated.add(input);
+  return input;
+}
+
+export function isValidatedCommerceEvidence(value) { return validated.has(value); }

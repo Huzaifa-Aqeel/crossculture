@@ -1,0 +1,149 @@
+{
+  "instructions": "Give a separate blank copy to each of two independent human reviewers. For each exact pair and objective, label whether the selected products have distinct, source-backed roles with a concrete incremental benefit. Good does not mean the brands have an agreement, a shared checkout, or verified cultural fit. Bad includes generic co-use, styling, gifting, or duplicate function without a specific benefit. Mark uncertain cases and explain why. Do not view app results, provisional labels, or the other review before submitting.",
+  "cases": [
+    {
+      "id": "outdoor_sling_spf",
+      "category": "outdoor_technical",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "United by Blue",
+        "product": "(Re)volution 1L Go-Anywhere Bag",
+        "url": "https://unitedbyblue.com/products/revolution-1l-go-anywhere-sling"
+      },
+      "partner": {
+        "brand": "AllTrails",
+        "product": "Sunscreen + Carabiner",
+        "url": "https://shop.alltrails.com/products/sunscreen-carabiner"
+      },
+      "label": null,
+      "reason": "",
+      "uncertain": false
+    },
+    {
+      "id": "outdoor_two_carry_products",
+      "category": "outdoor_technical",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "United by Blue",
+        "product": "(R)evolution 9L Sidekick",
+        "url": "https://unitedbyblue.com/products/9l-sidekick"
+      },
+      "partner": {
+        "brand": "Rareform",
+        "product": "Mystery Tote Bundle",
+        "url": "https://www.rareform.com/products/mystery-tote-bundle"
+      },
+      "label": null,
+      "reason": "",
+      "uncertain": false
+    },
+    {
+      "id": "home_bathmat_towels",
+      "category": "home_kitchen",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Cold Picnic",
+        "product": "Embrace Bathmat - Blue",
+        "url": "https://coldpicnic.com/products/embrace-bathmat"
+      },
+      "partner": {
+        "brand": "Brooklinen",
+        "product": "Super-Plush Turkish Cotton Bath Towels",
+        "url": "https://www.brooklinen.com/products/super-plush-mib-bt"
+      },
+      "label": null,
+      "reason": "",
+      "uncertain": false
+    },
+    {
+      "id": "home_pan_frame",
+      "category": "home_kitchen",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Great Jones",
+        "product": "Patty Cake pan",
+        "url": "https://greatjonesgoods.com/products/patty-cake"
+      },
+      "partner": {
+        "brand": "Framebridge",
+        "product": "The Perfect Gift: 8x10",
+        "url": "https://www.framebridge.com/products/perfect-gift-8x10"
+      },
+      "label": null,
+      "reason": "",
+      "uncertain": false
+    },
+    {
+      "id": "apparel_rain_jacket_sling",
+      "category": "apparel_lifestyle",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Cotopaxi",
+        "product": "Cielo Rain Jacket - Men's",
+        "url": "https://www.cotopaxi.com/products/cielo-rain-jacket-mens"
+      },
+      "partner": {
+        "brand": "United by Blue",
+        "product": "(Re)volution 1L Go-Anywhere Bag",
+        "url": "https://unitedbyblue.com/products/revolution-1l-go-anywhere-sling"
+      },
+      "label": null,
+      "reason": "",
+      "uncertain": false
+    },
+    {
+      "id": "apparel_leggings_handbag",
+      "category": "apparel_lifestyle",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Lacausa",
+        "product": "Venus Leggings",
+        "url": "https://lacausa.com/products/venus-leggings-pacific"
+      },
+      "partner": {
+        "brand": "BAGGU",
+        "product": "Small Recycled Leather Bowler Bag",
+        "url": "https://checkout.baggu.com/products/small-recycled-leather-bowler-bag-brown-1"
+      },
+      "label": null,
+      "reason": "",
+      "uncertain": false
+    },
+    {
+      "id": "cpg_oil_skillet",
+      "category": "cpg_personal_care",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Brightland",
+        "product": "Alive Extra Virgin Olive Oil",
+        "url": "https://brightland.co/products/alive"
+      },
+      "partner": {
+        "brand": "Great Jones",
+        "product": "King Sear skillet",
+        "url": "https://greatjonesgoods.com/products/king-sear"
+      },
+      "label": null,
+      "reason": "",
+      "uncertain": false
+    },
+    {
+      "id": "cpg_oil_cocktail",
+      "category": "cpg_personal_care",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Brightland",
+        "product": "Alive Extra Virgin Olive Oil",
+        "url": "https://brightland.co/products/alive"
+      },
+      "partner": {
+        "brand": "Curious Elixirs",
+        "product": "Curious No. 2 booze-free cocktail",
+        "url": "https://curiouselixirs.com/pages/two"
+      },
+      "label": null,
+      "reason": "",
+      "uncertain": false
+    }
+  ]
+}

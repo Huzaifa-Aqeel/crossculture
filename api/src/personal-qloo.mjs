@@ -63,13 +63,12 @@ export async function personalQlooRank(ownerUserId, seedQlooId, partnerQlooId,
     cacheStatus: "new", sampleData: provider !== qlooCall };
 }
 
-// A filtered Insights result checks one creator-observed named entity against
-// the seed's exact Qloo ID when the limited recommendation list omits it.
-// The caller must still supply independent, source-backed creator evidence.
+// A filtered Insights result checks a candidate brand against a named cultural
+// entity from a selected product. The caller must verify source and participation.
 export async function personalQlooRankNamedEntity(ownerUserId, seedQlooId, entityId, entityType,
   { provider = qlooCall, now = new Date() } = {}) {
   if (!QLOO_UUID.test(seedQlooId ?? "") || !QLOO_UUID.test(entityId ?? "") ||
-      seedQlooId.toLowerCase() === entityId.toLowerCase() || !CREATOR_NAMED_TYPES.has(entityType)) {
+      seedQlooId.toLowerCase() === entityId.toLowerCase() || !CONTEXT_NAMED_TYPES.has(entityType)) {
     throw new Error("Confirmed seed and typed named cultural entity identifiers are required.");
   }
   const context = { options: [entityId], option_type: entityType, signals: [seedQlooId] };
@@ -96,6 +95,8 @@ export async function personalQlooRankNamedEntity(ownerUserId, seedQlooId, entit
     cacheStatus: "new", sampleData: provider !== qlooCall };
 }
 
+const CONTEXT_NAMED_TYPES = new Set(["artist", "movie", "tv_show", "book", "videogame",
+  "place", "podcast", "person"]);
 const QLOO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function personalQlooRecommendBrands(ownerUserId, seedQlooId,
@@ -125,6 +126,65 @@ export async function personalQlooRecommendBrands(ownerUserId, seedQlooId,
     freshUntil: new Date(now.getTime() + DAY), retainUntil: new Date(now.getTime() + 7 * DAY),
     sampleData: provider !== qlooCall,
   });
+  return { envelope, responseId: saved.id, inputHash: identity.inputHash,
+    cacheStatus: "new", sampleData: provider !== qlooCall };
+}
+
+// Only named non-person cultural entities may seed creator video searches.
+// This is a brand-to-entity affinity, never a YouTube creator recommendation.
+export async function personalQlooRecommendCulturalEntities(ownerUserId, seedQlooId, targetType,
+  { provider = qlooCall, now = new Date() } = {}) {
+  if (!QLOO_UUID.test(seedQlooId ?? "") || !["artist", "place", "movie"].includes(targetType))
+    throw new Error("A confirmed brand and supported cultural entity type are required.");
+  const context = { target_type: targetType, signals: [seedQlooId], limit: 6, explain: true };
+  const identity = qlooCacheIdentity({ operation: "qloo_recommend", context, ownerUserId });
+  const cached = await readQlooCache(identity, { now });
+  if (cached.status === "fresh" && !(cached.sampleData && provider === qlooCall)) return {
+    envelope: cached.result, responseId: cached.responseId, sampleData: cached.sampleData,
+    cacheStatus: cached.status };
+  const envelope = await provider("qloo_recommend", context);
+  if (!["ok", "partial"].includes(envelope?.status) || !Array.isArray(envelope.results)) return {
+    envelope, responseId: null, sampleData: provider !== qlooCall, cacheStatus: "uncached" };
+  const ids = [...new Set(envelope.results.filter((item) => item?.subtype === `urn:entity:${targetType}`)
+    .map((item) => item.entity_id).filter((id) => QLOO_UUID.test(id ?? "")))];
+  const saved = await storeQlooResponse(identity, { result: envelope, providerStatus: envelope.status,
+    resolvedEntityIds: ids, rights: { storage: "permitted", scope: "private" },
+    collectedAt: now, respondedAt: now, freshUntil: new Date(now.getTime() + DAY),
+    retainUntil: new Date(now.getTime() + 7 * DAY), sampleData: provider !== qlooCall });
+  return { envelope, responseId: saved.id, sampleData: provider !== qlooCall, cacheStatus: "new" };
+}
+
+// Product-context discovery has a different input and provenance from a
+// native brand recommendation. Keep its private cache key and returned query
+// lineage separate so it can never be mistaken for Brand A affinity.
+export async function personalQlooRecommendContextBrands(ownerUserId, signalId,
+  { kind = "tag", provider = qlooCall, now = new Date() } = {}) {
+  if (kind === "tag" ? !/^urn:tag:[a-z_]+:qloo:[a-z0-9_]+$/.test(signalId ?? "")
+    : kind !== "entity" || !QLOO_UUID.test(signalId ?? "")) {
+    throw new Error("A resolved Qloo cultural signal is required.");
+  }
+  const context = { target_type: "brand",
+    ...(kind === "tag" ? { signal_tags: [signalId] } : { signals: [signalId] }),
+    limit: 20, explain: true };
+  const identity = qlooCacheIdentity({ operation: "qloo_recommend", context, ownerUserId });
+  const cached = await readQlooCache(identity, { now });
+  if (cached.status !== "missing" && !(cached.sampleData && provider === qlooCall)) {
+    return { envelope: cached.result, responseId: cached.responseId, inputHash: identity.inputHash,
+      cacheStatus: cached.status, sampleData: cached.sampleData };
+  }
+  const envelope = await provider("qloo_recommend", context);
+  if (!["ok", "partial"].includes(envelope?.status) || !Array.isArray(envelope.results)) {
+    return { envelope, responseId: null, inputHash: identity.inputHash,
+      cacheStatus: "uncached", sampleData: provider !== qlooCall };
+  }
+  const ids = [...new Set(envelope.results.map((item) => item?.entity_id)
+    .filter((id) => typeof id === "string" && QLOO_UUID.test(id)))];
+  const saved = await storeQlooResponse(identity, { result: envelope,
+    providerStatus: envelope.status, resolvedEntityIds: ids,
+    rights: { storage: "permitted", scope: "private" },
+    collectedAt: now, respondedAt: now,
+    freshUntil: new Date(now.getTime() + DAY), retainUntil: new Date(now.getTime() + 7 * DAY),
+    sampleData: provider !== qlooCall });
   return { envelope, responseId: saved.id, inputHash: identity.inputHash,
     cacheStatus: "new", sampleData: provider !== qlooCall };
 }
@@ -175,8 +235,34 @@ export async function personalQlooEntityTags(ownerUserId, entityId, { provider =
     cacheStatus: "new", sampleData: provider !== qlooCall, status: "ok" };
 }
 
-// Resolve a creator-observed cultural phrase to a real Qloo tag. The caller
-// must independently validate the video observation and seed-side association.
+// Aggregate demographic affinity is optional research for an explicitly
+// selected brand pair. It is never customer overlap or a scoring input.
+export async function personalQlooAudienceDemographics(ownerUserId, entityId,
+  { provider = qlooCall, now = new Date() } = {}) {
+  if (!QLOO_UUID.test(entityId ?? "")) throw new Error("A confirmed cultural brand identifier is required.");
+  const context = { entity: entityId, entity_type: "brand", limit: 1 };
+  const identity = qlooCacheIdentity({ operation: "qloo_audience_demographics", context, ownerUserId });
+  const cached = await readQlooCache(identity, { now });
+  if (cached.status !== "missing" && !(cached.sampleData && provider === qlooCall)) {
+    return { results: cached.result?.results ?? [], responseId: cached.responseId,
+      cacheStatus: cached.status, sampleData: cached.sampleData,
+      status: cached.result?.status ?? "unavailable" };
+  }
+  const envelope = await provider("qloo_audience_demographics", context);
+  if (envelope?.status !== "ok" || !Array.isArray(envelope.results)) return {
+    results: [], responseId: null, cacheStatus: "uncached",
+    sampleData: provider !== qlooCall, status: envelope?.status ?? "unavailable" };
+  const saved = await storeQlooResponse(identity, { result: envelope,
+    providerStatus: envelope.status, resolvedEntityIds: [entityId],
+    rights: { storage: "permitted", scope: "private" }, collectedAt: now, respondedAt: now,
+    freshUntil: new Date(now.getTime() + DAY), retainUntil: new Date(now.getTime() + 7 * DAY),
+    sampleData: provider !== qlooCall });
+  return { results: envelope.results, responseId: saved.id, cacheStatus: "new",
+    sampleData: provider !== qlooCall, status: "ok" };
+}
+
+// Resolve a selected-product cultural phrase to a real Qloo tag. The caller
+// must independently validate the product quote and candidate participation.
 export async function personalQlooFindTags(ownerUserId, phrase, { provider = qlooCall, now = new Date() } = {}) {
   const query = String(phrase ?? "").trim();
   if (query.length < 3 || query.length > 80) throw new Error("Invalid cultural reference.");
@@ -203,9 +289,8 @@ export async function personalQlooFindTags(ownerUserId, phrase, { provider = qlo
     status: "ok", cacheStatus: "new", sampleData: provider !== qlooCall };
 }
 
-// Named creator observations use the same private Qloo response cache. A
-// resolved name is never enough on its own: callers must verify the exact ID
-// in a seed-brand recommendation before admitting a pair bridge.
+// Named product-context references use the private Qloo response cache.
+// Resolution alone cannot establish a cultural partnership.
 export async function personalQlooResolveNamedEntity(ownerUserId, phrase,
   { provider = qlooCall, now = new Date() } = {}) {
   const query = String(phrase ?? "").trim();
@@ -218,33 +303,6 @@ export async function personalQlooResolveNamedEntity(ownerUserId, phrase,
       inputHash: identity.inputHash, sampleData: cached.sampleData, cacheStatus: cached.status };
   }
   const envelope = await provider("qloo_describe", context);
-  if (envelope?.status !== "ok" || !Array.isArray(envelope.results)) return {
-    envelope, responseId: null, inputHash: identity.inputHash,
-    sampleData: provider !== qlooCall, cacheStatus: "uncached" };
-  const saved = await storeQlooResponse(identity, { result: envelope, providerStatus: envelope.status,
-    resolvedEntityIds: envelope.results.map((item) => item?.entity_id).filter(Boolean),
-    rights: { storage: "permitted", scope: "private" }, collectedAt: now, respondedAt: now,
-    freshUntil: new Date(now.getTime() + DAY), retainUntil: new Date(now.getTime() + 7 * DAY),
-    sampleData: provider !== qlooCall });
-  return { envelope, responseId: saved.id, inputHash: identity.inputHash,
-    sampleData: provider !== qlooCall, cacheStatus: "new" };
-}
-
-const CREATOR_NAMED_TYPES = new Set(["artist", "movie", "tv_show", "book", "videogame",
-  "place", "podcast", "person", "brand"]);
-export async function personalQlooRecommendNamedEntity(ownerUserId, seedQlooId, targetType,
-  { provider = qlooCall, now = new Date() } = {}) {
-  if (!QLOO_UUID.test(seedQlooId ?? "") || !CREATOR_NAMED_TYPES.has(targetType)) {
-    throw new Error("Confirmed brand and supported named cultural type are required.");
-  }
-  const context = { target_type: targetType, signals: [seedQlooId], limit: 20, explain: true };
-  const identity = qlooCacheIdentity({ operation: "qloo_recommend", context, ownerUserId });
-  const cached = await readQlooCache(identity, { now });
-  if (cached.status === "fresh" && !(cached.sampleData && provider === qlooCall)) {
-    return { envelope: cached.result, responseId: cached.responseId,
-      inputHash: identity.inputHash, sampleData: cached.sampleData, cacheStatus: cached.status };
-  }
-  const envelope = await provider("qloo_recommend", context);
   if (envelope?.status !== "ok" || !Array.isArray(envelope.results)) return {
     envelope, responseId: null, inputHash: identity.inputHash,
     sampleData: provider !== qlooCall, cacheStatus: "uncached" };

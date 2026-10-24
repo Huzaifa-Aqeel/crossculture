@@ -7,7 +7,8 @@ type Context = { params: Promise<{ path: string[] }> };
 async function forward(request: NextRequest, context: Context) {
   const { path } = await context.params;
   if (!path.every((part) => /^[a-zA-Z0-9-]+$/.test(part))) return NextResponse.json({ message: "Invalid request." }, { status: 400 });
-  const personal = path[0] === "me" || path[0] === "entities" || path[0] === "projects" || path[0] === "personal";
+  const personal = path[0] === "me" || path[0] === "entities" || path[0] === "projects" ||
+    path[0] === "personal" || path[0] === "youtube";
   const sessionId = request.cookies.get("cc_session")?.value ?? randomUUID();
   const base = process.env.CROSSCULTURE_API_URL ?? "http://127.0.0.1:8787";
 

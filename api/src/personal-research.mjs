@@ -1,17 +1,14 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
-import { samplePreviewEvidence } from "./evidence-ledger.mjs";
-import { validatedChannelReference } from "./youtube.mjs";
-import { processCreatorResearchRun } from "./creator-research.mjs";
-import { purgeDueCreatorObservations } from "./youtube-retention.mjs";
-import { processPersonalBrandRun } from "./personal-brand.mjs";
-import { processPersonalBrandDiscoveryRun } from "./personal-brand-discovery.mjs";
-import { proposalTemplate } from "./proposal-template.mjs";
+import { processCommerceRun } from "./commerce-worker.mjs";
+import { refreshCommerceOffers, currentCommerceAssessment } from "./commerce-offer-refresh.mjs";
+import { discoverVerifiedStorefront } from "./shopify-catalog.mjs";
+import { investigateCommerceAudience } from "./commerce-audience.mjs";
+import { commerceProposalAction } from "./commerce-proposals.mjs";
 import { validateNewRunObjective } from "./new-run-objectives.mjs";
 
 let pool;
 const uuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-const variants = new Set(["brand", "creator"]);
 const modes = new Set(["discovery", "direct_pair"]);
 const workerId = `research-worker-${randomUUID()}`;
 
@@ -29,42 +26,56 @@ function bad(message, statusCode = 400) {
   throw error;
 }
 
-const sample = {
-  brand: { name: "Sample partner brand", kind: "brand", uri: "urn:crossculture:sample:brand" },
-  creator: { name: "Sample YouTube creator", kind: "youtube_creator", uri: "urn:crossculture:sample:creator" },
-};
-
-async function sampleEntity(client, variant) {
-  const item = sample[variant];
-  const result = await client.query(`insert into catalog.entities(kind,canonical_name,canonical_url,description,identity_status,facts_json)
-    values ($1,$2,$3,'Synthetic preview identity. No real account or partnership is represented.','unverified','{"sample":true}'::jsonb)
-    on conflict (canonical_url) where canonical_url is not null do update set canonical_name=excluded.canonical_name
-    returning id`, [item.kind, item.name, item.uri]);
-  return result.rows[0].id;
-}
-
 export async function startPersonalRun(userId, input) {
-  if (!uuid(input?.projectId) || !uuid(input?.idempotencyKey) || !modes.has(input.mode) || !variants.has(input.partnerType)) {
-    bad("Choose a project, preview mode, and partner type.");
+  if (!uuid(input?.projectId) || !uuid(input?.idempotencyKey) || !modes.has(input.mode) || input.partnerType !== "brand") {
+    bad("Choose a project and brand research mode.");
   }
-  const researchMode = input.researchMode ?? "sample";
-  if (!["sample", "live_youtube", "live_brand"].includes(researchMode)) bad("Choose a supported research mode.");
+  const researchMode = input.researchMode;
+  if (researchMode !== "live_commerce") bad("Choose a supported research mode.");
   const excludedPartnerEntityIds = input.excludedPartnerEntityIds ?? [];
   if (!Array.isArray(excludedPartnerEntityIds) || excludedPartnerEntityIds.length > 20 ||
       excludedPartnerEntityIds.some((id) => !uuid(id)) ||
       new Set(excludedPartnerEntityIds).size !== excludedPartnerEntityIds.length) {
     bad("Choose valid partner exclusions.");
   }
-  if (researchMode === "live_youtube" && (input.partnerType !== "creator" ||
-      (input.mode === "direct_pair" ? !input.creatorChannel : input.creatorChannel != null))) {
-    bad("Choose creator discovery or provide a specific creator channel.");
-  }
-  if (researchMode === "live_brand" && (input.partnerType !== "brand" ||
-      (input.mode === "direct_pair" ? !uuid(input.partnerEntityId) : input.partnerEntityId != null))) {
+  if (input.mode === "direct_pair" ? !uuid(input.partnerEntityId) : input.partnerEntityId != null) {
     bad("Choose brand discovery or select a confirmed partner brand for comparison.");
   }
-  const creatorChannel = researchMode === "live_youtube" && input.mode === "direct_pair"
-    ? validatedChannelReference(input.creatorChannel) : null;
+  const market = String(input.market ?? "US").trim().toUpperCase();
+  if (researchMode === "live_commerce" && !/^[A-Z]{2}$/.test(market)) bad("Choose a two-letter market country.");
+  const requestedPrice = input.commerceRequirements?.priceLimit;
+  const requestedHero = input.commerceRequirements?.heroProduct;
+  const occasion = String(input.commerceRequirements?.occasion ?? "").trim().slice(0, 100);
+  const requestedSoftPreferences = input.commerceRequirements?.softPreferences;
+  if (researchMode === "live_commerce" && requestedSoftPreferences !== undefined &&
+      (!Array.isArray(requestedSoftPreferences) || requestedSoftPreferences.length > 6 ||
+       requestedSoftPreferences.some((value) => typeof value !== "string" ||
+         value.trim().length < 3 || value.trim().length > 60))) {
+    bad("Choose up to six short product preferences.");
+  }
+  if (researchMode === "live_commerce" && requestedPrice &&
+      (!Number.isInteger(requestedPrice.amountMinor) || requestedPrice.amountMinor <= 0 ||
+       requestedPrice.amountMinor > 100_000_000 || !/^[A-Z]{3}$/.test(requestedPrice.currencyCode ?? ""))) {
+    bad("Choose a valid partner-product price limit and currency.");
+  }
+  if (researchMode === "live_commerce" && requestedHero &&
+      (typeof requestedHero.productId !== "string" ||
+       !/^gid:\/\/shopify\/(?:Product|p)\//.test(requestedHero.productId) ||
+       typeof requestedHero.variantId !== "string" ||
+       !/^gid:\/\/shopify\/ProductVariant\//.test(requestedHero.variantId))) {
+    bad("Choose a current starting product and variant.");
+  }
+  const commerceRequirements = researchMode === "live_commerce" ? {
+    mustShipToMarket: input.commerceRequirements?.mustShipToMarket === true,
+    mustBeAvailableNow: input.commerceRequirements?.mustBeAvailableNow === true,
+    ...(occasion ? { occasion } : {}),
+    ...(requestedSoftPreferences?.length ? { softPreferences: [...new Set(
+      requestedSoftPreferences.map((value) => value.trim().toLowerCase()))] } : {}),
+    ...(requestedPrice ? { priceLimit: { amountMinor: requestedPrice.amountMinor,
+      currencyCode: requestedPrice.currencyCode } } : {}),
+    ...(requestedHero ? { heroProduct: { productId: requestedHero.productId,
+      variantId: requestedHero.variantId } } : {}),
+  } : null;
   const client = await db().connect();
   try {
     await client.query("begin");
@@ -73,13 +84,12 @@ export async function startPersonalRun(userId, input) {
       where user_id=$1 and idempotency_key=$2`, [userId, input.idempotencyKey]);
     if (existing.rows[0]) {
       const row = existing.rows[0];
-      if (row.project_id !== input.projectId || row.kind !== input.mode || row.match_type !== (input.partnerType === "brand" ? "brand_brand" : "brand_youtube_creator") ||
-          (row.constraints_json?.researchMode ?? "sample") !== researchMode ||
-          (researchMode === "live_youtube" && input.mode === "direct_pair" &&
-            row.constraints_json?.creatorChannel !== creatorChannel) ||
+      if (row.project_id !== input.projectId || row.kind !== input.mode || row.match_type !== "brand_brand" ||
+          row.constraints_json?.researchMode !== researchMode ||
           JSON.stringify(row.constraints_json?.excludedPartnerEntityIds ?? []) !== JSON.stringify(excludedPartnerEntityIds) ||
-          (row.constraints_json?.positioningDirection ?? null) !== (typeof input.positioningDirection === "string" ? input.positioningDirection.trim() || null : null) ||
-          (researchMode === "live_brand" && input.mode === "direct_pair" && row.specified_partner_id !== input.partnerEntityId)) {
+          (researchMode === "live_commerce" && (row.constraints_json?.market !== market ||
+            JSON.stringify(row.constraints_json?.commerceRequirements ?? {}) !== JSON.stringify(commerceRequirements))) ||
+          (researchMode === "live_commerce" && input.mode === "direct_pair" && row.specified_partner_id !== input.partnerEntityId)) {
         bad("This request has already been used for another search.", 409);
       }
       await client.query("commit");
@@ -88,8 +98,19 @@ export async function startPersonalRun(userId, input) {
     const project = await client.query(`select id,seed_entity_id,objective from public.projects
       where id=$1 and user_id=$2`, [input.projectId, userId]);
     if (!project.rows[0]) bad("Project not found.", 404);
-    const positioningDirection = validateNewRunObjective(project.rows[0].objective, input.partnerType, input.positioningDirection);
-    if (researchMode === "live_brand" && input.mode === "direct_pair") {
+    validateNewRunObjective(project.rows[0].objective, input.partnerType);
+    if (researchMode === "live_commerce") {
+      const identity = await client.query(`select e.identity_status as status,e.official_website as website,
+        exists (select 1 from catalog.entity_identifiers i where i.entity_id=e.id
+          and i.provider='qloo' and i.status='confirmed') as native
+        from catalog.entities e where e.id=$1`, [project.rows[0].seed_entity_id]);
+      const seed = identity.rows[0];
+      if (!seed || seed.status !== "verified") bad("Confirm the starting brand before research.");
+      if (!seed.native && (process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED !== "1" ||
+          input.mode !== "discovery" || !requestedHero || !seed.website))
+        bad("Choose a current starting product for this discovery path.");
+    }
+    if (researchMode === "live_commerce" && input.mode === "direct_pair") {
       if (input.partnerEntityId === project.rows[0].seed_entity_id) bad("Choose a different partner brand.");
       const partner = await client.query(`select e.id from catalog.entities e
         join catalog.entity_identifiers i on i.entity_id=e.id and i.provider='qloo' and i.status='confirmed'
@@ -101,32 +122,25 @@ export async function startPersonalRun(userId, input) {
       from public.analysis_runs where user_id=$1 and project_id=$2 and created_at>now()-interval '1 day'`, [userId, input.projectId]);
     if (recent.rows[0].active) bad("A project preview is still running.", 409);
     if (recent.rows[0].total >= 30) bad("Today's project preview limit has been reached.", 429);
-    const partnerId = researchMode === "live_brand" && input.mode === "direct_pair" ? input.partnerEntityId
-      : input.mode === "direct_pair" && researchMode === "sample" ? await sampleEntity(client, input.partnerType) : null;
+    const partnerId = input.mode === "direct_pair" ? input.partnerEntityId : null;
     const previous = await client.query(`select f.id,f.action,m.partner_entity_id from public.feedback f
       join public.analysis_runs r on r.id=f.analysis_run_id and r.user_id=f.user_id
       left join public.matches m on m.id=f.match_id and m.user_id=f.user_id
       where f.user_id=$1 and r.project_id=$2 and f.undone_at is null
       order by f.created_at desc limit 20`, [userId, input.projectId]);
-    const constraints = researchMode === "sample"
-      ? { sample: true, researchMode, partnerType: input.partnerType, mode: input.mode,
-        ...(positioningDirection ? { positioningDirection } : {}) }
-      : { sample: false, researchMode, partnerType: input.partnerType, mode: input.mode,
-        excludedPartnerEntityIds,
-        ...(positioningDirection ? { positioningDirection } : {}),
-        ...(creatorChannel ? { creatorChannel } : {}) };
-    const plan = researchMode === "sample" ? { version: 1, sampleOnly: true, maxCandidates: 1, maxProviderCalls: 0 }
-      : { version: 1, sampleOnly: false, maxCandidates: input.mode === "discovery" ? 8 : 1,
-        maxProviderCalls: researchMode === "live_brand" ? input.mode === "discovery" ? 60 : 16
-          : input.mode === "discovery" ? 60 : 16,
-        sources: researchMode === "live_brand" ? ["qloo", "wikidata", "web"]
-          : ["qloo", "youtube_data_api_v3", "llm"],
-        score: "v4_if_eligible" };
+    const constraints = { sample: false, researchMode, partnerType: "brand", mode: input.mode,
+      excludedPartnerEntityIds, market, commerceRequirements };
+    const plan = { version: 1, sampleOnly: false,
+      maxCandidates: input.mode === "discovery" ? 6 : 1,
+      maxCatalogCalls: input.mode === "discovery"
+        ? commerceRequirements.heroProduct ? 160 : 88
+        : commerceRequirements.heroProduct ? 56 : 22,
+      sources: ["qloo", "shopify_catalog", "tavily"], score: "brand-commerce-v1.1" };
     const result = await client.query(`insert into public.analysis_runs(user_id,project_id,seed_entity_id,specified_partner_id,
       kind,match_type,objective,constraints_json,plan_json,feedback_snapshot_json,idempotency_key)
       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11) returning id`,
     [userId, input.projectId, project.rows[0].seed_entity_id, partnerId, input.mode,
-      input.partnerType === "brand" ? "brand_brand" : "brand_youtube_creator", project.rows[0].objective,
+      "brand_brand", project.rows[0].objective,
       JSON.stringify(constraints), JSON.stringify(plan), JSON.stringify({ events: previous.rows }), input.idempotencyKey]);
     await client.query("commit");
     return { runId: result.rows[0].id, reused: false };
@@ -141,25 +155,18 @@ export async function listPersonalRuns(userId, projectId) {
   const result = await db().query(`select id,kind,"match_type" as "matchType",status,stage,
     constraints_json->>'partnerType' as "partnerType",result_json as result,
     created_at as "createdAt" from public.analysis_runs where user_id=$1 and project_id=$2
+      and match_type='brand_brand' and objective in ('product_bundle','cross_sell')
     order by created_at desc limit 30`, [userId, projectId]);
-  return result.rows;
+  return result.rows.map((row) => ({ ...row, result: customerCommerceRunResult(row.result) }));
 }
 
-export function orderBrandDiscoveryMatches(matches) {
-  const group = (row) => row.evidenceStatus !== "valid" ? 4 : ({ eligible: 0, conditional: 1,
-    insufficient_evidence: 2, excluded: 3 })[row.score?.status] ?? 4;
-  const confidence = { high: 0, medium: 1, low: 2 };
-  return [...matches].sort((left, right) => {
-    const leftGroup = group(left); const rightGroup = group(right);
-    if (leftGroup !== rightGroup) return leftGroup - rightGroup;
-    if (leftGroup < 2) {
-      const scoreGap = (right.score?.displayScore ?? -1) - (left.score?.displayScore ?? -1);
-      if (scoreGap) return scoreGap;
-      const confidenceGap = (confidence[left.score?.confidence] ?? 3) - (confidence[right.score?.confidence] ?? 3);
-      if (confidenceGap) return confidenceGap;
-    }
-    return left.partnerEntityId.localeCompare(right.partnerEntityId);
-  });
+// Run diagnostics remain in the owner-scoped database record for developer
+// audits. The customer response contains only progress and coverage language,
+// never unsuccessful Qloo candidate names or provider research traces.
+function customerCommerceRunResult(result) {
+  if (!result || typeof result !== "object") return result;
+  return { message: result.message, coverage: result.coverage,
+    stopReason: result.stopReason };
 }
 
 export async function getPersonalRun(userId, runId) {
@@ -167,16 +174,23 @@ export async function getPersonalRun(userId, runId) {
   const run = await db().query(`select r.id,r.project_id as "projectId",r.kind,r.match_type as "matchType",
     r.status,r.stage,r.attempt,r.result_json as result,r.error_code as "errorCode",
     r.constraints_json->>'positioningDirection' as "positioningDirection",
-    r.created_at as "createdAt",e.canonical_name as "seedName"
+    r.constraints_json->'commerceRequirements' as "commerceRequirements",
+    r.created_at as "createdAt",e.canonical_name as "seedName",
+    coalesce(e.official_website,e.canonical_url) as "seedWebsite"
     from public.analysis_runs r join catalog.entities e on e.id=r.seed_entity_id
-    where r.id=$1 and r.user_id=$2`, [runId, userId]);
+    where r.id=$1 and r.user_id=$2
+      and r.match_type='brand_brand' and r.objective in ('product_bundle','cross_sell')`, [runId, userId]);
   if (!run.rows[0]) return null;
-  if (run.rows[0].matchType === "brand_youtube_creator") await purgeDueCreatorObservations();
   const matches = await db().query(`select m.id,m.partner_entity_id as "partnerEntityId",m.eligibility,m.saved_at as "savedAt",m.note,
-    e.canonical_name as "partnerName",a.id as "assessmentId",a.evidence_json as evidence,
+    e.canonical_name as "partnerName",
+    coalesce(e.official_website,e.canonical_url) as "partnerWebsite",
+    a.id as "assessmentId",a.evidence_json as evidence,
     a.score_json as score,a.scoring_version as "scoringVersion",a.version as "assessmentVersion",
     a.validity_status as "evidenceStatus",
     c.id as "conceptId",coalesce(c.edited_json,c.draft_json) as concept,
+    coalesce((select jsonb_agg(jsonb_build_object('id',co.id,'title',co.title,'format',co.format,
+      'summary',co.draft_json->>'summary') order by co.version)
+      from public.concepts co where co.match_id=m.id and co.user_id=$2), '[]'::jsonb) as "conceptOptions",
     b.id as "briefId",b.content_markdown as "briefMarkdown",b.revision as "briefRevision",
     b.validity_status as "briefStatus"
     from public.matches m join catalog.entities e on e.id=m.partner_entity_id
@@ -184,9 +198,106 @@ export async function getPersonalRun(userId, runId) {
     left join lateral (select * from public.concepts where match_id=m.id and user_id=$2 order by version desc limit 1) c on true
     left join lateral (select * from public.briefs where match_id=m.id and user_id=$2 order by updated_at desc limit 1) b on true
     where m.analysis_run_id=$1 and m.user_id=$2 order by m.created_at`, [runId, userId]);
-  const orderedMatches = run.rows[0].kind === "discovery"
-    ? orderBrandDiscoveryMatches(matches.rows) : matches.rows;
-  return { ...run.rows[0], matches: orderedMatches };
+  const commerceRanks = new Map((run.rows[0].result?.decisions ?? [])
+    .map((decision) => [decision.matchId, decision.rank]));
+  const commerceMatches = [...matches.rows].sort((a, b) =>
+    (commerceRanks.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+    (commerceRanks.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  const storefrontChecks = new Map();
+  const verifyStore = (website, options = {}) => {
+    const key = `${website}|${options.onlyDomain ?? ""}`;
+    if (!storefrontChecks.has(key)) storefrontChecks.set(key,
+      discoverVerifiedStorefront(website, options));
+    return storefrontChecks.get(key);
+  };
+  const orderedMatches = await (async () => {
+    const refreshed = [];
+    // Refresh the leading assessment and saved opportunities on opening a run.
+    // Other combinations are checked on demand, avoiding dozens of immediate
+    // exact-offer calls that can exhaust a merchant's live endpoint.
+    const firstSupported = commerceMatches.find((match) => match.score?.status === "supported");
+    const firstResearchLead = commerceMatches.find((match) => match.score?.status === "needs_verification");
+    const initial = new Set([firstSupported?.id, firstResearchLead?.id,
+      ...commerceMatches.filter((match) => match.savedAt).map((match) => match.id)].filter(Boolean));
+    for (const match of commerceMatches) {
+      if (initial.has(match.id)) {
+        const currentOffers = await refreshCommerceOffers(match.evidence?.commerce?.references,
+          { market: match.evidence?.commerce?.market ?? "US",
+            requirements: run.rows[0].commerceRequirements ?? {},
+            officialSites: { seed: run.rows[0].seedWebsite, partner: match.partnerWebsite },
+            verifyStore });
+        refreshed.push({ ...match, savedScore: match.score, currentOffers,
+          score: currentCommerceAssessment(match.score, currentOffers,
+            run.rows[0].commerceRequirements ?? {}) });
+      } else {
+        refreshed.push({ ...match, savedScore: match.score,
+          score: { ...match.score, currentOfferReview: "not_checked" },
+          currentOffers: null });
+      }
+    }
+    return refreshed;
+  })();
+  return { ...run.rows[0], result: customerCommerceRunResult(run.rows[0].result),
+    matches: orderedMatches };
+}
+
+export async function refreshPersonalMatch(userId, matchId,
+  { refresh = refreshCommerceOffers } = {}) {
+  if (!uuid(matchId)) return null;
+  const result = await db().query(`select m.id,m.saved_at as "savedAt",
+    a.evidence_json as evidence,a.score_json as score,
+    r.constraints_json->'commerceRequirements' as "commerceRequirements",
+    coalesce(seed.official_website,seed.canonical_url) as "seedWebsite",
+    coalesce(partner.official_website,partner.canonical_url) as "partnerWebsite"
+    from public.matches m join public.analysis_runs r on r.id=m.analysis_run_id
+    join catalog.entities seed on seed.id=m.brand_entity_id
+    join catalog.entities partner on partner.id=m.partner_entity_id
+    left join lateral (select * from public.assessment_snapshots where match_id=m.id
+      and user_id=$1 order by version desc limit 1) a on true
+    where m.id=$2 and m.user_id=$1 and r.user_id=$1
+      and r.match_type='brand_brand' and r.objective in ('product_bundle','cross_sell')`,
+  [userId, matchId]);
+  const match = result.rows[0];
+  if (!match?.evidence?.commerce?.references || !match.score) return null;
+  const currentOffers = await refresh(match.evidence.commerce.references,
+    { market: match.evidence.commerce.market ?? "US",
+      requirements: match.commerceRequirements ?? {},
+      officialSites: { seed: match.seedWebsite, partner: match.partnerWebsite } });
+  return { id: match.id, currentOffers, savedScore: match.score,
+    score: currentCommerceAssessment(match.score, currentOffers,
+      match.commerceRequirements ?? {}) };
+}
+
+export async function researchPersonalMatchAudience(userId, matchId,
+  { includeDemographics = false, investigate = investigateCommerceAudience } = {}) {
+  if (!uuid(matchId)) return null;
+  const response = await db().query(`select seed.identity_status as "seedIdentity",
+    partner.identity_status as "partnerIdentity",
+    seed_id.external_id as "seedQlooId",partner_id.external_id as "partnerQlooId",
+    a.score_json as score
+    from public.matches m join public.analysis_runs r on r.id=m.analysis_run_id
+    join catalog.entities seed on seed.id=m.brand_entity_id
+    join catalog.entities partner on partner.id=m.partner_entity_id
+    left join catalog.entity_identifiers seed_id on seed_id.entity_id=seed.id
+      and seed_id.provider='qloo' and seed_id.status='confirmed'
+    left join catalog.entity_identifiers partner_id on partner_id.entity_id=partner.id
+      and partner_id.provider='qloo' and partner_id.status='confirmed'
+    left join lateral (select score_json from public.assessment_snapshots
+      where match_id=m.id and user_id=$1 order by version desc limit 1) a on true
+    where m.id=$2 and m.user_id=$1 and r.user_id=$1
+      and r.match_type='brand_brand' and r.objective in ('product_bundle','cross_sell')`,
+  [userId, matchId]);
+  const row = response.rows[0];
+  if (!row) return null;
+  if (row.seedIdentity !== "verified" || row.partnerIdentity !== "verified" ||
+      !row.seedQlooId || !row.partnerQlooId ||
+      row.score?.policyVersion !== "brand-commerce-v1.1" ||
+      row.score?.culturalRelationship === "contradicted") {
+    return { status: "unavailable", connections: [], demographicStatus: "not_requested",
+      sharedDemographicSignals: null };
+  }
+  return investigate(userId, row.seedQlooId, row.partnerQlooId,
+    { includeDemographics });
 }
 
 export async function recordPersonalFeedback(userId, input) {
@@ -240,163 +351,60 @@ export async function updatePersonalBrief(userId, briefId, input) {
 }
 
 // Proposal drafts are user-triggered only; scoring never creates concepts or briefs.
-export async function createPersonalProposal(userId, matchId) {
+export async function createPersonalProposal(userId, matchId, input = {}) {
   if (!uuid(matchId)) bad("Partnership not found.", 404);
-  const client = await db().connect();
-  try {
-    await client.query("begin");
-    const match = await client.query(`select m.id,
-        seed.canonical_name as "seedName",partner.canonical_name as "partnerName",r.objective,
-        (select external_id from catalog.entity_identifiers where entity_id=m.brand_entity_id and provider='wikidata' and status='confirmed' limit 1) as "seedQid",
-        (select external_id from catalog.entity_identifiers where entity_id=m.partner_entity_id and provider='wikidata' and status='confirmed' limit 1) as "partnerQid"
-      from public.matches m
-      join catalog.entities seed on seed.id=m.brand_entity_id
-      join catalog.entities partner on partner.id=m.partner_entity_id
-      join public.analysis_runs r on r.id=m.analysis_run_id
-      where m.id=$1 and m.user_id=$2`, [matchId, userId]);
-    if (!match.rows[0]) { await client.query("rollback"); bad("Partnership not found.", 404); }
-    const existing = await client.query(`select id,content_markdown as markdown,revision from public.briefs
-      where match_id=$1 and user_id=$2 order by updated_at desc limit 1`, [matchId, userId]);
-    if (existing.rows[0]) {
-      await client.query("commit");
-      return { id: existing.rows[0].id, markdown: existing.rows[0].markdown,
-        revision: existing.rows[0].revision, reused: true };
-    }
-    const assessment = await client.query(`select id,score_json from public.assessment_snapshots
-      where match_id=$1 and user_id=$2 order by version desc limit 1`, [matchId, userId]);
-    if (!assessment.rows[0]) { await client.query("rollback"); bad("Research must finish before a proposal can start.", 409); }
-    const row = match.rows[0];
-    const scoreJson = assessment.rows[0].score_json ?? {};
-    const title = `${row.seedName} × ${row.partnerName}: research hypothesis`;
-    const draft = { title, format: "Exploratory partnership discussion",
-      hypothesis: Number.isFinite(scoreJson.displayScore)
-        ? `The evidence-based opportunity index is ${scoreJson.displayScore}/100; confirm interest and terms before any commitment.`
-        : scoreJson.status === "excluded"
-          ? "This pair is excluded by a verified constraint; keep this draft for records only."
-          : "A cultural connection has not been fully evidenced yet; verify the open questions first.",
-      roles: { seed: "Clarify the partnership goal and the audience question.",
-        partner: "Confirm interest and a complementary contribution." },
-      deliverable: "A small pilot only after both brands validate the cultural angle.",
-      validation: "Find original campaign examples for both brands, verify the connection, then check feasibility and interest." };
-    const concept = await client.query(`insert into public.concepts(user_id,match_id,base_assessment_id,version,title,format,draft_json)
-      values($1,$2,$3,1,$4,$5,$6::jsonb) returning id`,
-      [userId, matchId, assessment.rows[0].id, title.slice(0, 300), draft.format, JSON.stringify(draft)]);
-    const markdown = proposalTemplate({ seedName: row.seedName, partnerName: row.partnerName,
-      objective: row.objective,
-      sourceUrls: [row.seedQid, row.partnerQid]
-        .filter((qid) => /^Q[1-9]\d*$/.test(qid ?? ""))
-        .map((qid) => `https://www.wikidata.org/wiki/${qid}`) });
-    const brief = await client.query(`insert into public.briefs(user_id,match_id,concept_id,assessment_id,content_markdown)
-      values($1,$2,$3,$4,$5) returning id,revision`, [userId, matchId, concept.rows[0].id, assessment.rows[0].id, markdown]);
-    await client.query("commit");
-    return { id: brief.rows[0].id, markdown, revision: brief.rows[0].revision, reused: false };
-  } catch (error) { await client.query("rollback"); throw error; }
-  finally { client.release(); }
+  const commerce = await db().query(`select r.objective from public.matches m
+    join public.analysis_runs r on r.id=m.analysis_run_id
+    where m.id=$1 and m.user_id=$2 and r.match_type='brand_brand'
+      and r.objective in ('product_bundle','cross_sell')`, [matchId, userId]);
+  if (!commerce.rows[0]) bad("Partnership not found.", 404);
+  return commerceProposalAction(userId, matchId, input);
 }
 
 export async function claimPersonalRun(id = workerId) {
   const result = await db().query(`with ready as (
     select id from public.analysis_runs where
       ((status='queued' and available_at<=now()) or (status='running' and lease_until<now()))
-      and attempt<3 and (constraints_json->>'sample'='true' or constraints_json->>'researchMode' in ('live_youtube','live_brand'))
+      and attempt<3 and constraints_json->>'researchMode'='live_commerce'
     order by available_at,created_at for update skip locked limit 1
   ) update public.analysis_runs r set status='running',stage=case
-    when r.constraints_json->>'researchMode'='live_youtube' then 'Collecting public YouTube metadata'
-    when r.constraints_json->>'researchMode'='live_brand' and r.kind='discovery' then 'Finding brand partners'
-    when r.constraints_json->>'researchMode'='live_brand' then 'Checking the selected brands'
-    else 'Preparing sample preview' end,
+    when r.constraints_json->>'researchMode'='live_commerce' and r.kind='discovery' then 'Finding product partners'
+    when r.constraints_json->>'researchMode'='live_commerce' then 'Checking the selected products'
+    else 'Checking the selected products' end,
     attempt=attempt+1,lease_until=now()+interval '2 minutes',worker_id=$1,updated_at=now()
     from ready where r.id=ready.id returning r.id,r.user_id,r.project_id,r.seed_entity_id,
     r.specified_partner_id,r.objective,r.kind,r.match_type,r.constraints_json,r.plan_json,r.feedback_snapshot_json,r.attempt`, [id]);
   return result.rows[0] ?? null;
 }
 
-export async function processPersonalRun(run, id = workerId) {
-  const client = await db().connect();
-  try {
-    await client.query("begin");
-    const locked = await client.query(`select status,worker_id from public.analysis_runs where id=$1 for update`, [run.id]);
-    if (locked.rows[0]?.status !== "running" || locked.rows[0]?.worker_id !== id) {
-      await client.query("rollback"); return false;
-    }
-    const variant = run.constraints_json.partnerType;
-    const partnerId = run.specified_partner_id ?? await sampleEntity(client, variant);
-    const excluded = run.feedback_snapshot_json?.events?.some((item) =>
-      item.partner_entity_id === partnerId && item.action === "reject");
-    if (excluded) {
-      await client.query(`update public.analysis_runs set status='partial',stage='Complete',
-        result_json='{"sample":true,"message":"The sample partner was passed over in earlier feedback."}'::jsonb,
-        finished_at=now(),lease_until=null,worker_id=null,updated_at=now() where id=$1`, [run.id]);
-      await client.query("commit"); return true;
-    }
-    const seed = await client.query("select canonical_name from catalog.entities where id=$1", [run.seed_entity_id]);
-    const partner = sample[variant];
-    const match = await client.query(`insert into public.matches(user_id,analysis_run_id,brand_entity_id,partner_entity_id)
-      values ($1,$2,$3,$4) on conflict (analysis_run_id,partner_entity_id) do update set updated_at=public.matches.updated_at
-      returning id`, [run.user_id, run.id, run.seed_entity_id, partnerId]);
-    const matchId = match.rows[0].id;
-    const previous = await client.query("select id from public.assessment_snapshots where match_id=$1 and version=1", [matchId]);
-    if (!previous.rows[0]) {
-      const frozen = await samplePreviewEvidence({ userId: run.user_id, seedEntityId: run.seed_entity_id,
-        partnerEntityId: partnerId, objective: run.objective, variant });
-      const score = { status: "unscored", reason: "No verified evidence; no fit or opportunity score is available." };
-      const assessment = await client.query(`insert into public.assessment_snapshots(user_id,match_id,version,objective,input_hash,
-        scoring_version,evidence_json,score_json,source_refs_json,qloo_response_ids)
-        values ($1,$2,1,$3,$4,'unscored-sample-v1',$5::jsonb,$6::jsonb,$7::jsonb,$8::uuid[]) returning id`,
-      [run.user_id, matchId, run.objective, frozen.inputHash, JSON.stringify(frozen.evidence), JSON.stringify(score),
-        JSON.stringify(frozen.sourceRefsJson), frozen.qlooResponseIds]);
-      const title = `${seed.rows[0].canonical_name} × ${partner.name}: sample pilot`;
-      const draft = { sample: true, title, format: variant === "creator" ? "Sample content pilot" : "Sample co-created pilot",
-        hypothesis: "Explore a partnership only after both parties confirm a specific cultural connection and practical fit.",
-        roles: { seed: "Define the goal and provide the brand perspective.", partner: "Confirm interest and propose a complementary contribution." },
-        deliverable: "A small pilot agreed by both partners.", validation: "Verify source evidence, audience relevance, rights, budget and willingness to participate." };
-      const concept = await client.query(`insert into public.concepts(user_id,match_id,base_assessment_id,version,title,format,draft_json)
-        values ($1,$2,$3,1,$4,$5,$6::jsonb) returning id`,
-      [run.user_id, matchId, assessment.rows[0].id, title, draft.format, JSON.stringify(draft)]);
-      const markdown = proposalTemplate({ seedName: seed.rows[0].canonical_name,
-        partnerName: partner.name, objective: run.objective, sample: true });
-      await client.query(`insert into public.briefs(user_id,match_id,concept_id,assessment_id,content_markdown)
-        values ($1,$2,$3,$4,$5)`, [run.user_id, matchId, concept.rows[0].id, assessment.rows[0].id, markdown]);
-    }
-    await client.query(`update public.analysis_runs set status='completed',stage='Complete',
-      result_json=$2::jsonb,finished_at=now(),lease_until=null,worker_id=null,updated_at=now()
-      where id=$1`, [run.id, JSON.stringify({ sample: true, count: 1, message: "Sample workflow preview. No live evidence or scores were used." })]);
-    await client.query("commit");
-    return true;
-  } catch (error) { await client.query("rollback"); throw error; }
-  finally { client.release(); }
-}
-
 export async function failPersonalRun(run, error, id = workerId) {
   const terminal = run.attempt >= 3;
+  const rateLimited = error?.code === "catalog_rate_limited";
+  const retryDelaySeconds = rateLimited ? Math.min(300, 60 * (2 ** (run.attempt - 1))) : 10;
   await db().query(`update public.analysis_runs set status=$3,stage=$4,error_code=$6,
-    available_at=case when $5 then available_at else now()+interval '10 seconds' end,
+    available_at=case when $5 then available_at else now()+$7::integer * interval '1 second' end,
     lease_until=null,worker_id=null,finished_at=case when $5 then now() else null end,updated_at=now()
     where id=$1 and worker_id=$2 and status='running'`,
-  [run.id, id, terminal ? "failed" : "queued", terminal ? "Complete" : "Retrying research", terminal,
-    run.constraints_json?.researchMode === "live_youtube" ? "creator_research_unavailable"
-      : run.constraints_json?.researchMode === "live_brand" ? "brand_research_unavailable" : "sample_preview_failed"]);
+  [run.id, id, terminal ? "failed" : "queued", terminal ? "Complete" :
+    rateLimited ? "Waiting to retry product research" : "Retrying research", terminal,
+    rateLimited ? "commerce_catalog_rate_limited" : "commerce_research_unavailable",
+    retryDelaySeconds]);
   if (process.env.DEBUG_PERSONAL_RUNS === "1") process.stderr.write(`Personal run failed: ${error instanceof Error ? error.message : String(error)}\n`);
 }
 
 export async function workOnePersonalRun(id = workerId) {
   await db().query(`update public.analysis_runs set status='failed',stage='Complete',
-    error_code='sample_preview_retry_exhausted',lease_until=null,worker_id=null,
+    error_code='commerce_research_retry_exhausted',lease_until=null,worker_id=null,
     finished_at=now(),updated_at=now() where status='running' and lease_until<now()
-    and attempt>=3 and (constraints_json->>'sample'='true' or constraints_json->>'researchMode' in ('live_youtube','live_brand'))`);
+    and attempt>=3 and constraints_json->>'researchMode'='live_commerce'`);
   const run = await claimPersonalRun(id);
   if (!run) return false;
-  const heartbeat = run.constraints_json?.researchMode === "live_youtube" ? setInterval(() => {
+  const heartbeat = run.constraints_json?.researchMode === "live_commerce" ? setInterval(() => {
     db().query(`update public.analysis_runs set lease_until=now()+interval '2 minutes'
       where id=$1 and worker_id=$2 and status='running'`, [run.id, id]).catch(() => {});
   }, 30000) : null;
   heartbeat?.unref();
-  try { await (run.constraints_json?.researchMode === "live_youtube"
-    ? processCreatorResearchRun(run, id)
-    : run.constraints_json?.researchMode === "live_brand" && run.kind === "discovery"
-      ? processPersonalBrandDiscoveryRun(run, id)
-      : run.constraints_json?.researchMode === "live_brand" ? processPersonalBrandRun(run, id)
-      : processPersonalRun(run, id)); }
+  try { await processCommerceRun(run, id); }
   catch (error) { await failPersonalRun(run, error, id); }
   finally { if (heartbeat) clearInterval(heartbeat); }
   return true;

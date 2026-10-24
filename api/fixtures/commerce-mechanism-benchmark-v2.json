@@ -1,0 +1,571 @@
+{
+  "version": 2,
+  "task": "Is the cited existing-product mechanism defensible for this objective? This does not judge Qloo discovery, partner willingness, or offer eligibility.",
+  "frozenAt": "2026-10-21",
+  "cases": [
+    {
+      "id": "outdoor_sling_spf",
+      "category": "outdoor_technical",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "United by Blue",
+        "product": "(Re)volution 1L Go-Anywhere Bag",
+        "url": "https://unitedbyblue.com/products/revolution-1l-go-anywhere-sling"
+      },
+      "partner": {
+        "brand": "AllTrails",
+        "product": "Sunscreen + Carabiner",
+        "url": "https://shop.alltrails.com/products/sunscreen-carabiner"
+      },
+      "reviewerA": {
+        "label": "good",
+        "reason": "The small bag carries trip essentials; clip-on SPF serves a distinct sun-protection function on the same outing."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "live_app",
+        "verdict": "supported",
+        "mechanismPass": true,
+        "notes": "Signed-in native discovery; exact sling variant was later available on a read-only UCP recheck.",
+        "mechanismState": "supported"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "outdoor_two_carry_products",
+      "category": "outdoor_technical",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "United by Blue",
+        "product": "(R)evolution 9L Sidekick",
+        "url": "https://unitedbyblue.com/products/9l-sidekick"
+      },
+      "partner": {
+        "brand": "Rareform",
+        "product": "Mystery Tote Bundle",
+        "url": "https://www.rareform.com/products/mystery-tote-bundle"
+      },
+      "reviewerA": {
+        "label": "bad",
+        "reason": "Both selected offers primarily provide ordinary carrying capacity; the observed proposal did not establish an incremental bundle function."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "live_app",
+        "verdict": "needs_verification",
+        "mechanismPass": null,
+        "notes": "Signed-in native discovery; no specific joint benefit was verified.",
+        "mechanismState": "unknown"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "home_bathmat_towels",
+      "category": "home_kitchen",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Cold Picnic",
+        "product": "Embrace Bathmat - Blue",
+        "url": "https://coldpicnic.com/products/embrace-bathmat"
+      },
+      "partner": {
+        "brand": "Brooklinen",
+        "product": "Super-Plush Turkish Cotton Bath Towels",
+        "url": "https://www.brooklinen.com/products/super-plush-mib-bt"
+      },
+      "reviewerA": {
+        "label": "good",
+        "reason": "Towels dry the person and an absorbent bathmat protects the bathroom floor after bathing; the roles form a concrete shared task."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "focused_pair_replay",
+        "verdict": "needs_verification",
+        "mechanismPass": null,
+        "notes": "Read-only live replay through shared pair research with exact merchant links and focused search phrases. Exact URL paths matched this pair. Product mechanism was unknown; cultural relationship was also unknown because this replay did not supply Qloo evidence. This was not native discovery.",
+        "mechanismState": "unknown"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "home_pan_frame",
+      "category": "home_kitchen",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Great Jones",
+        "product": "Patty Cake pan",
+        "url": "https://greatjonesgoods.com/products/patty-cake"
+      },
+      "partner": {
+        "brand": "Framebridge",
+        "product": "The Perfect Gift: 8x10",
+        "url": "https://www.framebridge.com/products/perfect-gift-8x10"
+      },
+      "reviewerA": {
+        "label": "bad",
+        "reason": "General giftability does not give the baking pan and gift frame complementary roles in one specific task."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "live_app",
+        "verdict": "needs_verification",
+        "mechanismPass": null,
+        "notes": "Signed-in native discovery; the generic gifting mechanism was not verified.",
+        "mechanismState": "unknown"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "apparel_rain_jacket_sling",
+      "category": "apparel_lifestyle",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Cotopaxi",
+        "product": "Cielo Rain Jacket - Men's",
+        "url": "https://www.cotopaxi.com/products/cielo-rain-jacket-mens"
+      },
+      "partner": {
+        "brand": "United by Blue",
+        "product": "(Re)volution 1L Go-Anywhere Bag",
+        "url": "https://unitedbyblue.com/products/revolution-1l-go-anywhere-sling"
+      },
+      "reviewerA": {
+        "label": "good",
+        "reason": "For Cross-Sell, the sling adds a carrying function to the rain-shell outing; the claim is limited to that observed jacket, not the whole apparel assortment or bag waterproofing."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "live_app",
+        "verdict": "supported",
+        "mechanismPass": true,
+        "notes": "Signed-in native Cross-Sell discovery; this does not assert the bag is waterproof.",
+        "mechanismState": "supported"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "apparel_leggings_handbag",
+      "category": "apparel_lifestyle",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Lacausa",
+        "product": "Venus Leggings",
+        "url": "https://lacausa.com/products/venus-leggings-pacific"
+      },
+      "partner": {
+        "brand": "BAGGU",
+        "product": "Small Recycled Leather Bowler Bag",
+        "url": "https://checkout.baggu.com/products/small-recycled-leather-bowler-bag-brown-1"
+      },
+      "reviewerA": {
+        "label": "bad",
+        "reason": "Wearing leggings and carrying a handbag are parallel ordinary functions; the observed rationale did not identify a distinctive combined task."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "live_app",
+        "verdict": "supported",
+        "mechanismPass": true,
+        "notes": "Signed-in native discovery; likely generic-use false positive for the Bundle objective.",
+        "mechanismState": "supported"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "cpg_oil_skillet",
+      "category": "cpg_personal_care",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Brightland",
+        "product": "Alive Extra Virgin Olive Oil",
+        "url": "https://brightland.co/products/alive"
+      },
+      "partner": {
+        "brand": "Great Jones",
+        "product": "King Sear skillet",
+        "url": "https://greatjonesgoods.com/products/king-sear"
+      },
+      "reviewerA": {
+        "label": "good",
+        "reason": "The selected oil can be used for cooking and the skillet cooks the meal; Great Jones also publishes a King Sear recipe using olive oil. The exact earlier selected variant's current availability remains a separate question."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "live_app",
+        "verdict": "needs_verification",
+        "mechanismPass": null,
+        "notes": "Signed-in native discovery; mechanism reason was joint_use_unverified, so this is a possible mechanism false negative rather than a proven full-opportunity false negative.",
+        "mechanismState": "unknown"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "cpg_oil_cocktail",
+      "category": "cpg_personal_care",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Brightland",
+        "product": "Alive Extra Virgin Olive Oil",
+        "url": "https://brightland.co/products/alive"
+      },
+      "partner": {
+        "brand": "Curious Elixirs",
+        "product": "Curious No. 2 booze-free cocktail",
+        "url": "https://curiouselixirs.com/pages/two"
+      },
+      "reviewerA": {
+        "label": "bad",
+        "reason": "The observed idea relied on a generic shared meal setting; no specific incremental use of the ready-to-drink cocktail with the oil was verified."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "live_app",
+        "verdict": "needs_verification",
+        "mechanismPass": null,
+        "notes": "Signed-in native discovery; product mechanism was not verified.",
+        "mechanismState": "unknown"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "outdoor_pack_bottle_cross",
+      "category": "outdoor_technical",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Topo Designs",
+        "product": "Rover Pack Classic",
+        "url": "https://topodesigns.com/products/rover-pack-classic-black-black"
+      },
+      "partner": {
+        "brand": "MiiR",
+        "product": "Wide Mouth Water Bottle",
+        "url": "https://www.miir.com/products/wide-mouth"
+      },
+      "reviewerA": {
+        "label": "good",
+        "reason": "The verified pack has bottle pockets; the insulated bottle adds a distinct hydration function to the observed daypack use."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "focused_pair_replay",
+        "verdict": "needs_verification",
+        "mechanismPass": true,
+        "notes": "Exact official product paths matched in 2 assessed variant combination(s). Mechanism gate: supported. Full opportunity includes no Qloo relationship evidence in this focused replay.",
+        "retrievalNote": "The ordinary bounded sampler missed this pair although both exact paths were present in live search results; this pass restricted the live search results to the frozen pair before normal detail and assessment.",
+        "reasonCodes": [
+          "cultural_relationship_unknown"
+        ],
+        "catalogCallsUsed": 16,
+        "observedAt": "2026-10-20T21:57:30.198Z",
+        "mechanismState": "supported"
+      },
+      "search": {
+        "seedQuery": "Rover Pack Classic",
+        "partnerQuery": "Wide Mouth"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "outdoor_two_packs_cross",
+      "category": "outdoor_technical",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Topo Designs",
+        "product": "Rover Pack Classic",
+        "url": "https://topodesigns.com/products/rover-pack-classic-black-black"
+      },
+      "partner": {
+        "brand": "United by Blue",
+        "product": "(R)evolution 9L Sidekick",
+        "url": "https://unitedbyblue.com/products/9l-sidekick"
+      },
+      "reviewerA": {
+        "label": "bad",
+        "reason": "Both selected items chiefly carry everyday essentials; no sourced incremental cross-sell role beyond alternative bag capacity is established."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "focused_pair_replay",
+        "verdict": "needs_verification",
+        "mechanismPass": true,
+        "notes": "Exact official product paths matched in 2 assessed variant combination(s). Mechanism gate: supported. Full opportunity includes no Qloo relationship evidence in this focused replay.",
+        "retrievalNote": "The ordinary bounded sampler missed this pair although both exact paths were present in live search results; this pass restricted the live search results to the frozen pair before normal detail and assessment.",
+        "reasonCodes": [
+          "cultural_relationship_unknown"
+        ],
+        "catalogCallsUsed": 15,
+        "observedAt": "2026-10-20T21:57:50.951Z",
+        "mechanismState": "supported"
+      },
+      "search": {
+        "seedQuery": "Rover Pack Classic",
+        "partnerQuery": "9L Sidekick"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "home_cake_pan_oil_cross",
+      "category": "home_kitchen",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Great Jones",
+        "product": "Patty Cake pan",
+        "url": "https://greatjonesgoods.com/products/patty-cake"
+      },
+      "partner": {
+        "brand": "Brightland",
+        "product": "Alive Extra Virgin Olive Oil",
+        "url": "https://brightland.co/products/alive"
+      },
+      "reviewerA": {
+        "label": "good",
+        "reason": "The cake pan shapes and bakes a cake while the oil is an ingredient the merchant says can be used in baked goods; roles contribute to one baking task."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "focused_pair_replay",
+        "verdict": "needs_verification",
+        "mechanismPass": null,
+        "notes": "Exact official product paths matched in 1 assessed variant combination(s). Mechanism gate: unknown. Full opportunity includes no Qloo relationship evidence in this focused replay.",
+        "reasonCodes": [
+          "cultural_relationship_unknown",
+          "product_mechanism_unknown",
+          "objective_fit_unknown"
+        ],
+        "catalogCallsUsed": 9,
+        "observedAt": "2026-10-20T21:40:29.264Z",
+        "mechanismState": "unknown"
+      },
+      "search": {
+        "seedQuery": "Patty Cake",
+        "partnerQuery": "Alive"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "home_two_bathmats_cross",
+      "category": "home_kitchen",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Cold Picnic",
+        "product": "Embrace Bathmat - Blue",
+        "url": "https://coldpicnic.com/products/embrace-bathmat"
+      },
+      "partner": {
+        "brand": "Brooklinen",
+        "product": "Soft Weave Bath Mat",
+        "url": "https://www.brooklinen.com/products/soft-weave-bath-mat"
+      },
+      "reviewerA": {
+        "label": "bad",
+        "reason": "The two selected bathmats fill the same post-shower floor role; no distinct contribution beyond a substitute style is established."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "focused_pair_replay",
+        "verdict": "needs_verification",
+        "mechanismPass": null,
+        "notes": "Exact official product paths matched in 2 assessed variant combination(s). Mechanism gate: unknown. Full opportunity includes no Qloo relationship evidence in this focused replay.",
+        "retrievalNote": "The ordinary bounded sampler missed this pair although both exact paths were present in live search results; this pass restricted the live search results to the frozen pair before normal detail and assessment.",
+        "reasonCodes": [
+          "cultural_relationship_unknown",
+          "product_mechanism_unknown",
+          "objective_fit_unknown"
+        ],
+        "catalogCallsUsed": 9,
+        "observedAt": "2026-10-20T21:58:10.301Z",
+        "mechanismState": "unknown"
+      },
+      "search": {
+        "seedQuery": "Embrace Bathmat",
+        "partnerQuery": "Soft Weave Bath Mat"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "apparel_yoga_leggings_grip_socks_bundle",
+      "category": "apparel_lifestyle",
+      "objective": "product_bundle",
+      "seed": {
+        "brand": "Lacausa",
+        "product": "Venus Leggings - Basil",
+        "url": "https://lacausa.com/products/venus-leggings-basil"
+      },
+      "partner": {
+        "brand": "ToeSox",
+        "product": "Full Toe Crew Grip Socks",
+        "url": "https://www.toesox.com/products/full-toe-crew-grip-socks"
+      },
+      "reviewerA": {
+        "label": "good",
+        "reason": "The leggings support movement during yoga or Pilates while the grip socks add foot traction on the floor; the cited functions serve a single class."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "exact_pair_unavailable",
+        "verdict": null,
+        "mechanismPass": null,
+        "notes": "The exact product paths were assessed with divergent variant outcomes; no single product-level prediction was assigned.",
+        "coverage": "partial_assortment",
+        "catalogCallsUsed": 11,
+        "observedAt": "2026-10-20T21:58:32.710Z",
+        "mechanismState": null
+      },
+      "search": {
+        "seedQuery": "Venus Leggings",
+        "partnerQuery": "Full Toe Crew Grip Socks"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "apparel_two_leggings_cross",
+      "category": "apparel_lifestyle",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Lacausa",
+        "product": "Venus Leggings - Basil",
+        "url": "https://lacausa.com/products/venus-leggings-basil"
+      },
+      "partner": {
+        "brand": "Everlane",
+        "product": "The Perform 24/7 Legging",
+        "url": "https://www.everlane.com/products/womens-perform-soft-legging-black"
+      },
+      "reviewerA": {
+        "label": "bad",
+        "reason": "Both selected items are exercise or everyday leggings; the partner item is a substitute garment without a distinct observed assortment function."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "focused_pair_replay",
+        "verdict": "needs_verification",
+        "mechanismPass": null,
+        "notes": "Exact official product paths matched in 2 assessed variant combination(s). Mechanism gate: unknown. Full opportunity includes no Qloo relationship evidence in this focused replay.",
+        "retrievalNote": "The ordinary bounded sampler missed this pair although both exact paths were present in live search results; this pass restricted the live search results to the frozen pair before normal detail and assessment.",
+        "reasonCodes": [
+          "cultural_relationship_unknown",
+          "product_mechanism_unknown",
+          "objective_fit_unknown"
+        ],
+        "catalogCallsUsed": 9,
+        "observedAt": "2026-10-20T21:58:52.801Z",
+        "mechanismState": "unknown"
+      },
+      "search": {
+        "seedQuery": "Venus Leggings",
+        "partnerQuery": "Perform 24/7 Legging"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "cpg_cleanser_sunscreen_cross",
+      "category": "cpg_personal_care",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Cocokind",
+        "product": "Oil to Milk Cleanser",
+        "url": "https://www.cocokind.com/products/oil-to-milk-cleanser"
+      },
+      "partner": {
+        "brand": "Nécessaire",
+        "product": "The Sunscreen 100% Mineral",
+        "url": "https://necessaire.com/collections/sun-1/products/the-sunscreen-spf-30-pa-150-ml"
+      },
+      "reviewerA": {
+        "label": "good",
+        "reason": "The cleanser removes dirt and makeup before skincare; mineral sunscreen then provides a distinct sun-protection function for the same skin routine."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "exact_pair_unavailable",
+        "verdict": null,
+        "mechanismPass": null,
+        "notes": "The bounded live pair research did not assess both exact official product paths; no alternate product or variant was substituted.",
+        "coverageIssues": [
+          "selected_variant_or_product_unverified"
+        ],
+        "hypothesesConsidered": 1,
+        "assessedCount": 0,
+        "coverage": "partial_assortment",
+        "catalogCallsUsed": 7,
+        "observedAt": "2026-10-20T22:00:35.918Z",
+        "mechanismState": null
+      },
+      "search": {
+        "seedQuery": "Oil to Milk Cleanser",
+        "partnerQuery": "Sunscreen"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    },
+    {
+      "id": "cpg_two_olive_oils_cross",
+      "category": "cpg_personal_care",
+      "objective": "cross_sell",
+      "seed": {
+        "brand": "Brightland",
+        "product": "Alive Extra Virgin Olive Oil",
+        "url": "https://brightland.co/products/alive"
+      },
+      "partner": {
+        "brand": "Graza",
+        "product": "Sizzle Extra Virgin Olive Oil",
+        "url": "https://www.graza.co/products/sizzle"
+      },
+      "reviewerA": {
+        "label": "bad",
+        "reason": "Both selected products are versatile extra virgin olive oils used for cooking; no distinct partner contribution beyond substituting another oil is established."
+      },
+      "reviewerB": null,
+      "adjudicatedLabel": null,
+      "observation": {
+        "kind": "focused_pair_replay",
+        "verdict": "needs_verification",
+        "mechanismPass": true,
+        "notes": "Exact official product paths matched in 2 assessed variant combination(s). Mechanism gate: supported. Full opportunity includes no Qloo relationship evidence in this focused replay.",
+        "retrievalNote": "The ordinary bounded sampler missed this pair although both exact paths were present in live search results; this pass restricted the live search results to the frozen pair before normal detail and assessment.",
+        "reasonCodes": [
+          "cultural_relationship_unknown"
+        ],
+        "catalogCallsUsed": 16,
+        "observedAt": "2026-10-20T21:59:19.111Z",
+        "mechanismState": "supported"
+      },
+      "search": {
+        "seedQuery": "Alive",
+        "partnerQuery": "Sizzle"
+      },
+      "humanReviewA": null,
+      "humanReviewB": null
+    }
+  ]
+}

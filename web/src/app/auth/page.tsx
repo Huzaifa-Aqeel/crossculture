@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import Link from "next/link";
 import { Header } from "@/components/header";
 import { browserSupabase } from "@/lib/supabase/client";
 import "./auth.css";
@@ -51,7 +50,7 @@ export default function AuthPage() {
   }
 
   return <><Header /><main className="auth-shell shell">
-    <div className="auth-intro"><span className="eyebrow"><span className="eyebrow-dot" /> YOUR WORKSPACE</span><h1>{mode === "sign_up" ? "Create an account." : mode === "reset" ? "Reset your password." : "Welcome back."}</h1><p>Keep your research together as you explore future partnerships.</p><Link href="/discover" className="text-link">Continue with the live demo</Link></div>
+    <div className="auth-intro"><span className="eyebrow"><span className="eyebrow-dot" /> YOUR WORKSPACE</span><h1>{mode === "sign_up" ? "Create an account." : mode === "reset" ? "Reset your password." : "Welcome back."}</h1><p>Keep your product partnership research together.</p></div>
     <section className="auth-card" aria-label="Account access"><div className="auth-tabs"><button type="button" aria-current={mode === "sign_in" ? "page" : undefined} onClick={() => { setMode("sign_in"); setError(""); setMessage(""); }}>Sign in</button><button type="button" aria-current={mode === "sign_up" ? "page" : undefined} onClick={() => { setMode("sign_up"); setError(""); setMessage(""); }}>Create account</button></div>
       <form onSubmit={submit}><label htmlFor="account-email">Email address</label><input id="account-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />{mode !== "reset" && <><label htmlFor="account-password">Password</label><input id="account-password" type="password" autoComplete={mode === "sign_up" ? "new-password" : "current-password"} minLength={6} required value={password} onChange={(event) => setPassword(event.target.value)} /></>}
         {error && <p role="alert" className="auth-error">{error}</p>}{message && <p role="status" className="auth-message">{message}</p>}

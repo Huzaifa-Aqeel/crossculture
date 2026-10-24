@@ -44,6 +44,13 @@ assert.equal(supportedBusinessEvidence("campaign", evidence("Arc'teryx campaigns
 assert.equal(supportedBusinessEvidence("journal", evidence("Socks Made in USA | Smartwool US",
   "the checkerboard landscape in the Crazies... Read Post A trip to the Kootenays with The Snowboarders Journal Tag: Snow Tag: Stories A trip to the Kootenays with The Snowboarders Journal Smartwool • Smartwool athletes head to Whitewater, BC, for deep snow, untouched lines"), "Smartwool"), false,
 "A product-page title action cannot turn a related-post navigation excerpt into a content capability.");
+assert.equal(supportedBusinessEvidence("journal", { ...evidence("Become An Affiliate – Cold Picnic",
+  "Apply For A Trade Account Gallery Featured image Trade Program About Us Our Story Our Partners Journal About Our Products Product Guide Care Guide Sizing Information Custom COMMUNITY Become An Affiliate Stockists Initiatives Featured image About Us New Arrivals Best Sellers Shop All 10% Off Your First Order Rugs Bathmats Blanket"),
+  url: "https://coldpicnic.com/pages/become-an-affiliate" }, "Cold Picnic"), false,
+"The cached Cold Picnic navigation excerpt cannot establish journal production or a promotion channel.");
+assert.equal(supportedBusinessEvidence("campaign", evidence("Cold Picnic campaign",
+  "Cold Picnic partners with local artists on a documented campaign."), "Cold Picnic"), true,
+"A concrete partnership action remains admissible.");
 assert.ok(inspectedSearchResult({ ...page, title: "Outdoor Clothing", raw_content: "Find technical clothing for hiking." }, "Outdoor Clothing"));
 assert.equal(inspectedSearchResult({ ...page, raw_content: null }, "camping"), null);
 assert.equal(inspectedSearchResult({ ...page, raw_content: "Unrelated page" }, "camping"), null);
@@ -115,6 +122,17 @@ const failedResearch = await researchPartnerEvidence(null, { brandName: "Smartwo
 { search: async () => { throw new Error("Provider unavailable"); } });
 assert.equal(failedResearch.coverage, "not_completed");
 assert.equal(failedResearch.capabilityResults[0].coverage, "not_performed");
+let selectedLacausaLead = null;
+await researchPartnerEvidence(null, { brandName: "Lacausa", domain: "lacausa.com", territories: [],
+  capabilityTerms: [{ key: "content_creation_capability", terms: ["video"] }] }, {
+  search: async () => ({ results: [], leads: [
+    { url: "https://lacausa.com/policies/legal-notice", title: "Legal notice" },
+    { url: "https://lacausa.com/blogs/journal/film-project", title: "Lacausa film project" },
+  ] }),
+  extract: async (url) => { selectedLacausaLead = url; return { results: [] }; },
+});
+assert.equal(selectedLacausaLead, "https://lacausa.com/blogs/journal/film-project",
+  "A legal-notice lead from the cached Lacausa result must not consume an extraction slot.");
 const priorKey = process.env.TAVILY_API_KEY;
 const priorBackupKey = process.env.TAVILY_API_KEY_2;
 const priorFetch = globalThis.fetch;
