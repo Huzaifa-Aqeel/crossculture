@@ -3,7 +3,7 @@
 ## Brand country, where to launch and guided flow (24 October)
 
 - **Brand country.** The user enters the brand and its country first. The country sets the project market (stored on `projects.market`), currency and Catalog market, and adds one country-domain guess after `brandname.com`. If the brand cannot be confirmed in that country, the user sees an honest limitation and can enter the official website.
-- **Where to launch.** For a saved or shown opportunity, both brands' Qloo where_popular results within the project country are mapped to named metro areas; shared areas (up to four) are shown under "Where to launch" and given to concept development. Explanation only — no effect on status or ranking.
+- **Where audiences overlap** (formerly "Where to launch"). For a saved or shown opportunity, both brands' Qloo where_popular results within the project country are mapped to named metro areas; shared areas (up to four) are shown on the card and in the proposal and given to concept development. Explanation only — no effect on status or ranking.
 - **Guided flow and results UI.** Brand + country → goal (and optional chosen partner) → chosen product → optional refinements. Results show only the essentials per opportunity; evidence, sources and reviewed products stay behind a details disclosure.
 - **Still open:** market-tuned partner discovery (`signal_location`) — a UK probe reshuffled partners but they were still US brands, so it is on hold pending a non-US brand test.
 

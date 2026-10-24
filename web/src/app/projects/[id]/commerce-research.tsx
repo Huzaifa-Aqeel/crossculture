@@ -206,9 +206,9 @@ function Opportunity({ match, others, run, pending, launch, onShow, onCheck, onC
         <strong className="rs-reason">{sentenceCase(score.productMechanism.customerReason)}</strong>}
         {score.productMechanism?.boundedRationale || "The product benefit needs more evidence."}</dd></div>
       <div className="rs-fact"><dt>Cultural connection</dt><dd>{culturalLine(score, run.seedName, shown.partnerName)}</dd></div>
-      {launch?.areas.length ? <div className="rs-fact"><dt>Where to launch</dt><dd>
+      {launch?.areas.length ? <div className="rs-fact"><dt>Where audiences overlap</dt><dd>
         <div className="rs-tags">{launch.areas.map((area) => <span key={area}>{area}</span>)}</div>
-        <span className="rs-quiet">Areas where both brands&apos; audiences are strongest.</span></dd></div> : null}
+        <span className="rs-quiet">Cities where both brands&apos; audiences are strongest. A good place to start targeted ads, local creators or a pop-up.</span></dd></div> : null}
       {issues.length ? <div className="rs-fact"><dt>Potential challenges</dt><dd><ul>{issues.map((item) => <li key={item}>{item}</li>)}</ul></dd></div> : null}
     </dl>
 

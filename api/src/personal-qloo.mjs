@@ -245,10 +245,12 @@ export async function personalQlooAudienceDemographics(ownerUserId, entityId,
 // Where a brand's audience is strongest inside one country (map cells with
 // query-relative affinity). Owner-private; explanation only, never a score.
 export async function personalQlooWherePopular(ownerUserId, entityId, within,
-  { provider = qlooCall, now = new Date(), limit = 25 } = {}) {
+  { provider = qlooCall, now = new Date(), limit = 20 } = {}) {
   if (!QLOO_UUID.test(entityId ?? "")) throw new Error("A confirmed cultural brand identifier is required.");
   if (typeof within !== "string" || within.trim().length < 2) throw new Error("A country is required.");
-  const context = { entity: entityId, entity_type: "brand", within: within.trim(), limit };
+  // The location tool rejects more than 20 results.
+  const context = { entity: entityId, entity_type: "brand", within: within.trim(),
+    limit: Math.max(1, Math.min(20, Math.floor(limit))) };
   const identity = qlooCacheIdentity({ operation: "qloo_where_popular", context, ownerUserId });
   const cached = await readQlooCache(identity, { now });
   if (cached.status !== "missing" && !(cached.sampleData && provider === qlooCall)) {

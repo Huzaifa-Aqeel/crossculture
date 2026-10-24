@@ -238,6 +238,7 @@ try {
   assert.deepEqual(reviewed.evidence.commerce.externalFindings, [reviewFinding]);
   assert.equal(reviewed.savedScore.status, "supported", "The review never changes the saved verdict");
   const concepts = await commerceProposalAction(users[0], matchId, {}, {
+    launchAreas: async () => ({ areas: [] }),
     refresh: async () => ({ seed: { status: "current", title: "Bath towel", available: true,
       marketCheck: { state: "supported" } },
       partner: { status: "current", title: "Bathmat", available: true,
@@ -265,7 +266,7 @@ try {
   assert.match(brief.markdown, /## The idea/);
   assert.match(brief.markdown, /## The products\n\n- \*\*Bath towel\*\*/);
   assert.doesNotMatch(brief.markdown, /## Measurement plan/, "No empty template sections");
-  assert.match(brief.markdown, /## Where to launch\n\n[^\n]*Seattle area/);
+  assert.match(brief.markdown, /## Where audiences overlap\n\nSeattle area/);
   assert.match(brief.markdown, /## To agree together\n\n- /);
   assert.equal((await listPersonalRuns(users[0], project.id)).length, 1);
   // Once research has run: the goal is fixed, and new research starts a new project.

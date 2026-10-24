@@ -6,6 +6,7 @@ import { fetchBusinessHomepage, verifyFirstPartyCommerceBusiness,
 import { researchCommercePair } from "../src/commerce-research.mjs";
 import { runFailurePlan } from "../src/personal-research.mjs";
 import { sharedLaunchAreas } from "../src/commerce-launch.mjs";
+import { qlooCacheIdentity } from "../src/qloo-cache.mjs";
 import { nearestMetro } from "../src/geo-places.mjs";
 import { objectiveJudgmentOutcome, quotesShareActivity,
   verifyCommerceMechanismRubric } from "../src/commerce-mechanism.mjs";
@@ -459,6 +460,12 @@ assert.equal(nearestMetro(40.69336, -74.00391, "US"), "New York");
 assert.equal(nearestMetro(51.52588, -0.10986, "GB"), "London");
 assert.equal(nearestMetro(10, 10, "US"), null, "A cell far from every metro stays unnamed");
 const cell = (lat, lon) => ({ location: { latitude: lat, longitude: lon } });
+// Every Qloo operation the app calls must be cacheable; a missing one failed
+// "Where audiences overlap" silently.
+for (const operation of ["qloo_describe", "qloo_recommend", "qloo_entity_tags", "qloo_where_popular"]) {
+  assert.doesNotThrow(() => qlooCacheIdentity({ operation, context: { entity: "x" },
+    ownerUserId: "11111111-1111-4111-8111-111111111111" }), operation);
+}
 const launch = await sharedLaunchAreas("owner", "11111111-1111-4111-8111-111111111111",
   "22222222-2222-4222-8222-222222222222", "US", { wherePopular: async (_owner, id, country) => {
     assert.equal(country, "United States");

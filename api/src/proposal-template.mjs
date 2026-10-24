@@ -52,7 +52,7 @@ export function commerceProposal({ seedName, partnerName, objective, concept, as
     products.length ? `## The products\n\n${products.join("\n")}` : "",
     why ? `## Why it fits\n\n${why}` : "",
     culture ? `## Cultural fit\n\n${culture}` : "",
-    areas.length ? `## Where to launch\n\nAreas where both brands' audiences are strongest: ${listText(areas)}.` : "",
+    areas.length ? `## Where audiences overlap\n\n${listText(areas)}: the cities where both brands' audiences are strongest, a good place to start targeted ads, local creators or a pop-up.` : "",
     concept?.roles?.seed || concept?.roles?.partner ? `## What each brand brings\n\n${[
       concept.roles.seed ? `- **${seed}:** ${sentence(concept.roles.seed)}` : "",
       concept.roles.partner ? `- **${partner}:** ${sentence(concept.roles.partner)}` : ""].filter(Boolean).join("\n")}` : "",
