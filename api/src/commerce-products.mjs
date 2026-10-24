@@ -26,6 +26,44 @@ export function observedProductType(product) {
 
 // Search and detail content is passed to research transiently. This summary
 // exposes actual observed functions without archiving a Catalog response.
+// Who the merchant made a product for: "men", "women", or null when unisex,
+// both or unstated. Read from merchant-authored fields only: the product
+// address, title, type, tags and collections (descriptions are too loose).
+const plainWords = (value) => ` ${String(value ?? "").toLowerCase().replace(/[’`]/g, "'")
+  .replace(/[^a-z']+/g, " ")} `;
+const MEN_WORDS = / (?:men|mens|men's|menswear) /;
+const WOMEN_WORDS = / (?:women|womens|women's|womenswear|woman|ladies) /;
+const UNISEX_WORDS = / (?:unisex|gender neutral|genderless) /;
+function wearerIn(text) {
+  const value = plainWords(text);
+  if (UNISEX_WORDS.test(value)) return "unisex";
+  const men = MEN_WORDS.test(value);
+  const women = WOMEN_WORDS.test(value);
+  return men && women ? "unisex" : men ? "men" : women ? "women" : null;
+}
+export function productWearer(product) {
+  let handle = typeof product?.handle === "string" ? product.handle : "";
+  if (!handle) {
+    try { handle = new URL(product?.url).pathname.split("/").filter(Boolean).pop() ?? ""; }
+    catch { handle = ""; }
+  }
+  const direct = wearerIn([product?.title, handle, product?.product_type ?? product?.type]
+    .filter((value) => typeof value === "string").join(" | "));
+  if (direct) return direct === "unisex" ? null : direct;
+  const labels = new Set([...(product?.tags ?? []).filter((tag) => typeof tag === "string"),
+    ...(product?.collections ?? []).map((item) => `${item?.title ?? ""} ${item?.handle ?? ""}`)]
+    .map(wearerIn).filter(Boolean));
+  return labels.size === 1 && !labels.has("unisex") ? [...labels][0] : null;
+}
+// A brand described only for women (or only for men), e.g. "a women's fashion label".
+export function brandWearer(description) {
+  const value = plainWords(description);
+  const men = / (?:men's|menswear|for men) /.test(value);
+  const women = / (?:women's|womenswear|for women) /.test(value);
+  return men === women ? null : men ? "men" : "women";
+}
+export const wearerConflict = (first, second) => Boolean(first && second && first !== second);
+
 export function transientCandidateFacts(product, descriptionTrusted = true) {
   const rawDescription = description(product);
   return { id: product.id, title: bounded(product.title, 140),
@@ -36,6 +74,7 @@ export function transientCandidateFacts(product, descriptionTrusted = true) {
       .map((tag) => bounded(tag, 45)),
     collections: (product.collections ?? []).slice(0, 4).map((item) =>
       bounded(item.title, 65)).filter(Boolean),
+    ...(productWearer(product) ? { designedFor: productWearer(product) } : {}),
     available: product.variants?.some((variant) => variant.availability?.available === true) ?? false };
 }
 
@@ -76,28 +115,6 @@ export function observedProductQueries(products, limit = 3) {
     if (queries.length >= limit) break;
   }
   return queries;
-}
-
-function queryPhrases(hints, name = "") {
-  const words = normalize(hints).split(" ").filter((word) => word.length > 3 && !QUERY_STOP.has(word));
-  const phrases = [];
-  for (let index = 0; index < words.length && phrases.length < 3; index += 3) {
-    phrases.push(words.slice(index, index + 3).join(" "));
-  }
-  return [...new Set([...phrases, bounded(name, 60), "products"].filter(Boolean))];
-}
-
-// Queries are search hypotheses only. No product category or pair is admitted by
-// this planner; actual returned products still need selected-detail assessment.
-export function productQueryPairs(seedHints = "", partnerHints = "", limit = 6,
-  seedName = "", partnerName = "", seedProducts = [], partnerProducts = []) {
-  const left = [...new Set([...observedProductQueries(seedProducts),
-    ...queryPhrases(seedHints, seedName)])];
-  const right = [...new Set([...observedProductQueries(partnerProducts),
-    ...queryPhrases(partnerHints, partnerName)])];
-  return Array.from({ length: Math.min(limit, Math.max(left.length, right.length) + 1) },
-    (_, index) => ({ seedQuery: left[index % left.length],
-      partnerQuery: right[index % right.length] }));
 }
 
 // The planner can propose retrieval directions, but only observed IDs from the
@@ -394,6 +411,27 @@ function exactMerchantCompatibility(seedProduct, partnerProduct, sourceAuthority
     (sourceAuthority.partnerDescription && confirms(partnerProduct, seedProduct)));
 }
 
+// One item's trusted description names the other item's type or material (a
+// word from that item's title): a scrubber "for cast iron cookware" with a cast
+// iron skillet, goggles that "fit over helmets". Laundry bleach that never
+// mentions pans does not establish safe use on a pan.
+const TITLE_STOP = new Set(["with", "from", "your", "this", "that", "pack", "inch", "inches",
+  "classic", "original", "essential", "essentials", "premium", "set", "sets", "mens", "womens",
+  "small", "large", "medium", "mini", "the", "and", "for", "new", "model", "edition", "collection"]);
+function careTextNamesOther(seedProduct, partnerProduct, sourceAuthority) {
+  const words = (product) => normalize(product?.title).split(" ")
+    .filter((word) => word.length >= 4 && !TITLE_STOP.has(word))
+    .map((word) => word.replace(/(?:es|s)$/, ""));
+  const names = (source, target, trusted) => {
+    if (!trusted) return false;
+    const text = ` ${normalize(description(source))} `;
+    return words(target).some((stem) => stem.length >= 3 &&
+      new RegExp(`\\b${stem}(?:e?s)?\\b`).test(text));
+  };
+  return names(partnerProduct, seedProduct, sourceAuthority.partnerDescription) ||
+    names(seedProduct, partnerProduct, sourceAuthority.seedDescription);
+}
+
 export function productMechanism(seedProduct, partnerProduct, objective, proposal = null,
   seedVariant = null, partnerVariant = null,
   sourceAuthority = { seedDescription: true, partnerDescription: true }, rubric = null) {
@@ -425,20 +463,38 @@ export function productMechanism(seedProduct, partnerProduct, objective, proposa
     normalize(occasion).split(" ").some((word) => word.length >= 4 && !VAGUE_CONTEXT.has(word));
   const assortmentContribution = objective === "cross_sell" && kind === "assortment_complement";
   const claimedCompatibility = /\b(?:fits?|compatible|sized|safe for|works with)\b/i.test(benefit);
+  // A fit claim is confirmed by a trusted page that names the other item's type
+  // ("fits over helmets", "for leather boots") or its exact title.
   const compatibilityConfirmed = claimedCompatibility &&
-    exactMerchantCompatibility(seedProduct, partnerProduct, sourceAuthority);
-  // A treatment, cleaner or coating proposed for another merchant's selected
-  // item needs its own compatibility proof. Material similarity alone cannot
-  // override the item's care instructions or establish safe application.
-  const requiresCompatibility = /\b(?:apply|spray|clean(?:er|ing)?|condition(?:er|ing)?|polish(?:ing)?|waterproof(?:ing)?|treat(?:ment|ing)?|coat(?:ing)?|wash(?:ing)?)\b|\bcare\s+(?:kit|cream|spray)\b/i
-    .test(`${roles.join(" ")} ${benefit}`);
+    (exactMerchantCompatibility(seedProduct, partnerProduct, sourceAuthority) ||
+      careTextNamesOther(seedProduct, partnerProduct, sourceAuthority));
+  // When one selected item is itself a treatment or care product (cleaner,
+  // conditioner, polish, protector, detergent...), applying it to the other
+  // item needs merchant-authored compatibility proof: material similarity cannot
+  // override care instructions. Only the item roles are checked; words such as
+  // "coat", "clean up" or "washing" in a benefit do not trigger this.
+  const treatmentRole = /\b(?:cleaner|cleaning (?:kit|spray|solution|cloth)|conditioner|polish|protector|protectant|waterproofing|water repellent|stain remover|care (?:kit|cream|spray|set)|treatment|coating|detergent|wax|dye)\b/i;
+  const personalCare = /\b(?:hair|skin|face|facial|body|scalp|lip|beard|nail)\b/i;
+  const careProduct = rubric?.careProductForOther === true ||
+    roles.some((role) => treatmentRole.test(role) && !personalCare.test(role));
+  // A restrictive care instruction on either page (dry clean only,
+  // professional cleaning only, no water or liquid cleaners) needs the exact
+  // merchant-authored compatibility statement, not a category mention.
+  const restrictiveCare = [seedProduct, partnerProduct].some((product) =>
+    /\b(?:dry clean(?:ing)? only|professional(?:ly)? clean(?:ing|ed)?(?: only| recommended)?|do not (?:use|wash|machine wash|apply|bleach)|spot clean only)\b/
+      .test(normalize(description(product))));
+  const requiresCompatibility = careProduct &&
+    !exactMerchantCompatibility(seedProduct, partnerProduct, sourceAuthority) &&
+    (restrictiveCare || !careTextNamesOther(seedProduct, partnerProduct, sourceAuthority));
   const groundedContext = concreteSharedContext(seedFacts, partnerFacts, occasion);
   // A single ordinary word such as "together" cannot negate a concrete
   // benefit. The isolated rubric and objective challenge judge generic co-use.
   const coherenceSupported = attributesSupported && distinctRoles &&
     rubric?.seedRoleGroundedInSelectedItem === true &&
     rubric?.partnerRoleGroundedInSelectedItem === true &&
-    (namedContext || assortmentContribution) &&
+    // A functional complement names its operation in the benefit; an occasion
+    // is required only for occasion-based combinations.
+    (namedContext || assortmentContribution || kind === "functional_complement") &&
     benefit.length >= 25 && (!claimedCompatibility || compatibilityConfirmed) &&
     !requiresCompatibility &&
     normalize(seedProduct.title) !== normalize(partnerProduct.title) &&
@@ -499,6 +555,7 @@ export function productMechanism(seedProduct, partnerProduct, objective, proposa
 
 export function transientProductFacts(product, variant, descriptionTrusted = true) {
   return { title: bounded(product?.title, 160),
+    ...(productWearer(product) ? { designedFor: productWearer(product) } : {}),
     description: descriptionTrusted ? description(product).slice(0, 700) : "",
     variantTitle: bounded(variant?.title, 90),
     options: (variant?.options ?? []).slice(0, 6).map((item) => ({

@@ -1,0 +1,358 @@
+{
+  "summary": {
+    "label": "final",
+    "split": "holdout",
+    "repeats": 3,
+    "provider": "bedrock",
+    "model": "qwen.qwen3-next-80b-a3b",
+    "seconds": 144,
+    "overall": {
+      "goodCases": 12,
+      "badCases": 12,
+      "goodPassRate": 0.972,
+      "badPassRate": 0.083,
+      "goodMajorityPassed": 12,
+      "badMajorityPassed": 1,
+      "stableCases": 23,
+      "cases": 24
+    },
+    "product_bundle": {
+      "goodCases": 6,
+      "badCases": 6,
+      "goodPassRate": 1,
+      "badPassRate": 0.167,
+      "goodMajorityPassed": 6,
+      "badMajorityPassed": 1,
+      "stableCases": 12,
+      "cases": 12
+    },
+    "cross_sell": {
+      "goodCases": 6,
+      "badCases": 6,
+      "goodPassRate": 0.944,
+      "badPassRate": 0,
+      "goodMajorityPassed": 6,
+      "badMajorityPassed": 0,
+      "stableCases": 11,
+      "cases": 12
+    }
+  },
+  "cases": [
+    {
+      "id": "hold-b01",
+      "objective": "product_bundle",
+      "category": "outdoor",
+      "label": "good",
+      "title": "Ultralight Canister Stove + Isobutane Fuel Canister 230g",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-b02",
+      "objective": "product_bundle",
+      "category": "food",
+      "label": "good",
+      "title": "Acacia Cheese Board + Cheese Knife Set",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-b03",
+      "objective": "product_bundle",
+      "category": "outdoor",
+      "label": "good",
+      "title": "Single Camping Hammock + Tree Strap Suspension",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-b04",
+      "objective": "product_bundle",
+      "category": "food",
+      "label": "good",
+      "title": "Ceremonial Grade Matcha + Bamboo Matcha Whisk",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-b05",
+      "objective": "product_bundle",
+      "category": "kitchen",
+      "label": "good",
+      "title": "Cordierite Pizza Stone + Wooden Pizza Peel",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-b06",
+      "objective": "product_bundle",
+      "category": "home",
+      "label": "good",
+      "title": "Terracotta Planter with Drainage + Indoor Potting Mix",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-x01",
+      "objective": "product_bundle",
+      "category": "home",
+      "label": "bad",
+      "title": "Abstract Canvas Print + Ceramic Oil Diffuser",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "judgment"
+      ]
+    },
+    {
+      "id": "hold-x02",
+      "objective": "product_bundle",
+      "category": "apparel",
+      "label": "bad",
+      "title": "Canvas Low-Top Sneaker + Washed Baseball Cap",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "rubric_generic_occasion"
+      ]
+    },
+    {
+      "id": "hold-x03",
+      "objective": "product_bundle",
+      "category": "home",
+      "label": "bad",
+      "title": "Fig Leaf Candle + Santal Candle",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "rubric_generic_occasion",
+        "judgment"
+      ]
+    },
+    {
+      "id": "hold-x04",
+      "objective": "product_bundle",
+      "category": "home",
+      "label": "bad",
+      "title": "Slim Phone Case + Mini Pothos Plant",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "hold-x05",
+      "objective": "product_bundle",
+      "category": "personal_care",
+      "label": "bad",
+      "title": "Lambswool Crewneck Sweater + Shea Hand Balm",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-x06",
+      "objective": "product_bundle",
+      "category": "apparel",
+      "label": "bad",
+      "title": "Cashmere V-Neck + Laundry Detergent Pods",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "hold-c01",
+      "objective": "cross_sell",
+      "category": "outdoor",
+      "label": "good",
+      "title": "3-Person Dome Tent + Rechargeable Camp Lantern",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-c02",
+      "objective": "cross_sell",
+      "category": "food",
+      "label": "good",
+      "title": "Espresso Roast Beans + Handheld Milk Frother",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-c03",
+      "objective": "cross_sell",
+      "category": "outdoor",
+      "label": "good",
+      "title": "Hiking Backpack 40L + Carbon Trekking Poles",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-c04",
+      "objective": "cross_sell",
+      "category": "apparel",
+      "label": "good",
+      "title": "Leather Chelsea Boot + Cedar Shoe Trees",
+      "passes": 2,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": false,
+      "stops": [
+        "rule_no_named_occasion"
+      ]
+    },
+    {
+      "id": "hold-c05",
+      "objective": "cross_sell",
+      "category": "kitchen",
+      "label": "good",
+      "title": "Sourdough Bread Flour + Banneton Proofing Basket",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-c06",
+      "objective": "cross_sell",
+      "category": "travel",
+      "label": "good",
+      "title": "Recycled One-Piece Swimsuit + Quick-Dry Beach Towel",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "hold-d01",
+      "objective": "cross_sell",
+      "category": "apparel",
+      "label": "bad",
+      "title": "The Linen Shirt + Classic Linen Button-Up",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "hold-d02",
+      "objective": "cross_sell",
+      "category": "home",
+      "label": "bad",
+      "title": "Fig Leaf Candle + Ocean Breeze Candle",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "rubric_generic_occasion",
+        "judgment"
+      ]
+    },
+    {
+      "id": "hold-d03",
+      "objective": "cross_sell",
+      "category": "outdoor",
+      "label": "bad",
+      "title": "3-Person Dome Tent + Velvet Throw Pillow",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "hold-d04",
+      "objective": "cross_sell",
+      "category": "apparel",
+      "label": "bad",
+      "title": "Polarized Sunglasses + Enamel Camp Mug",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven",
+        "rubric_generic_occasion"
+      ]
+    },
+    {
+      "id": "hold-d05",
+      "objective": "cross_sell",
+      "category": "personal_care",
+      "label": "bad",
+      "title": "Sonic Electric Toothbrush + Bamboo Toothbrush",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "rubric_generic_occasion",
+        "judgment"
+      ]
+    },
+    {
+      "id": "hold-d06",
+      "objective": "cross_sell",
+      "category": "personal_care",
+      "label": "bad",
+      "title": "Eucalyptus Body Wash + Citrus Shower Gel",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "judgment"
+      ]
+    }
+  ]
+}

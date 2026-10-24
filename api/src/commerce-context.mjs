@@ -9,7 +9,6 @@ import { verifyCommerceBusiness, nativeLeads, selectNativeCommerceLeads } from "
 import { withWebSearch, officialDomainOf } from "./web-research.mjs";
 import { researchCommercePair } from "./commerce-research.mjs";
 import { rankCommerceOpportunities } from "./brand-commerce.mjs";
-import { vetCommerceShortlist } from "./commerce-vetting.mjs";
 import { selectedProductPage } from "./commerce-product-page.mjs";
 
 const QLOO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -120,7 +119,7 @@ export async function researchContextCommerce({ ownerUserId, seed, objective,
   readProductPage = selectedProductPage,
   verifyBusiness = verifyCommerceBusiness, entityTags = personalQlooEntityTags,
   rankEntity = personalQlooRankNamedEntity, search = withWebSearch,
-  researchPair = researchCommercePair, vetShortlist = vetCommerceShortlist,
+  researchPair = researchCommercePair,
   maxCandidates = 6 } = {}) {
   if (!["product_bundle", "cross_sell"].includes(objective) || seed?.identityStatus !== "verified" ||
       !seed?.id || !seed.officialWebsite || seed.qlooId) {
@@ -276,9 +275,8 @@ export async function researchContextCommerce({ ownerUserId, seed, objective,
       candidate.screeningBatchCount = result.screeningBatchCount ?? 0;
       candidate.exploredRoleCount = result.exploredRoleCount ?? 0;
       candidate.productSelectionPlanning = result.productSelectionPlanning ?? "not_run";
-      const vetting = candidate.status === "product_researched"
-        ? await vetShortlist(partner).catch(() => ({ sourceUrls: [], findings: [] }))
-        : { sourceUrls: [], findings: [] };
+      // Public-source review runs when the user saves an opportunity, not here.
+      const vetting = { sourceUrls: [], findings: [] };
       for (const groups of Object.values(result.opportunities)) {
         for (const group of groups) for (const opportunity of [group.best, ...group.otherOpportunities]) {
           evaluated.push({ ...opportunity, partnerId: partner.id, partnerName: partner.name,

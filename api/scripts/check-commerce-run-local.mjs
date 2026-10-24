@@ -3,9 +3,9 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { createClient } from "@supabase/supabase-js";
-import { createProject } from "../src/projects.mjs";
+import { createProject, updateProject, listProjects } from "../src/projects.mjs";
 import { startPersonalRun, claimPersonalRun, failPersonalRun, getPersonalRun, listPersonalRuns,
-  refreshPersonalMatch, researchPersonalMatchAudience } from "../src/personal-research.mjs";
+  refreshPersonalMatch, researchPersonalMatchAudience, recordPersonalFeedback } from "../src/personal-research.mjs";
 import { processCommerceRun } from "../src/commerce-worker.mjs";
 import { assessCommerceOpportunity } from "../src/brand-commerce.mjs";
 import { validateCommerceEvidence } from "../src/commerce-evidence.mjs";
@@ -224,6 +224,19 @@ try {
   assert.ifError(ownerRows.error); assert.ifError(otherRows.error);
   assert.equal(ownerRows.data.length, 1);
   assert.equal(otherRows.data.length, 0);
+  // Saving runs one public-source review of the partner (stubbed here: no web
+  // call), attaches its links to the latest assessment and changes no status.
+  let reviews = 0;
+  const reviewFinding = { kind: "independent_context_to_review",
+    url: "https://news.example.com/partner-collaboration", publishedAt: null };
+  await recordPersonalFeedback(users[0], { runId: started.runId, matchId, action: "save" },
+    { vet: async () => { reviews += 1; return { findings: [reviewFinding, { kind: "other", url: "https://x.example.com" }] }; } });
+  await recordPersonalFeedback(users[0], { runId: started.runId, matchId, action: "save" },
+    { vet: async () => { reviews += 1; return { findings: [] }; } });
+  assert.equal(reviews, 1, "A saved partner is reviewed once");
+  const reviewed = (await getPersonalRun(users[0], started.runId)).matches.find((item) => item.id === matchId);
+  assert.deepEqual(reviewed.evidence.commerce.externalFindings, [reviewFinding]);
+  assert.equal(reviewed.savedScore.status, "supported", "The review never changes the saved verdict");
   const concepts = await commerceProposalAction(users[0], matchId, {}, {
     refresh: async () => ({ seed: { status: "current", title: "Bath towel", available: true,
       marketCheck: { state: "supported" } },
@@ -241,15 +254,28 @@ try {
   await assert.rejects(commerceProposalAction(users[0], matchId,
     { conceptId: concepts.concepts[1].id }), (error) => error.statusCode === 409);
   const brief = await commerceProposalAction(users[0], matchId,
-    { conceptId: concepts.concepts[1].id }, { refresh: async () => ({
+    { conceptId: concepts.concepts[1].id }, { launchAreas: async () => ({ areas: ["Seattle area"] }),
+      refresh: async () => ({
       seed: { status: "current", title: "Bath towel", available: true,
         marketCheck: { state: "supported" } },
       partner: { status: "current", title: "Bathmat", available: true,
         price: { amountMinor: 4400, currencyCode: "USD" },
         marketCheck: { state: "supported" } },
     }) });
-  assert.match(brief.markdown, /Selected product concept/);
+  assert.match(brief.markdown, /## The idea/);
+  assert.match(brief.markdown, /## The products\n\n- \*\*Bath towel\*\*/);
+  assert.doesNotMatch(brief.markdown, /## Measurement plan/, "No empty template sections");
+  assert.match(brief.markdown, /## Where to launch\n\n[^\n]*Seattle area/);
+  assert.match(brief.markdown, /## To agree together\n\n- /);
   assert.equal((await listPersonalRuns(users[0], project.id)).length, 1);
+  // Once research has run: the goal is fixed, and new research starts a new project.
+  await assert.rejects(updateProject(users[0], project.id, { name: project.name, objective: "cross_sell", notes: "" }),
+    (error) => error.statusCode === 409);
+  const repeatProject = await createProject(users[0], { seedEntityId: project.seedEntityId,
+    name: "Repeat research", objective: project.objective, market: project.market ?? "US" });
+  assert.notEqual(repeatProject.id, project.id);
+  const listedProject = (await listProjects(users[0])).find((item) => item.id === project.id);
+  assert.ok(listedProject.latestRunStatus, "A researched project is not a draft");
   const priorContextFlag = process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED;
   process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED = "1";
   try {
@@ -263,7 +289,7 @@ try {
     assert.equal(contextProject.seedNative, false);
     await assert.rejects(startPersonalRun(users[0], { projectId: contextProject.id,
       mode: "discovery", partnerType: "brand", researchMode: "live_commerce",
-      idempotencyKey: randomUUID() }), /Choose a current starting product/);
+      idempotencyKey: randomUUID() }), /Choose a starting product/);
     const contextStarted = await startPersonalRun(users[0], { projectId: contextProject.id,
       mode: "discovery", partnerType: "brand", researchMode: "live_commerce",
       idempotencyKey: randomUUID(), commerceRequirements: { heroProduct: {
@@ -286,7 +312,8 @@ try {
   }
   const limitedStarted = await startPersonalRun(users[0], { projectId: project.id,
     mode: "discovery", partnerType: "brand", researchMode: "live_commerce",
-    idempotencyKey: randomUUID() });
+    idempotencyKey: randomUUID(), commerceRequirements: { heroProduct: {
+      productId: preview.products[0].productId, variantId: preview.products[0].variantId } } });
   const limitedClaimed = await claimPersonalRun("rate-limit-fixture");
   assert.equal(limitedClaimed.id, limitedStarted.runId);
   let catalogLimit;

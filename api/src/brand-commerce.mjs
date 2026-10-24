@@ -44,7 +44,9 @@ export function assessCommerceOpportunity(input) {
   const productMechanism = { kind: input.mechanism, attributeEvidence, jointUseCoherence, incrementalValue,
     gate: check(mechanismState, "product_mechanism", input.productRefs ?? []),
     roles: { seedRole: String(input.seedRole ?? ""), partnerRole: String(input.partnerRole ?? "") },
-    boundedRationale: String(input.rationale ?? "").slice(0, 500) };
+    boundedRationale: String(input.rationale ?? "").slice(0, 500),
+    ...(typeof input.customerReason === "string" && input.customerReason.trim()
+      ? { customerReason: input.customerReason.trim().slice(0, 200) } : {}) };
   const allowed = input.objective === "product_bundle"
     ? new Set(["functional_complement", "occasion_complement"])
     : new Set(["functional_complement", "occasion_complement", "assortment_complement"]);
@@ -80,8 +82,13 @@ export function assessCommerceOpportunity(input) {
   } : null;
   return { policyVersion: COMMERCE_VERSION, status, discoveryBasis: input.discoveryBasis ?? "user_specified",
     researchLead: relationship === "direction_only", culturalRelationship: relationship,
-    culturalExplanation: explanation, culturalTheme: explanation === "specific_theme"
-      ? String(input.culturalTheme ?? "").slice(0, 120) : null,
+    culturalExplanation: explanation, culturalTheme: explanation !== "no_named_theme"
+      ? String(input.culturalTheme ?? "").slice(0, 120) || null : null,
+    // Display and concept context only; not ranking features (Scoring Engine 3.3).
+    culturalThemes: explanation !== "no_named_theme" ? unique((input.culturalThemes ?? [])
+      .filter((value) => typeof value === "string")).slice(0, 3).map((value) => value.slice(0, 80)) : [],
+    sharedAudienceTastes: unique((input.sharedAudienceTastes ?? []).filter((value) =>
+      typeof value === "string")).slice(0, 3).map((value) => value.slice(0, 60)),
     identity, culturalGate, productMechanism, objectiveFit,
     commercialChecks, commercialState: Object.values(commercialChecks).some((item) => item.state === "contradicted")
       ? "offer_blocked" : Object.values(commercialChecks).some((item) => item.state === "unknown")

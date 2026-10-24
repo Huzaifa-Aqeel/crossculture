@@ -1,0 +1,592 @@
+{
+  "summary": {
+    "label": "baseline",
+    "split": "dev",
+    "repeats": 3,
+    "provider": "bedrock",
+    "model": "qwen.qwen3-next-80b-a3b",
+    "seconds": 152,
+    "overall": {
+      "goodCases": 20,
+      "badCases": 20,
+      "goodPassRate": 0.45,
+      "badPassRate": 0.067,
+      "goodMajorityPassed": 9,
+      "badMajorityPassed": 1,
+      "stableCases": 35,
+      "cases": 40
+    },
+    "product_bundle": {
+      "goodCases": 10,
+      "badCases": 10,
+      "goodPassRate": 0.033,
+      "badPassRate": 0,
+      "goodMajorityPassed": 0,
+      "badMajorityPassed": 0,
+      "stableCases": 19,
+      "cases": 20
+    },
+    "cross_sell": {
+      "goodCases": 10,
+      "badCases": 10,
+      "goodPassRate": 0.867,
+      "badPassRate": 0.133,
+      "goodMajorityPassed": 9,
+      "badMajorityPassed": 1,
+      "stableCases": 16,
+      "cases": 20
+    }
+  },
+  "cases": [
+    {
+      "id": "dev-b01",
+      "objective": "product_bundle",
+      "category": "outdoor",
+      "label": "good",
+      "title": "Packable Rain Jacket + Trail Daypack 20L",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-b02",
+      "objective": "product_bundle",
+      "category": "kitchen",
+      "label": "good",
+      "title": "10-Inch Cast Iron Skillet + Chainmail Scrubber",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-b03",
+      "objective": "product_bundle",
+      "category": "food",
+      "label": "good",
+      "title": "House Blend Whole Bean Coffee + Manual Burr Grinder",
+      "passes": 1,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": false,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-b04",
+      "objective": "product_bundle",
+      "category": "food",
+      "label": "good",
+      "title": "Jasmine Green Loose Leaf Tea + Ceramic Infuser Mug",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-b05",
+      "objective": "product_bundle",
+      "category": "home",
+      "label": "good",
+      "title": "Stonewashed Linen Duvet Cover + Wool Dryer Balls, Set of 6",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-b06",
+      "objective": "product_bundle",
+      "category": "personal_care",
+      "label": "good",
+      "title": "Double-Edge Safety Razor + Sandalwood Shave Soap",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-b07",
+      "objective": "product_bundle",
+      "category": "pet",
+      "label": "good",
+      "title": "No-Pull Dog Harness + 6 ft Rope Dog Leash",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual",
+        "proposal_unavailable"
+      ]
+    },
+    {
+      "id": "dev-b08",
+      "objective": "product_bundle",
+      "category": "outdoor",
+      "label": "good",
+      "title": "Waterproof Picnic Blanket + Insulated Cooler Tote",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-b09",
+      "objective": "product_bundle",
+      "category": "kitchen",
+      "label": "good",
+      "title": "Organic Bread Flour, 5 lb + 5.5 Qt Enameled Dutch Oven",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-b10",
+      "objective": "product_bundle",
+      "category": "home",
+      "label": "good",
+      "title": "Evening Reflection Journal + Lavender Wind-Down Candle",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-x01",
+      "objective": "product_bundle",
+      "category": "home",
+      "label": "bad",
+      "title": "Rayne Tufted Washable Rug + Cedar and Amber Candle",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "bundle_challenge",
+        "bundle_counterfactual"
+      ]
+    },
+    {
+      "id": "dev-x02",
+      "objective": "product_bundle",
+      "category": "apparel",
+      "label": "bad",
+      "title": "Merino Crew Socks + Morning Blend Ground Coffee",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-x03",
+      "objective": "product_bundle",
+      "category": "apparel",
+      "label": "bad",
+      "title": "Straight Leg Jeans + Striped Cotton Socks",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "rubric_generic_occasion"
+      ]
+    },
+    {
+      "id": "dev-x04",
+      "objective": "product_bundle",
+      "category": "outdoor",
+      "label": "bad",
+      "title": "Insulated Water Bottle 24 oz + Insulated Bottle 32 oz",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-x05",
+      "objective": "product_bundle",
+      "category": "kitchen",
+      "label": "bad",
+      "title": "Shear Genius Kitchen Shears + Mindful Mama Skincare Kit",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-x06",
+      "objective": "product_bundle",
+      "category": "apparel",
+      "label": "bad",
+      "title": "Suede Penny Loafer + Leather Care Kit",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "rubric_generic_occasion"
+      ]
+    },
+    {
+      "id": "dev-x07",
+      "objective": "product_bundle",
+      "category": "apparel",
+      "label": "bad",
+      "title": "The Linen Shirt + Men's Owen Belt Linen Suede",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven",
+        "rubric_generic_occasion"
+      ]
+    },
+    {
+      "id": "dev-x08",
+      "objective": "product_bundle",
+      "category": "apparel",
+      "label": "bad",
+      "title": "BAGGU: The Book + High-Rise Leggings",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-x09",
+      "objective": "product_bundle",
+      "category": "personal_care",
+      "label": "bad",
+      "title": "Rose Hand Cream + Speckled Stoneware Mug",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "rubric_generic_occasion",
+        "bundle_counterfactual",
+        "bundle_challenge"
+      ]
+    },
+    {
+      "id": "dev-x10",
+      "objective": "product_bundle",
+      "category": "home",
+      "label": "bad",
+      "title": "Boucle Throw Pillow + Potted Snake Plant",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "rubric_generic_occasion",
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-c01",
+      "objective": "cross_sell",
+      "category": "outdoor",
+      "label": "good",
+      "title": "Gametime Puffy Blanket + Utility Fanny Pack",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "dev-c02",
+      "objective": "cross_sell",
+      "category": "apparel",
+      "label": "good",
+      "title": "Road Running Shoe + Cushioned Running Socks",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "dev-c03",
+      "objective": "cross_sell",
+      "category": "outdoor",
+      "label": "good",
+      "title": "2-Person Backpacking Tent + Insulated Sleeping Pad",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "dev-c04",
+      "objective": "cross_sell",
+      "category": "kitchen",
+      "label": "good",
+      "title": "8-Inch Chef's Knife + End-Grain Cutting Board",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "dev-c05",
+      "objective": "cross_sell",
+      "category": "food",
+      "label": "good",
+      "title": "Ceramic Pour-Over Dripper + Gooseneck Kettle",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "dev-c06",
+      "objective": "cross_sell",
+      "category": "fitness",
+      "label": "good",
+      "title": "Natural Rubber Yoga Mat + Cork Yoga Blocks, Set of 2",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "dev-c07",
+      "objective": "cross_sell",
+      "category": "personal_care",
+      "label": "good",
+      "title": "Gentle Gel Cleanser + Mineral Sunscreen SPF 30",
+      "passes": 2,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": false,
+      "stops": [
+        "rule_compatibility_words"
+      ]
+    },
+    {
+      "id": "dev-c08",
+      "objective": "cross_sell",
+      "category": "pet",
+      "label": "good",
+      "title": "Reflective Dog Leash + Leash Poop Bag Dispenser",
+      "passes": 2,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": false,
+      "stops": [
+        "rule_compatibility_words"
+      ]
+    },
+    {
+      "id": "dev-c09",
+      "objective": "cross_sell",
+      "category": "travel",
+      "label": "good",
+      "title": "Carry-On Spinner Suitcase + Compression Packing Cubes",
+      "passes": 1,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": false,
+      "stops": [
+        "rule_fit_claim_unconfirmed"
+      ]
+    },
+    {
+      "id": "dev-c10",
+      "objective": "cross_sell",
+      "category": "kitchen",
+      "label": "good",
+      "title": "Enameled Cast Iron Dutch Oven + Silicone Oven Mitts",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "dev-d01",
+      "objective": "cross_sell",
+      "category": "outdoor",
+      "label": "bad",
+      "title": "Insulated Water Bottle 24 oz + Insulated Bottle 32 oz",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-d02",
+      "objective": "cross_sell",
+      "category": "outdoor",
+      "label": "bad",
+      "title": "Packable Rain Jacket + Storm Shell Jacket",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-d03",
+      "objective": "cross_sell",
+      "category": "kitchen",
+      "label": "bad",
+      "title": "Shear Genius Kitchen Shears + Mindful Mama Skincare Kit",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-d04",
+      "objective": "cross_sell",
+      "category": "home",
+      "label": "bad",
+      "title": "Chunky Knit Throw + Vanilla Bean Candle",
+      "passes": 1,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": false,
+      "stops": [
+        "rubric_generic_occasion"
+      ]
+    },
+    {
+      "id": "dev-d05",
+      "objective": "cross_sell",
+      "category": "apparel",
+      "label": "bad",
+      "title": "Organic Cotton Tee, Black + Essential Crew Tee, White",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-d06",
+      "objective": "cross_sell",
+      "category": "apparel",
+      "label": "bad",
+      "title": "Canvas Market Tote + Leather Conditioner",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-d07",
+      "objective": "cross_sell",
+      "category": "food",
+      "label": "bad",
+      "title": "House Blend Whole Bean Coffee + Colombia Single Origin Beans",
+      "passes": 3,
+      "runs": 3,
+      "majorityPassed": true,
+      "stable": true,
+      "stops": []
+    },
+    {
+      "id": "dev-d08",
+      "objective": "cross_sell",
+      "category": "pet",
+      "label": "bad",
+      "title": "Reflective Dog Leash + Fresh Linen Candle",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-d09",
+      "objective": "cross_sell",
+      "category": "personal_care",
+      "label": "bad",
+      "title": "Daily Face Moisturizer + Hydrating Face Cream",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    },
+    {
+      "id": "dev-d10",
+      "objective": "cross_sell",
+      "category": "fitness",
+      "label": "bad",
+      "title": "Natural Rubber Yoga Mat + Rigid Selvedge Jeans",
+      "passes": 0,
+      "runs": 3,
+      "majorityPassed": false,
+      "stable": true,
+      "stops": [
+        "proposal_unproven"
+      ]
+    }
+  ]
+}

@@ -12,7 +12,8 @@ export function openAiConfig({ allowFallback = false } = {}) {
   if (allowFallback && process.env.LLM_FALLBACK_PROVIDER !== "openai") return null;
   const base = process.env.LLM_API_URL || process.env.GROQ_API_BASE;
   const key = process.env.LLM_API_KEY || process.env.GROQ_API_KEY;
-  const model = process.env.LLM_MODEL || process.env.GROQ_COLOR_MODEL;
+  // GROQ_MODEL is the configured name; GROQ_COLOR_MODEL is kept for older setups.
+  const model = process.env.LLM_MODEL || process.env.GROQ_MODEL || process.env.GROQ_COLOR_MODEL;
   return base && key && model ? { endpoint: `${base.replace(/\/$/, "")}/chat/completions`, key, model } : null;
 }
 
@@ -25,7 +26,9 @@ export async function bedrockText({ system, user, maxTokens, temperature = 0, js
   const region = process.env.AWS_REGION || "us-east-1";
   const modelId = process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL;
   if (!sendFn && (!client || clientRegion !== region)) {
-    client = new BedrockRuntimeClient({ region, maxAttempts: 2 });
+    // Adaptive retries absorb short throttling bursts before a call is treated
+    // as unavailable (and the configured fallback provider is tried).
+    client = new BedrockRuntimeClient({ region, maxAttempts: 4, retryMode: "adaptive" });
     clientRegion = region;
   }
   const command = new ConverseCommand({

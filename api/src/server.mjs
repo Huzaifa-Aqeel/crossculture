@@ -1,22 +1,26 @@
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
 import { verifiedUser } from "./auth.mjs";
 import { normalizeQlooBrands } from "./brand-resolution.mjs";
-import { persistSelectedBrand, persistVerifiedCommerceSite } from "./catalog.mjs";
+import { persistSelectedBrand, persistVerifiedCommerceSite,
+  recentConfirmedCommerceBrand, verifiedWebsitesForQlooIds } from "./catalog.mjs";
 import { personalQlooDescribe } from "./personal-qloo.mjs";
-import { verifySelectedCommerceBrand, verifyCommerceBusinessSite } from "./commerce-native.mjs";
-import { previewCommerceSeedProducts } from "./commerce-preview.mjs";
+import { verifySelectedCommerceBrand, verifyCommerceBusinessSite,
+  reuseRecentCommerceConfirmation } from "./commerce-native.mjs";
+import { previewCommerceSeedProducts, previewStartingBrandProducts } from "./commerce-preview.mjs";
 import { purgeDueQlooResponses } from "./qloo-cache.mjs";
-import { listProjects, getProject, createProject, updateProject } from "./projects.mjs";
+import { cachedBrandLookup, reserveBrandLookup, completeBrandLookup, openBrandLookup,
+  consumeBrandLookup, recordSeedConfirmation, hasRecentSeedConfirmation,
+  purgeRequestState } from "./request-state.mjs";
+import { listProjects, getProject, createProject, updateProject, knownStartingBrand,
+  ownsStartingBrand } from "./projects.mjs";
 import { startPersonalRun, listPersonalRuns, getPersonalRun, recordPersonalFeedback,
   undoPersonalFeedback, updatePersonalBrief, createPersonalProposal, refreshPersonalMatch,
-  researchPersonalMatchAudience, workOnePersonalRun } from "./personal-research.mjs";
+  researchPersonalMatchAudience, researchPersonalMatchLaunchAreas,
+  workOnePersonalRun } from "./personal-research.mjs";
 
 const port = Number(process.env.API_PORT ?? 8787);
 const host = process.env.API_HOST ?? "127.0.0.1";
-const brandResolutions = new Map();
-const confirmedBrands = new Map();
-const lookupCounts = new Map();
+const userError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
 
 function send(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8",
@@ -28,16 +32,10 @@ async function readJson(request) {
   let raw = "";
   for await (const chunk of request) {
     raw += chunk;
-    if (raw.length > 16_384) throw new Error("Request is too large.");
+    if (raw.length > 16_384) throw userError("Request is too large.", 413);
   }
   try { return raw ? JSON.parse(raw) : {}; }
-  catch { throw new Error("Please check the information you entered."); }
-}
-
-function recentLookups(key) {
-  const recent = (lookupCounts.get(key) ?? []).filter((time) => Date.now() - time < 60 * 60_000);
-  lookupCounts.set(key, recent);
-  return recent;
+  catch { throw userError("Please check the information you entered."); }
 }
 
 createServer(async (request, response) => {
@@ -52,6 +50,7 @@ createServer(async (request, response) => {
   const personalProposalRoute = pathname.match(/^\/personal\/matches\/([a-f0-9-]{36})\/proposal$/);
   const personalOfferRoute = pathname.match(/^\/personal\/matches\/([a-f0-9-]{36})\/current-offers$/);
   const personalAudienceRoute = pathname.match(/^\/personal\/matches\/([a-f0-9-]{36})\/audience-fit$/);
+  const personalLaunchRoute = pathname.match(/^\/personal\/matches\/([a-f0-9-]{36})\/launch-areas$/);
   if (!(pathname === "/me" || pathname.startsWith("/entities/") || pathname === "/projects" ||
       projectRoute || projectProductsRoute || pathname.startsWith("/personal/"))) {
     return send(response, 404, { message: "Not found." });
@@ -96,16 +95,33 @@ createServer(async (request, response) => {
       return send(response, audience ? 200 : 404, audience
         ? { audience } : { message: "Opportunity not found." });
     }
+    if (personalLaunchRoute && request.method === "GET") {
+      const launch = await researchPersonalMatchLaunchAreas(user.id, personalLaunchRoute[1]);
+      return send(response, launch ? 200 : 404, launch ? { launch: { status: launch.status,
+        market: launch.market, areas: launch.areas } } : { message: "Opportunity not found." });
+    }
     if (pathname === "/projects") {
       if (request.method === "GET") return send(response, 200, { projects: await listProjects(user.id) });
       if (request.method === "POST") {
         const input = await readJson(request);
-        const confirmation = confirmedBrands.get(user.id);
-        if (!confirmation || confirmation.entityId !== input.seedEntityId ||
-            Date.now() - confirmation.at > 30 * 60_000) return send(response, 400,
+        // An owned brand (continuing from a project) needs no fresh confirmation.
+        if (!await hasRecentSeedConfirmation(user.id, input.seedEntityId) &&
+            !await ownsStartingBrand(user.id, input.seedEntityId)) return send(response, 400,
           { message: "Confirm the starting brand before creating a project." });
-        return send(response, 201, { project: await createProject(user.id, input) });
+        const { reused, ...project } = await createProject(user.id, input);
+        return send(response, reused ? 200 : 201, { project });
       }
+    }
+    const brandProductsRoute = pathname.match(/^\/entities\/([a-f0-9-]{36})\/commerce-products$/);
+    if (brandProductsRoute && request.method === "GET") {
+      // A project is created only when research starts, so the product step
+      // searches the confirmed brand directly.
+      if (!await hasRecentSeedConfirmation(user.id, brandProductsRoute[1]) &&
+          !await ownsStartingBrand(user.id, brandProductsRoute[1])) return send(response, 400,
+        { message: "Confirm the starting brand before choosing a product." });
+      const market = url.searchParams.get("market")?.toUpperCase() ?? "US";
+      return send(response, 200, await previewStartingBrandProducts(brandProductsRoute[1], market,
+        { query: url.searchParams.get("query") ?? "" }));
     }
     if (projectProductsRoute && request.method === "GET") {
       const market = url.searchParams.get("market")?.toUpperCase() ?? "US";
@@ -123,80 +139,91 @@ createServer(async (request, response) => {
       }
     }
     if (request.method === "POST" && pathname === "/entities/resolve") {
-      const { name, purpose } = await readJson(request);
+      const { name, purpose, market } = await readJson(request);
       if (!["commerce_seed", "commerce_partner"].includes(purpose)) return send(response, 400,
         { message: "Choose a brand partnership lookup." });
       const query = String(name ?? "").trim();
       if (query.length < 2 || query.length > 90) return send(response, 400,
         { message: "Enter a brand name between 2 and 90 characters." });
-      const cached = [...brandResolutions.values()].find((item) => item.userId === user.id &&
-        item.purpose === purpose && item.result.query.toLowerCase() === query.toLowerCase() &&
-        Date.now() - item.createdAt < 10 * 60_000);
-      if (cached) return send(response, 200, cached.result);
-      const recent = recentLookups(user.id);
-      if (recent.length >= 10) return send(response, 429, { message: "Too many brand lookups. Try again later." });
-      lookupCounts.set(user.id, [...recent, Date.now()]);
+      // The user's own brand, already confirmed for this country: no new search or check.
+      if (purpose === "commerce_seed" && typeof market === "string") {
+        const known = await knownStartingBrand(user.id, query, market.toUpperCase());
+        if (known) {
+          await recordSeedConfirmation(user.id, known.id);
+          return send(response, 200, { known });
+        }
+      }
+      const cached = await cachedBrandLookup(user.id, purpose, query);
+      if (cached) return send(response, 200, cached);
+      const lookupId = await reserveBrandLookup(user.id, purpose, query);
+      if (!lookupId) return send(response, 429, { message: "Too many brand lookups. Try again later." });
       const envelope = await personalQlooDescribe(user.id, { entity: query });
-      const result = { id: randomUUID(), query,
+      const result = { id: lookupId, query,
         qloo: { status: envelope.status, candidates: normalizeQlooBrands(envelope) },
         message: "Choose the cultural brand that matches the business you mean." };
-      brandResolutions.set(result.id, { userId: user.id, purpose, result, createdAt: Date.now() });
+      await completeBrandLookup(lookupId, user.id, result);
       return send(response, 200, result);
     }
     if (request.method === "POST" && pathname === "/entities/confirm-commerce-site") {
       if (process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED !== "1")
         return send(response, 404, { message: "This discovery path is not available yet." });
-      const recent = recentLookups(user.id);
-      if (recent.length >= 10) return send(response, 429, { message: "Too many brand lookups. Try again later." });
-      lookupCounts.set(user.id, [...recent, Date.now()]);
       const { name, website } = await readJson(request);
+      if (!await reserveBrandLookup(user.id, "commerce_site", String(name ?? "").trim()))
+        return send(response, 429, { message: "Too many brand lookups. Try again later." });
       const verified = await verifyCommerceBusinessSite({ name, website });
       if (!verified) return send(response, 409,
         { message: "The official website and product store could not be verified." });
       const entity = await persistVerifiedCommerceSite(verified);
-      confirmedBrands.set(user.id, { entityId: entity.id, at: Date.now() });
+      await recordSeedConfirmation(user.id, entity.id);
       return send(response, 200, { entity });
     }
     if (request.method === "POST" && pathname === "/entities/confirm") {
-      const { resolutionId, qlooId, purpose, officialWebsite = null } = await readJson(request);
-      const record = brandResolutions.get(resolutionId);
-      if (!record || record.userId !== user.id || Date.now() - record.createdAt > 15 * 60_000)
-        return send(response, 404, { message: "This brand search has expired. Search again." });
+      const { resolutionId, qlooId, purpose, officialWebsite = null, market = "US" } = await readJson(request);
+      const record = await openBrandLookup(resolutionId, user.id);
+      if (!record) return send(response, 404, { message: "This brand search has expired. Search again." });
       if (purpose !== record.purpose) return send(response, 400,
         { message: "Choose a cultural brand for this commerce project." });
       const candidate = record.result.qloo.candidates.find((item) => item.id === qlooId);
       if (!candidate) return send(response, 400, { message: "Choose a brand from these results." });
+      const identityTrace = [];
+      // A website another user already verified for this Qloo brand is the
+      // first guess when Qloo lists none; it is verified again here.
+      const knownWebsite = candidate.website ? null
+        : (await verifiedWebsitesForQlooIds([candidate.id]).catch(() => new Map())).get(candidate.id) ?? null;
       const verified = await verifySelectedCommerceBrand({ qlooId: candidate.id,
-        name: candidate.name, website: candidate.website,
-        description: candidate.description }, officialWebsite);
-      if (!verified) return send(response, 409,
-        { message: "The brand's official website and product store could not be verified yet. Check the website and try again." });
-      const entity = await persistSelectedBrand({ qloo: { ...candidate,
-        website: verified.officialWebsite }, identityStatus: "verified" });
-      if (purpose === "commerce_seed") confirmedBrands.set(user.id, { entityId: entity.id, at: Date.now() });
-      brandResolutions.delete(resolutionId);
+        name: candidate.name, website: candidate.website ?? knownWebsite,
+        market: /^[A-Z]{2}$/.test(String(market).toUpperCase()) ? String(market).toUpperCase() : "US",
+        description: candidate.description }, officialWebsite, { trace: identityTrace });
+      let entity;
+      if (!verified) {
+        if (process.env.DEBUG_PERSONAL_RUNS === "1") process.stderr.write(
+          `Brand confirmation not verified: ${JSON.stringify(identityTrace.slice(0, 24))}\n`);
+        const prior = await recentConfirmedCommerceBrand(candidate.id);
+        entity = reuseRecentCommerceConfirmation(candidate, prior, officialWebsite);
+        if (!entity) return send(response, 409,
+          { message: "We couldn't confirm this brand's official store automatically. Enter its official website and confirm again." });
+      } else entity = await persistSelectedBrand({ qloo: { ...candidate,
+        website: verified.officialWebsite }, identityStatus: "verified",
+        commerceProof: { qlooId: verified.qlooId,
+          officialWebsite: verified.officialWebsite, shopId: verified.shopId,
+          identitySourceUrl: verified.identitySourceUrl,
+          storefrontProofUrl: verified.storefrontProofUrl } });
+      if (purpose === "commerce_seed") await recordSeedConfirmation(user.id, entity.id);
+      await consumeBrandLookup(resolutionId, user.id);
       return send(response, 200, { entity });
     }
     return send(response, 405, { message: "Unsupported request method." });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Brand lookup is unavailable.";
-    const known = /^(Enter |Choose |Check |Confirm |Select |A verified |The official |The brand's |This |Too many |Partnership not found|Feedback not found|Brief not found|Project not found|Research run not found|Today's )/.test(message);
-    const status = Number.isInteger(error?.statusCode) ? error.statusCode : known ? 400 : 503;
-    return send(response, status, { message: status === 503 ? "Personal research is temporarily unavailable." : message });
+    // Only errors marked with a status code are written for customers; any
+    // other failure is internal and gets a generic message.
+    const status = Number.isInteger(error?.statusCode) && error.statusCode >= 400 &&
+      error.statusCode < 500 ? error.statusCode : 503;
+    if (status === 503 && process.env.DEBUG_PERSONAL_RUNS === "1") process.stderr.write(
+      `Request failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    return send(response, status, { message: status === 503
+      ? "Personal research is temporarily unavailable." : error.message });
   }
 }).listen(port, host, () => process.stdout.write(`CrossCulture API listening on ${host}:${port}\n`));
-
-setInterval(() => {
-  for (const [id, record] of brandResolutions)
-    if (record.createdAt < Date.now() - 15 * 60_000) brandResolutions.delete(id);
-  for (const [id, record] of confirmedBrands)
-    if (record.at < Date.now() - 30 * 60_000) confirmedBrands.delete(id);
-  for (const [id, times] of lookupCounts) {
-    const recent = times.filter((time) => time > Date.now() - 60 * 60_000);
-    if (recent.length) lookupCounts.set(id, recent);
-    else lookupCounts.delete(id);
-  }
-}, 60 * 60 * 1000).unref();
 
 if (process.env.DATABASE_URL) {
   let working = false;
@@ -213,4 +240,5 @@ if (process.env.DATABASE_URL) {
   void purgeDueQlooResponses(100).catch((error) =>
     process.stderr.write(`Qloo retention purge failed: ${error instanceof Error ? error.message : "unknown error"}\n`));
   setInterval(() => void purgeDueQlooResponses(100).catch(() => {}), 15 * 60 * 1000).unref();
+  setInterval(() => void purgeRequestState().catch(() => {}), 15 * 60 * 1000).unref();
 }

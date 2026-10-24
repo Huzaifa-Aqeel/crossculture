@@ -8,6 +8,9 @@ import { researchContextCommerce } from "./commerce-context.mjs";
 let pool;
 const db = () => pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+// A run that cannot succeed on retry fails at once instead of repeating research.
+const permanent = (message) => Object.assign(new Error(message), { retryable: false });
+const SEED_ENTRY_FAILURES = new Set(["seed_identity_unverified", "seed_storefront_unverified"]);
 
 function groupedItems(result) {
   const output = [];
@@ -24,33 +27,57 @@ export async function processCommerceRun(run, workerId, { research = researchNat
   persistBrand = persistSelectedBrand } = {}) {
   const seed = await db().query(`select e.id,e.identity_status as "identityStatus",
     e.facts_json->>'commerceIdentitySourceUrl' as "identitySourceUrl",
+    e.facts_json->>'commerceStorefrontProofUrl' as "storefrontProofUrl",
+    e.facts_json->>'commerceOfficialWebsite' as "proofOfficialWebsite",
+    e.facts_json->>'commerceShopId' as "verifiedShopId",
+    e.facts_json->>'commerceQlooId' as "proofQlooId",
+    e.facts_json->>'commerceConfirmedAt' as "identityVerifiedAt",
     e.canonical_name as name,e.description,
     coalesce(e.official_website,e.canonical_url) as website,i.external_id as "qlooId"
     from catalog.entities e left join catalog.entity_identifiers i on i.entity_id=e.id
       and i.provider='qloo' and i.status='confirmed'
     where e.id=$1 and e.kind='brand' limit 1`, [run.seed_entity_id]);
   if (!seed.rows[0] || seed.rows[0].identityStatus !== "verified")
-    throw new Error("Starting brand has no verified business identity.");
+    throw permanent("Starting brand has no verified business identity.");
   const contextSeed = !seed.rows[0].qlooId;
   if (contextSeed && (process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED !== "1" ||
       run.kind !== "discovery" || !run.constraints_json?.commerceRequirements?.heroProduct))
-    throw new Error("Product-context discovery requires a selected product and an enabled verified path.");
+    throw permanent("Product-context discovery requires a selected product and an enabled verified path.");
+  if (!run.constraints_json?.commerceRequirements?.heroProduct) {
+    throw permanent("Research requires a chosen starting product.");
+  }
   let partner = null;
   if (run.kind === "direct_pair") {
-    const selected = await db().query(`select e.canonical_name as name,e.description,
-      coalesce(e.official_website,e.canonical_url) as website,i.external_id as "qlooId"
+    const selected = await db().query(`select e.id,e.canonical_name as name,e.description,
+      e.identity_status as "identityStatus",
+      coalesce(e.official_website,e.canonical_url) as website,i.external_id as "qlooId",
+      e.facts_json->>'commerceIdentitySourceUrl' as "identitySourceUrl",
+      e.facts_json->>'commerceStorefrontProofUrl' as "storefrontProofUrl",
+      e.facts_json->>'commerceOfficialWebsite' as "proofOfficialWebsite",
+      e.facts_json->>'commerceShopId' as "verifiedShopId",
+      e.facts_json->>'commerceQlooId' as "proofQlooId",
+      e.facts_json->>'commerceConfirmedAt' as "identityVerifiedAt"
       from catalog.entities e join catalog.entity_identifiers i on i.entity_id=e.id
         and i.provider='qloo' and i.status='confirmed'
       where e.id=$1 and e.kind='brand' limit 1`, [run.specified_partner_id]);
-    if (!selected.rows[0]?.qlooId) throw new Error("Selected partner has no confirmed cultural identity.");
-    partner = { qlooId: selected.rows[0].qlooId, name: selected.rows[0].name,
-      officialWebsite: selected.rows[0].website, description: selected.rows[0].description };
+    if (!selected.rows[0]?.qlooId) throw permanent("Selected partner has no confirmed cultural identity.");
+    const row = selected.rows[0];
+    partner = { qlooId: row.qlooId, name: row.name, officialWebsite: row.website,
+      description: row.description, entityId: row.id, identityStatus: row.identityStatus,
+      identitySourceUrl: row.identitySourceUrl, storefrontProofUrl: row.storefrontProofUrl,
+      proofOfficialWebsite: row.proofOfficialWebsite, verifiedShopId: row.verifiedShopId,
+      proofQlooId: row.proofQlooId, identityVerifiedAt: row.identityVerifiedAt };
   }
   const request = { ownerUserId: run.user_id,
     seed: { id: seed.rows[0].id, name: seed.rows[0].name,
       identityStatus: seed.rows[0].identityStatus, officialWebsite: seed.rows[0].website,
       description: seed.rows[0].description, qlooId: seed.rows[0].qlooId,
-      identitySourceUrl: seed.rows[0].identitySourceUrl },
+      identitySourceUrl: seed.rows[0].identitySourceUrl,
+      storefrontProofUrl: seed.rows[0].storefrontProofUrl,
+      proofOfficialWebsite: seed.rows[0].proofOfficialWebsite,
+      verifiedShopId: seed.rows[0].verifiedShopId,
+      proofQlooId: seed.rows[0].proofQlooId,
+      identityVerifiedAt: seed.rows[0].identityVerifiedAt },
     seedQlooId: seed.rows[0].qlooId, objective: run.objective,
     specifiedPartner: partner, market: run.constraints_json?.market ?? "US",
     userConstraints: run.constraints_json?.commerceRequirements ?? {},
@@ -61,6 +88,12 @@ export async function processCommerceRun(run, workerId, { research = researchNat
   if (!foundDecisions.length && result.stopReason === "catalog_rate_limited") {
     throw Object.assign(new Error("Catalog temporarily rate limited."),
       { code: "catalog_rate_limited" });
+  }
+  // Starting-brand checks depend on live public sites and can fail briefly.
+  // Retry before recording an empty partial run; the final attempt is kept.
+  if (!foundDecisions.length && SEED_ENTRY_FAILURES.has(result.coverage) && (run.attempt ?? 3) < 3) {
+    throw Object.assign(new Error("Starting brand check temporarily unavailable."),
+      { code: "seed_identity_unavailable" });
   }
   const decisions = [];
   const connection = await db().connect();
@@ -73,7 +106,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
     for (const item of foundDecisions) {
       const partnerEntity = await persistBrand({ qloo: { id: item.partnerId,
         name: item.partnerName, website: item.partnerWebsite,
-        description: null }, identityStatus: "verified" });
+        description: item.partnerDescription ?? null }, identityStatus: "verified" });
       const opportunityKey = digest([run.objective, item.seedProductId, item.seedVariantId,
         item.references?.seed?.sellerId, item.partnerProductId, item.partnerVariantId,
         item.references?.partner?.sellerId]);
@@ -114,15 +147,20 @@ export async function processCommerceRun(run, workerId, { research = researchNat
     await connection.query(`update public.analysis_runs set status=$3,stage='Complete',
       result_json=$4::jsonb,finished_at=now(),lease_until=null,worker_id=null,updated_at=now()
       where id=$1 and worker_id=$2`, [run.id, workerId,
-      ["catalog_rate_limited", "research_time_limit_reached"].includes(result.stopReason) ||
+      result.coverage === "no_partner_product_fit" ? "completed"
+        : ["catalog_rate_limited", "research_time_limit_reached"].includes(result.stopReason) ||
         !decisions.length ? "partial" : "completed",
       JSON.stringify({ sample: false, commerce: true, policyVersion: "brand-commerce-v1.1",
         discoveryBasis: result.discoveryBasis, coverage: result.coverage,
         ...(result.contextStages ? { contextStages: result.contextStages } : {}),
+        ...(result.seedIdentityDiagnostics?.length
+          ? { seedIdentityDiagnostics: result.seedIdentityDiagnostics } : {}),
         stopReason: result.stopReason, discoveryReturnedCount: result.discoveryReturnedCount,
         catalogCallsUsed: result.catalogCallsUsed,
         candidates: result.candidates, decisions,
-        message: result.stopReason === "catalog_rate_limited"
+        message: result.coverage === "no_partner_product_fit"
+          ? "None of the culturally related brands sell products that add value to this product for your goal."
+          : result.stopReason === "catalog_rate_limited"
           ? "Product research was interrupted. The assessed opportunities are partial."
           : result.stopReason === "research_time_limit_reached"
             ? "Product research reached its time limit. Reviewed opportunities are partial."

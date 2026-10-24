@@ -1,17 +1,20 @@
 import pg from "pg";
 import { refreshCommerceOffers, currentCommerceAssessment } from "./commerce-offer-refresh.mjs";
 import { developCommerceConcepts } from "./commerce-concepts.mjs";
-import { proposalTemplate } from "./proposal-template.mjs";
-import { datedCommerceAngle } from "./commerce-vetting.mjs";
+import { commerceProposal } from "./proposal-template.mjs";
+import { sharedLaunchAreas } from "./commerce-launch.mjs";
 
 let pool;
 const db = () => pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 
 export async function commerceProposalAction(userId, matchId, { conceptId = null } = {},
-  { develop = developCommerceConcepts, refresh = refreshCommerceOffers } = {}) {
+  { develop = developCommerceConcepts, refresh = refreshCommerceOffers,
+    launchAreas = sharedLaunchAreas } = {}) {
   const found = await db().query(`select m.id,r.objective,r.match_type,
     r.constraints_json->'commerceRequirements' as requirements,
     seed.canonical_name as "seedName",partner.canonical_name as "partnerName",
+    seed_id.external_id as "seedQlooId",partner_id.external_id as "partnerQlooId",
+    coalesce(r.constraints_json->>'market','US') as market,
     coalesce(seed.official_website,seed.canonical_url) as "seedWebsite",
     coalesce(partner.official_website,partner.canonical_url) as "partnerWebsite",
     a.id as "assessmentId",a.score_json as assessment,a.evidence_json as evidence,
@@ -19,6 +22,10 @@ export async function commerceProposalAction(userId, matchId, { conceptId = null
     from public.matches m join public.analysis_runs r on r.id=m.analysis_run_id
     join catalog.entities seed on seed.id=m.brand_entity_id
     join catalog.entities partner on partner.id=m.partner_entity_id
+    left join catalog.entity_identifiers seed_id on seed_id.entity_id=seed.id
+      and seed_id.provider='qloo' and seed_id.status='confirmed'
+    left join catalog.entity_identifiers partner_id on partner_id.entity_id=partner.id
+      and partner_id.provider='qloo' and partner_id.status='confirmed'
     join lateral (select * from public.assessment_snapshots
       where match_id=m.id and user_id=$2 order by version desc limit 1) a on true
     where m.id=$1 and m.user_id=$2 and r.match_type='brand_brand'
@@ -54,12 +61,11 @@ export async function commerceProposalAction(userId, matchId, { conceptId = null
       ...(row.evidence?.commerce?.externalSourceRefs ?? []),
       ...(selected.draft.datedAngleSourceUrl ? [selected.draft.datedAngleSourceUrl] : []),
     ];
-    const markdown = proposalTemplate({ seedName: row.seedName, partnerName: row.partnerName,
-      objective: row.objective, sourceUrls }) +
-      `\n## Selected product concept\n\n${selected.draft.summary}\n\n` +
-      `**Starting brand role:** ${selected.draft.roles.seed}\n\n` +
-      `**Partner role:** ${selected.draft.roles.partner}\n\n` +
-      `**To verify:** ${selected.draft.validation}\n`;
+    const launch = await launchAreas(userId, row.seedQlooId, row.partnerQlooId, row.market)
+      .catch(() => null);
+    const markdown = commerceProposal({ seedName: row.seedName, partnerName: row.partnerName,
+      objective: row.objective, concept: { ...selected.draft, title: selected.title, format: selected.format },
+      assessment: row.assessment, offers: currentOffers, launchAreas: launch?.areas ?? [], sourceUrls });
     const saved = await db().query(`insert into public.briefs
       (user_id,match_id,concept_id,assessment_id,content_markdown)
       values ($1,$2,$3,$4,$5) returning id,content_markdown as markdown,revision`,
@@ -67,9 +73,12 @@ export async function commerceProposalAction(userId, matchId, { conceptId = null
     return { ...saved.rows[0], reused: false };
   }
   if (existingConcepts.rows.length === 3) return { concepts: existingConcepts.rows, reused: true };
-  const angle = await datedCommerceAngle(row.partnerName, currentOffers.partner).catch(() => null);
+  // Optional cultural context for concept ideas; never required to develop them.
+  const launch = await launchAreas(userId, row.seedQlooId, row.partnerQlooId, row.market)
+    .catch(() => null);
   const concepts = await develop({ seedName: row.seedName, partnerName: row.partnerName,
-    objective: row.objective, assessment: row.assessment, currentOffers, datedAngle: angle });
+    objective: row.objective, assessment: row.assessment, currentOffers,
+    launchAreas: launch?.areas ?? [] });
   const saved = [];
   for (const [index, item] of concepts.entries()) {
     const created = await db().query(`insert into public.concepts
@@ -77,8 +86,7 @@ export async function commerceProposalAction(userId, matchId, { conceptId = null
       values ($1,$2,$3,$4,$5,$6,$7::jsonb)
       on conflict (match_id,version) do nothing returning id,title,format,draft_json as draft`,
     [userId, matchId, row.assessmentId, index + 1, item.title, item.format,
-      JSON.stringify({ ...item, ...(angle && item.evidenceRefs?.includes("dated_angle")
-        ? { datedAngleSourceUrl: angle.sourceUrl, datedAnglePublishedAt: angle.publishedAt } : {}) })]);
+      JSON.stringify(item)]);
     if (created.rows[0]) saved.push(created.rows[0]);
   }
   if (saved.length !== 3) {

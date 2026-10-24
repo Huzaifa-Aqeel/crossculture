@@ -17,11 +17,19 @@ export async function investigateDirectCommerceCulture(ownerUserId, seed, partne
     qlooResponseIds: [], sourceUrls: [], reasonCode: "pair_culture_unverified" };
   // This is a relationship check for the specified partner, not candidate
   // acquisition. Reuse the user's private recommendation response when fresh.
-  const discovery = await recommend(ownerUserId, seed.qlooId).catch(() => null);
-  const native = discovery?.sampleData !== true &&
-    ["ok", "partial"].includes(discovery?.envelope?.status) &&
-    discovery.envelope.results?.some((item) => item.entity_id === partner.qlooId &&
+  // The same unconstrained, Brand-A-anchored recommendation as discovery, read
+  // deeper when needed: a partner in Qloo's top 20 (the provider maximum) is a native recommendation
+  // even if it was outside the top 12 used for Find Partners.
+  const inResults = (result) => result?.sampleData !== true &&
+    ["ok", "partial"].includes(result?.envelope?.status) &&
+    result.envelope.results?.some((item) => item.entity_id === partner.qlooId &&
       (!item.type || ["urn:entity", "urn:entity:brand"].includes(item.type)));
+  let discovery = await recommend(ownerUserId, seed.qlooId).catch(() => null);
+  if (!inResults(discovery)) {
+    const deeper = await recommend(ownerUserId, seed.qlooId, { limit: 20 }).catch(() => null);
+    if (inResults(deeper)) discovery = deeper;
+  }
+  const native = inResults(discovery);
   if (native) return { relationship: "native_recommendation_verified",
     explanation: "no_named_theme", theme: null,
     qlooResponseIds: discovery.responseId ? [discovery.responseId] : [], sourceUrls: [],
@@ -29,6 +37,19 @@ export async function investigateDirectCommerceCulture(ownerUserId, seed, partne
     supportProof: { kind: "direct_unconstrained_native", seedQlooId: seed.qlooId,
       partnerQlooId: partner.qlooId, unconstrained: true,
       envelope: discovery.envelope } };
+  // Reverse check: Brand A in the chosen partner's own unconstrained brand
+  // recommendation (top 20). This is a real association Qloo returned for that
+  // partner, not a forced result; it supports the pair, not shared customers.
+  const reverse = await recommend(ownerUserId, partner.qlooId, { limit: 20 }).catch(() => null);
+  const reverseHit = reverse?.sampleData !== true &&
+    ["ok", "partial"].includes(reverse?.envelope?.status) &&
+    reverse.envelope.results?.some((item) => item.entity_id?.toLowerCase() === seed.qlooId.toLowerCase() &&
+      (!item.type || ["urn:entity", "urn:entity:brand"].includes(item.type)));
+  if (reverseHit) return { relationship: "direct_pair_supported", explanation: "no_named_theme",
+    theme: null, qlooResponseIds: reverse.responseId ? [reverse.responseId] : [], sourceUrls: [],
+    reasonCode: "reverse_unconstrained_native_pair_returned",
+    supportProof: { kind: "reverse_unconstrained_native", seedQlooId: seed.qlooId,
+      partnerQlooId: partner.qlooId, unconstrained: true, envelope: reverse.envelope } };
   const focus = await focused(ownerUserId, seed.qlooId, partner.qlooId).catch(() => null);
   if (focus?.responseId) base.qlooResponseIds.push(focus.responseId);
   const returned = focus?.envelope?.status === "ok" && focus.envelope.results?.some((item) =>

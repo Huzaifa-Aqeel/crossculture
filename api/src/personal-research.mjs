@@ -6,6 +6,8 @@ import { discoverVerifiedStorefront } from "./shopify-catalog.mjs";
 import { investigateCommerceAudience } from "./commerce-audience.mjs";
 import { commerceProposalAction } from "./commerce-proposals.mjs";
 import { validateNewRunObjective } from "./new-run-objectives.mjs";
+import { vetCommerceShortlist } from "./commerce-vetting.mjs";
+import { sharedLaunchAreas } from "./commerce-launch.mjs";
 
 let pool;
 const uuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -58,6 +60,8 @@ export async function startPersonalRun(userId, input) {
        requestedPrice.amountMinor > 100_000_000 || !/^[A-Z]{3}$/.test(requestedPrice.currencyCode ?? ""))) {
     bad("Choose a valid partner-product price limit and currency.");
   }
+  // Every research run starts from one chosen starting product.
+  if (researchMode === "live_commerce" && !requestedHero) bad("Choose a starting product before research.");
   if (researchMode === "live_commerce" && requestedHero &&
       (typeof requestedHero.productId !== "string" ||
        !/^gid:\/\/shopify\/(?:Product|p)\//.test(requestedHero.productId) ||
@@ -74,7 +78,11 @@ export async function startPersonalRun(userId, input) {
     ...(requestedPrice ? { priceLimit: { amountMinor: requestedPrice.amountMinor,
       currencyCode: requestedPrice.currencyCode } } : {}),
     ...(requestedHero ? { heroProduct: { productId: requestedHero.productId,
-      variantId: requestedHero.variantId } } : {}),
+      variantId: requestedHero.variantId,
+      // The chosen product's display title is only a partner-filter hint; the
+      // exact product and variant are re-read from the store during research.
+      ...(typeof requestedHero.title === "string" && requestedHero.title.trim()
+        ? { title: requestedHero.title.trim().slice(0, 160) } : {}) } } : {}),
   } : null;
   const client = await db().connect();
   try {
@@ -182,7 +190,7 @@ export async function getPersonalRun(userId, runId) {
       and r.match_type='brand_brand' and r.objective in ('product_bundle','cross_sell')`, [runId, userId]);
   if (!run.rows[0]) return null;
   const matches = await db().query(`select m.id,m.partner_entity_id as "partnerEntityId",m.eligibility,m.saved_at as "savedAt",m.note,
-    e.canonical_name as "partnerName",
+    e.canonical_name as "partnerName",e.description as "partnerDescription",
     coalesce(e.official_website,e.canonical_url) as "partnerWebsite",
     a.id as "assessmentId",a.evidence_json as evidence,
     a.score_json as score,a.scoring_version as "scoringVersion",a.version as "assessmentVersion",
@@ -300,10 +308,56 @@ export async function researchPersonalMatchAudience(userId, matchId,
     { includeDemographics });
 }
 
-export async function recordPersonalFeedback(userId, input) {
+// Saving an opportunity runs one bounded public-source review of its partner
+// and attaches the links to the latest assessment for the reviewer. It never
+// changes the opportunity's status or rank, and a slow or failed review does
+// not block the save.
+async function vetSavedPartner(userId, matchId, vet) {
+  const found = await db().query(`select a.id as "assessmentId",a.evidence_json as evidence,
+    e.canonical_name as name,coalesce(e.official_website,e.canonical_url) as "officialWebsite"
+    from public.matches m join catalog.entities e on e.id=m.partner_entity_id
+    join lateral (select id,evidence_json from public.assessment_snapshots
+      where match_id=m.id and user_id=$1 order by version desc limit 1) a on true
+    where m.id=$2 and m.user_id=$1`, [userId, matchId]);
+  const row = found.rows[0];
+  if (!row || row.evidence?.commerce?.publicReviewCheckedAt) return;
+  const review = await Promise.race([vet({ name: row.name, officialWebsite: row.officialWebsite }),
+    new Promise((resolve) => setTimeout(() => resolve(null), 8000).unref?.())]).catch(() => null);
+  if (!review) return;
+  const findings = (review.findings ?? []).filter((item) => /^https:\/\//.test(item?.url ?? "") &&
+    ["official_context", "independent_context_to_review", "independent_concern_to_review"].includes(item.kind))
+    .slice(0, 6).map((item) => ({ kind: item.kind, url: item.url, publishedAt: item.publishedAt ?? null }));
+  await db().query(`update public.assessment_snapshots set evidence_json=jsonb_set(jsonb_set(jsonb_set(
+      evidence_json,'{commerce,externalFindings}',$3::jsonb),'{commerce,externalSourceRefs}',$4::jsonb),
+      '{commerce,publicReviewCheckedAt}',to_jsonb(now()::text))
+    where id=$1 and user_id=$2`, [row.assessmentId, userId, JSON.stringify(findings),
+    JSON.stringify(findings.map((item) => item.url))]);
+}
+
+// Where both brands' audiences are strongest in the run's market. Owner-scoped
+// and explanation only; it never changes the opportunity's status or rank.
+export async function researchPersonalMatchLaunchAreas(userId, matchId,
+  { launchAreas = sharedLaunchAreas } = {}) {
+  if (!uuid(matchId)) return null;
+  const found = await db().query(`select seed_id.external_id as "seedQlooId",
+    partner_id.external_id as "partnerQlooId", coalesce(r.constraints_json->>'market','US') as market
+    from public.matches m join public.analysis_runs r on r.id=m.analysis_run_id
+    left join catalog.entity_identifiers seed_id on seed_id.entity_id=m.brand_entity_id
+      and seed_id.provider='qloo' and seed_id.status='confirmed'
+    left join catalog.entity_identifiers partner_id on partner_id.entity_id=m.partner_entity_id
+      and partner_id.provider='qloo' and partner_id.status='confirmed'
+    where m.id=$2 and m.user_id=$1 and r.user_id=$1
+      and r.match_type='brand_brand' and r.objective in ('product_bundle','cross_sell')`, [userId, matchId]);
+  const row = found.rows[0];
+  if (!row) return null;
+  return launchAreas(userId, row.seedQlooId, row.partnerQlooId, row.market);
+}
+
+export async function recordPersonalFeedback(userId, input, { vet = vetCommerceShortlist } = {}) {
   if (!uuid(input?.runId) || !uuid(input?.matchId) || !["save", "reject"].includes(input.action)) bad("Choose Save or Pass for this partnership.");
   const reason = typeof input.reason === "string" ? input.reason.trim().slice(0, 160) : null;
   const client = await db().connect();
+  let saved;
   try {
     await client.query("begin");
     const result = await client.query(`insert into public.feedback(user_id,analysis_run_id,match_id,action,reason)
@@ -313,9 +367,11 @@ export async function recordPersonalFeedback(userId, input) {
     await client.query(`update public.matches set saved_at=$3,updated_at=now() where id=$1 and user_id=$2`,
       [input.matchId, userId, input.action === "save" ? new Date() : null]);
     await client.query("commit");
-    return { id: result.rows[0].id, action: input.action };
+    saved = { id: result.rows[0].id, action: input.action };
   } catch (error) { await client.query("rollback"); throw error; }
   finally { client.release(); }
+  if (input.action === "save") await vetSavedPartner(userId, input.matchId, vet).catch(() => {});
+  return saved;
 }
 
 export async function undoPersonalFeedback(userId, feedbackId) {
@@ -377,18 +433,27 @@ export async function claimPersonalRun(id = workerId) {
   return result.rows[0] ?? null;
 }
 
-export async function failPersonalRun(run, error, id = workerId) {
-  const terminal = run.attempt >= 3;
+export function runFailurePlan(run, error) {
+  const invalid = error?.retryable === false;
+  const terminal = invalid || run.attempt >= 3;
   const rateLimited = error?.code === "catalog_rate_limited";
-  const retryDelaySeconds = rateLimited ? Math.min(300, 60 * (2 ** (run.attempt - 1))) : 10;
+  const seedCheck = error?.code === "seed_identity_unavailable";
+  return { terminal, status: terminal ? "failed" : "queued",
+    stage: terminal ? "Complete" : rateLimited ? "Waiting to retry product research"
+      : seedCheck ? "Checking the starting brand again" : "Retrying research",
+    errorCode: invalid ? "commerce_run_invalid" : rateLimited ? "commerce_catalog_rate_limited"
+      : seedCheck ? "commerce_seed_identity_unavailable" : "commerce_research_unavailable",
+    retryDelaySeconds: rateLimited ? Math.min(300, 60 * (2 ** (run.attempt - 1)))
+      : seedCheck ? 30 * run.attempt : 10 };
+}
+
+export async function failPersonalRun(run, error, id = workerId) {
+  const plan = runFailurePlan(run, error);
   await db().query(`update public.analysis_runs set status=$3,stage=$4,error_code=$6,
     available_at=case when $5 then available_at else now()+$7::integer * interval '1 second' end,
     lease_until=null,worker_id=null,finished_at=case when $5 then now() else null end,updated_at=now()
     where id=$1 and worker_id=$2 and status='running'`,
-  [run.id, id, terminal ? "failed" : "queued", terminal ? "Complete" :
-    rateLimited ? "Waiting to retry product research" : "Retrying research", terminal,
-    rateLimited ? "commerce_catalog_rate_limited" : "commerce_research_unavailable",
-    retryDelaySeconds]);
+  [run.id, id, plan.status, plan.stage, plan.terminal, plan.errorCode, plan.retryDelaySeconds]);
   if (process.env.DEBUG_PERSONAL_RUNS === "1") process.stderr.write(`Personal run failed: ${error instanceof Error ? error.message : String(error)}\n`);
 }
 

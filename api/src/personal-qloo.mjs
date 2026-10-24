@@ -100,9 +100,10 @@ const CONTEXT_NAMED_TYPES = new Set(["artist", "movie", "tv_show", "book", "vide
 const QLOO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function personalQlooRecommendBrands(ownerUserId, seedQlooId,
-  { provider = qlooCall, now = new Date() } = {}) {
+  { provider = qlooCall, now = new Date(), limit = 12 } = {}) {
   if (!QLOO_UUID.test(seedQlooId ?? "")) throw new Error("A confirmed cultural brand identifier is required.");
-  const context = { target_type: "brand", signals: [seedQlooId], limit: 12, explain: true };
+  const take = Number.isInteger(limit) && limit >= 1 ? Math.min(20, limit) : 12;
+  const context = { target_type: "brand", signals: [seedQlooId], limit: take, explain: true };
   const identity = qlooCacheIdentity({ operation: "qloo_recommend", context, ownerUserId });
   const cached = await readQlooCache(identity, { now });
   if (cached.status !== "missing" && !(cached.sampleData && provider === qlooCall)) {
@@ -229,6 +230,33 @@ export async function personalQlooAudienceDemographics(ownerUserId, entityId,
       status: cached.result?.status ?? "unavailable" };
   }
   const envelope = await provider("qloo_audience_demographics", context);
+  if (envelope?.status !== "ok" || !Array.isArray(envelope.results)) return {
+    results: [], responseId: null, cacheStatus: "uncached",
+    sampleData: provider !== qlooCall, status: envelope?.status ?? "unavailable" };
+  const saved = await storeQlooResponse(identity, { result: envelope,
+    providerStatus: envelope.status, resolvedEntityIds: [entityId],
+    rights: { storage: "permitted", scope: "private" }, collectedAt: now, respondedAt: now,
+    freshUntil: new Date(now.getTime() + DAY), retainUntil: new Date(now.getTime() + 7 * DAY),
+    sampleData: provider !== qlooCall });
+  return { results: envelope.results, responseId: saved.id, cacheStatus: "new",
+    sampleData: provider !== qlooCall, status: "ok" };
+}
+
+// Where a brand's audience is strongest inside one country (map cells with
+// query-relative affinity). Owner-private; explanation only, never a score.
+export async function personalQlooWherePopular(ownerUserId, entityId, within,
+  { provider = qlooCall, now = new Date(), limit = 25 } = {}) {
+  if (!QLOO_UUID.test(entityId ?? "")) throw new Error("A confirmed cultural brand identifier is required.");
+  if (typeof within !== "string" || within.trim().length < 2) throw new Error("A country is required.");
+  const context = { entity: entityId, entity_type: "brand", within: within.trim(), limit };
+  const identity = qlooCacheIdentity({ operation: "qloo_where_popular", context, ownerUserId });
+  const cached = await readQlooCache(identity, { now });
+  if (cached.status !== "missing" && !(cached.sampleData && provider === qlooCall)) {
+    return { results: cached.result?.results ?? [], responseId: cached.responseId,
+      cacheStatus: cached.status, sampleData: cached.sampleData,
+      status: cached.result?.status ?? "unavailable" };
+  }
+  const envelope = await provider("qloo_where_popular", context);
   if (envelope?.status !== "ok" || !Array.isArray(envelope.results)) return {
     results: [], responseId: null, cacheStatus: "uncached",
     sampleData: provider !== qlooCall, status: envelope?.status ?? "unavailable" };

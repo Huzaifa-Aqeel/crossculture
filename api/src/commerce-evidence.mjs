@@ -2,14 +2,37 @@ import { observedProductType, productMechanism, verifiedMechanismFacts,
   mechanismFactSourceKinds } from "./commerce-products.mjs";
 
 const QLOO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SPECIFIC_TAG = /^urn:tag:(?:aesthetic_property|keyword):qloo:[a-z0-9_]+$/;
+// Qloo's brand-attribute tags: what a brand stands for and who it serves
+// (e.g. "Minimalist Design", "Ethical Production", "Conscious Consumers").
+const SPECIFIC_TAG = /^urn:tag:(?:aesthetic_property|keyword|lifestyle|customer_segment|customer_identity|style|influencer_appeal|cultural_relevance):qloo:[a-z0-9_]+$/;
 const CONTEXT_TAG = /^urn:tag:[a-z_]+:qloo:[a-z0-9_]+$/;
 const GENERIC_THEME = /^(?:design|lifestyle|fashion|indie|minimalist|artsy|creative|home goods|functionality)$/i;
 const SHOP_ID = /^gid:\/\/shopify\/Shop\/[A-Za-z0-9_-]+$/;
+// Qloo brand tags also carry cross-domain audience tastes. Only music and media
+// genres read as a shared taste; dishes ("Avocado Toast"), payment, price,
+// rating, place and story keywords are noise.
+const AUDIENCE_TASTE_TAG = /^urn:tag:(?:genre:media|genre:music):[a-z0-9_:]+$/;
+const AUDIENCE_TASTE_NOISE = /^(?:friend|friends|friendship|love|family|family relationships|relationships|21st century|20th century|female protagonist|male protagonist|teenage girl|teenage boy|single mother|single father|death|murder|husband|wife|marriage|based on novel|new york city|los angeles)$/i;
+// Shared tastes as readable phrases: a music genre reads "indie music".
+export function sharedAudienceTastes(seedTags, partnerTags, limit = 3) {
+  const clean = (tags) => (Array.isArray(tags) ? tags : []).map((tag) => ({ id: tag?.id,
+    name: String(tag?.name ?? "").trim() })).filter((tag) => AUDIENCE_TASTE_TAG.test(tag.id ?? "") &&
+    tag.name.length >= 3 && !AUDIENCE_TASTE_NOISE.test(tag.name));
+  const partnerIds = new Set(clean(partnerTags).map((tag) => tag.id));
+  const phrase = (tag) => tag.id.startsWith("urn:tag:genre:music:") && !/\bmusic$/i.test(tag.name)
+    ? `${tag.name.toLowerCase()} music` : tag.name.toLowerCase();
+  return [...new Set(clean(seedTags).filter((tag) => partnerIds.has(tag.id)).map(phrase))].slice(0, limit);
+}
 const validated = new WeakSet();
 const host = (url) => { try { const parsed = new URL(url); return parsed.protocol === "https:" ? parsed.hostname : null; }
   catch { return null; } };
 const domain = (url) => host(url)?.replace(/^www\./, "") ?? null;
+// The entity IDs Qloo reports as the input signals of a recommendation.
+function anchoredOn(envelope, qlooId) {
+  const effects = envelope?.explainability?.["signal.interests.entities"]?.effect_on_all_recs;
+  return Array.isArray(effects) && effects.length > 0 && effects.every((item) =>
+    String(item?.entity_id ?? "").toLowerCase() === String(qlooId).toLowerCase());
+}
 const plainIdentity = (value) => String(value ?? "").toLowerCase()
   .replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 // A merchant may sell a product co-branded with someone else. Recognize only
@@ -80,6 +103,8 @@ export function validateCommerceEvidence(raw) {
   let culturalRelationship = "unknown";
   let culturalExplanation = "no_named_theme";
   let culturalTheme = null;
+  let culturalThemes = [];
+  let audienceTastes = [];
   if (raw.discoveryBasis === "qloo_native_brand" &&
       QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
       cultureEvidence.seedQlooId === seed.qlooId && cultureEvidence.partnerQlooId === partner.qlooId &&
@@ -88,6 +113,34 @@ export function validateCommerceEvidence(raw) {
       Array.isArray(cultureEvidence.envelope.results) &&
       cultureEvidence.envelope.results.some((item) => item.entity_id === partner.qlooId)) {
     culturalRelationship = "native_recommendation_verified";
+    // A specific Qloo taste tag carried by both brands names a broad theme;
+    // the same tag in the selected products' own text corroborates a specific
+    // one (Scoring Engine 3.3). It explains the relationship; it is not a gate.
+    const specific = (tags) => (Array.isArray(tags) ? tags : []).filter((tag) =>
+      SPECIFIC_TAG.test(tag?.id ?? "") && plainIdentity(tag.name).length >= 4 &&
+      !GENERIC_THEME.test(String(tag.name ?? "").trim()));
+    // The same tag, or the same descriptor under another tag kind
+    // ("Socially Responsible" as a lifestyle and as a customer identity).
+    const partnerNames = new Set(specific(cultureEvidence.partnerTags).map((tag) => plainIdentity(tag.name)));
+    const shared = [...new Map(specific(cultureEvidence.seedTags)
+      .filter((tag) => partnerNames.has(plainIdentity(tag.name)))
+      .map((tag) => [plainIdentity(tag.name), tag])).values()];
+    if (shared.length) {
+      const productText = ` ${plainIdentity([seedDetail?.product?.title, partnerDetail?.product?.title,
+        ...(raw.sourceAuthority?.seedDescription ? [typeof seedDetail?.product?.description === "string"
+          ? seedDetail.product.description : seedDetail?.product?.description?.plain] : []),
+        ...(raw.sourceAuthority?.partnerDescription ? [typeof partnerDetail?.product?.description === "string"
+          ? partnerDetail.product.description : partnerDetail?.product?.description?.plain] : [])]
+        .filter((value) => typeof value === "string").join(" "))} `;
+      const corroborated = shared.find((tag) => productText.includes(` ${plainIdentity(tag.name)} `));
+      culturalExplanation = corroborated ? "specific_theme" : "broad_theme";
+      culturalTheme = String((corroborated ?? shared[0]).name).slice(0, 120);
+      culturalThemes = [...new Set([corroborated ?? shared[0], ...shared]
+        .map((tag) => String(tag.name).trim()))].slice(0, 3);
+    }
+    // Shared audience tastes explain the fit to the customer; per Scoring
+    // Engine 3.3 they never change the assessment or the ranking.
+    audienceTastes = sharedAudienceTastes(cultureEvidence.seedTags, cultureEvidence.partnerTags);
   } else if (raw.discoveryBasis === "user_specified" &&
       cultureEvidence.kind === "direct_unconstrained_native" &&
       QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
@@ -100,6 +153,19 @@ export function validateCommerceEvidence(raw) {
         item.entity_id === partner.qlooId &&
         (!item.type || ["urn:entity", "urn:entity:brand"].includes(item.type)))) {
     culturalRelationship = "native_recommendation_verified";
+  } else if (raw.discoveryBasis === "user_specified" &&
+      cultureEvidence.kind === "reverse_unconstrained_native" &&
+      QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
+      cultureEvidence.seedQlooId === seed.qlooId && cultureEvidence.partnerQlooId === partner.qlooId &&
+      cultureEvidence.unconstrained === true &&
+      ["ok", "partial"].includes(cultureEvidence.envelope?.status) &&
+      // Qloo's own explainability must show the partner as the request's input
+      // signal, so the list really was built from the partner.
+      anchoredOn(cultureEvidence.envelope, partner.qlooId) &&
+      (cultureEvidence.envelope.results ?? []).some((item) =>
+        String(item.entity_id ?? "").toLowerCase() === seed.qlooId.toLowerCase() &&
+        (!item.type || ["urn:entity", "urn:entity:brand"].includes(item.type)))) {
+    culturalRelationship = "direct_pair_supported";
   } else if (raw.discoveryBasis === "qloo_context_brand" && !seed?.qlooId &&
       QLOO_ID.test(partner?.qlooId ?? "") && cultureEvidence.kind === "product_context" &&
       cultureEvidence.sourceProductId === selectedSeed?.productId &&
@@ -181,7 +247,8 @@ export function validateCommerceEvidence(raw) {
   const matchesFocus = mechanism.evidence === "supported" && (
     (exactHero && raw.rubricVerification?.seedRoleGroundedInSelectedItem === true &&
       selectedItemSpecific && raw.rubricVerification?.distinctConcreteJointValue === true) ||
-    (occasion.length >= 4 && mechanism.occasion?.toLowerCase() === occasion));
+    (occasion.length >= 4 && (mechanism.occasion?.toLowerCase() === occasion ||
+      raw.rubricVerification?.servesStatedOccasion === true)));
   const descriptionText = (product) => typeof product?.description === "string"
     ? product.description : product?.description?.plain;
   const sourceText = [seedDetail?.product?.title, partnerDetail?.product?.title,
@@ -190,7 +257,11 @@ export function validateCommerceEvidence(raw) {
     .filter((value) => typeof value === "string").join(" ").toLowerCase();
   const preferences = [...new Set((userConstraints.softPreferences ?? [])
     .filter((value) => typeof value === "string" && value.length >= 3).map((value) => value.toLowerCase()))];
-  const matchedPreferences = preferences.filter((value) => sourceText.includes(value));
+  // A preference counts when the selected text contains it, or when the
+  // judgment quoted supporting words that were verified in that text.
+  const quotedPreferences = new Set(raw.rubricVerification?.verifiedPreferences ?? []);
+  const matchedPreferences = preferences.filter((value) => sourceText.includes(value) ||
+    quotedPreferences.has(value));
   const clearObjectiveContribution = mechanism.evidence === "supported" &&
     (raw.objective === "cross_sell"
       ? raw.rubricVerification?.reason === "specific_assortment_contribution" &&
@@ -214,6 +285,7 @@ export function validateCommerceEvidence(raw) {
   };
   const input = { objective: raw.objective, discoveryBasis: raw.discoveryBasis,
     identity, culturalRelationship, culturalExplanation, culturalTheme,
+    culturalThemes, sharedAudienceTastes: audienceTastes,
     seedOffer: selectedSeedValid ? "supported" : "unknown",
     partnerOffer: selectedPartnerValid ? "supported" : "unknown",
     seedAssortment: selectedSeedValid && raw.assortmentScope?.observedFamilies?.length &&
@@ -227,6 +299,8 @@ export function validateCommerceEvidence(raw) {
     incrementalValue: mechanism.incrementalValue,
     seedRole: mechanism.productRoles?.[0], partnerRole: mechanism.productRoles?.[1],
     rationale: mechanism.benefit, productRefs: ["seed_product", "partner_product"],
+    customerReason: mechanism.benefit && typeof raw.rubricVerification?.customerReason === "string"
+      ? raw.rubricVerification.customerReason : null,
     evidenceRefs: ["seed_product", "partner_product"],
     assortmentScope: raw.assortmentScope,
     objectiveSuitability: matchesFocus ? "matches_explicit_focus" : clearObjectiveContribution

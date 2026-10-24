@@ -24,7 +24,8 @@ export function publicIpAddress(address) {
   return /^[23][0-9a-f]/.test(lower);
 }
 
-// DNS is checked and pinned for this HTTPS request. Redirects are never followed.
+// DNS is checked and pinned for this HTTPS request. Redirects are never followed here;
+// a caller that follows one must send the next hop through this function again.
 export async function secureCatalogFetch(url, options = {}) {
   const target = new URL(url);
   if (target.protocol !== "https:" || target.port || target.username || target.password) {
@@ -34,12 +35,14 @@ export async function secureCatalogFetch(url, options = {}) {
   if (!answers.length || answers.some((item) => !publicIpAddress(item.address))) {
     throw new Error("Storefront endpoint did not resolve to public addresses.");
   }
+  // Every answer was checked above, so the connection may try each of them
+  // (IPv4/IPv6 fallback) without another DNS lookup.
   const pinned = answers[0];
   return new Promise((resolve, reject) => {
     const request = httpsRequest(target, { method: options.method ?? "GET",
       headers: { "user-agent": "CrossCulture/1.0", ...options.headers }, signal: options.signal,
       lookup: (_hostname, lookupOptions, done) => lookupOptions?.all
-        ? done(null, [pinned]) : done(null, pinned.address, pinned.family) }, (response) => {
+        ? done(null, answers) : done(null, pinned.address, pinned.family) }, (response) => {
       const chunks = [];
       let length = 0;
       response.on("data", (chunk) => {
@@ -51,6 +54,7 @@ export async function secureCatalogFetch(url, options = {}) {
         const body = Buffer.concat(chunks).toString("utf8");
         resolve({ ok: response.statusCode >= 200 && response.statusCode < 300,
           status: response.statusCode, contentType: response.headers["content-type"] ?? "",
+          location: typeof response.headers.location === "string" ? response.headers.location : null,
           text: async () => body, json: async () => JSON.parse(body) });
       });
       response.on("error", reject);
@@ -71,8 +75,21 @@ export function catalogEndpoint(domain) {
   return `https://${domain.toLowerCase()}/api/ucp/mcp`;
 }
 
+// A short code for a failed public fetch. It is developer diagnostics only and
+// never contains response content.
+export const TRANSIENT_FETCH_FAILURES = new Set(["network_econnreset", "network_eai_again",
+  "network_epipe", "network_econnaborted", "network_etimedout"]);
+
+export function fetchFailureCode(error) {
+  if (error?.name === "TimeoutError" || error?.name === "AbortError") return "timeout";
+  if (error instanceof SyntaxError) return "invalid_response";
+  const code = error?.code ?? error?.cause?.code;
+  return typeof code === "string" && /^[A-Z_]{3,40}$/.test(code) ? `network_${code.toLowerCase()}`
+    : /public addresses/.test(error?.message ?? "") ? "non_public_address" : "network_error";
+}
+
 export async function discoverVerifiedStorefront(officialUrl, { fetcher = secureCatalogFetch,
-  timeoutMs = 8000, onlyDomain = null } = {}) {
+  timeoutMs = 8000, onlyDomain = null, signal = null, retryDelayMs = 400, trace = null } = {}) {
   let officialHost;
   try {
     const url = new URL(officialUrl);
@@ -92,32 +109,52 @@ export async function discoverVerifiedStorefront(officialUrl, { fetcher = secure
   }
   const candidates = onlyDomain ? [onlyDomain] : allowedCandidates;
   let probeUnavailable = false;
+  const note = (domain, reason) => trace?.push({ step: "storefront", domain, reason });
+  // One retry covers a dropped connection or temporary DNS failure. Timeouts,
+  // missing hosts and HTTP answers are real results for that candidate host.
+  const probe = async (domain) => {
+    for (let attempt = 0; ; attempt += 1) {
+      if (signal?.aborted) throw Object.assign(new Error("Research deadline reached."), { name: "AbortError" });
+      try {
+        return await fetcher(`https://${domain}/.well-known/ucp`, {
+          headers: { accept: "application/json" }, cache: "no-store",
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+            : AbortSignal.timeout(timeoutMs) });
+      } catch (error) {
+        if (attempt >= 1 || signal?.aborted || !TRANSIENT_FETCH_FAILURES.has(fetchFailureCode(error))) throw error;
+        note(domain, `retry_after_${fetchFailureCode(error)}`);
+        if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+    }
+  };
   for (const domain of candidates) {
     try {
-      const response = await fetcher(`https://${domain}/.well-known/ucp`, {
-        headers: { accept: "application/json" }, signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
-      if (!response.ok) continue;
+      const response = await probe(domain);
+      if (!response.ok) { note(domain, `http_${response.status ?? "error"}`); continue; }
       const document = await response.json();
       const capabilities = document?.ucp?.capabilities ?? {};
       // The discovery document identifies the shop. Actual search/detail tools
       // are negotiated separately; a storefront may expose only part of Catalog.
-      if (!capabilities["dev.ucp.shopping.catalog.search"]) continue;
+      if (!capabilities["dev.ucp.shopping.catalog.search"]) { note(domain, "catalog_search_missing"); continue; }
       const service = document?.ucp?.services?.["dev.ucp.shopping"]?.find((item) =>
         item.transport === "mcp" && item.version === document.ucp.version);
       let endpointHost;
       try {
         const endpoint = new URL(service?.endpoint);
-        if (endpoint.protocol !== "https:" || endpoint.port || endpoint.pathname !== "/api/ucp/mcp") continue;
+        if (endpoint.protocol !== "https:" || endpoint.port || endpoint.pathname !== "/api/ucp/mcp") {
+          note(domain, "endpoint_invalid"); continue;
+        }
         endpointHost = endpoint.hostname.toLowerCase();
         catalogEndpoint(endpointHost);
-      } catch { continue; }
+      } catch { note(domain, "endpoint_invalid"); continue; }
       if (endpointHost !== domain && !endpointHost.endsWith(`.${baseHost}`) &&
-          !endpointHost.endsWith(".myshopify.com")) continue;
+          !endpointHost.endsWith(".myshopify.com")) { note(domain, "endpoint_host_unrelated"); continue; }
       const shopId = document?.ucp?.payment_handlers?.["dev.shopify.shop_pay"]?.[0]?.config?.shop_id;
+      if (!/^\d+$/.test(String(shopId ?? ""))) note(domain, "shop_id_missing");
       return { domain, officialHost, endpointHost,
         shopId: /^\d+$/.test(String(shopId ?? "")) ? `gid://shopify/Shop/${shopId}` : null,
         proofUrl: `https://${domain}/.well-known/ucp` };
-    } catch { probeUnavailable = true; }
+    } catch (error) { probeUnavailable = true; note(domain, fetchFailureCode(error)); }
   }
   return probeUnavailable ? { shopId: null, coverage: "storefront_probe_unavailable" } : null;
 }

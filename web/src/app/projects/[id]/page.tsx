@@ -3,20 +3,15 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/header";
-import "../../auth/auth.css";
-import "../../account/projects.css";
+import { GOALS, marketName } from "@/lib/markets";
+import "../../research/research.css";
 import { CommerceResearch } from "./commerce-research";
 
 type Project = { id: string; name: string; objective: string; notes: string; seedName: string;
-  seedNative: boolean; updatedAt: string };
-const goals = [
-  ["product_bundle", "Product Bundle Discovery"], ["cross_sell", "Cross-Sell Partner Discovery"],
-];
+  market?: string; updatedAt: string };
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const [project, setProject] = useState<Project | null>(null);
-  const [name, setName] = useState("");
-  const [objective, setObjective] = useState("product_bundle");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -27,34 +22,48 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     let active = true;
     params.then(({ id }) => fetch(`/api/projects/${id}`, { cache: "no-store" })).then(async (response) => {
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Project unavailable.");
+      if (!response.ok) throw new Error(payload.message ?? "This project is unavailable.");
       if (!active) return;
-      setProject(payload.project); setName(payload.project.name); setObjective(payload.project.objective);
-      setNotes(payload.project.notes);
-    }).catch((failure) => { if (active) setError(failure instanceof Error ? failure.message : "Project unavailable."); })
+      setProject(payload.project); setNotes(payload.project.notes ?? "");
+    }).catch((failure) => { if (active) setError(failure instanceof Error ? failure.message : "This project is unavailable."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [params]);
 
-  async function save(event: FormEvent<HTMLFormElement>) {
+  async function saveNotes(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!project) return;
-    setSaving(true); setError(""); setMessage("");
+    setSaving(true); setMessage(""); setError("");
     try {
       const response = await fetch(`/api/projects/${project.id}`, { method: "PATCH", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, objective, notes }) });
+        body: JSON.stringify({ name: project.name, objective: project.objective, notes }) });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Could not save this project.");
-      setProject(payload.project); setMessage("Project saved.");
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not save this project."); }
+      if (!response.ok) throw new Error(payload.message ?? "Notes could not be saved.");
+      setProject(payload.project); setMessage("Notes saved.");
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Notes could not be saved."); }
     finally { setSaving(false); }
   }
 
-  return <><Header /><main className="shell account-shell"><span className="eyebrow"><span className="eyebrow-dot" /> PERSONAL RESEARCH</span>
-    {loading ? <p role="status">Opening project…</p> : !project ? <section className="account-panel"><h1>Project unavailable</h1><p className="auth-error" role="alert">{error}</p><Link href="/account">Back to account</Link></section> : <><div className="account-head"><div><h1>{project.name}</h1><p>Starting brand: {project.seedName}</p></div></div><section className="account-panel"><h2>Project direction</h2><p>Capture your goal and working questions. These are your private notes.</p><form className="project-editor" onSubmit={save}><label htmlFor="project-title">Project name</label><input id="project-title" value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /><label htmlFor="project-objective">Goal</label><select id="project-objective" value={objective} onChange={(event) => setObjective(event.target.value)}>{goals.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><label htmlFor="project-notes">Working notes</label><textarea id="project-notes" value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={10000} placeholder="What kind of partnership are you exploring? What must be checked with both partners?" /><button className="button button-dark" type="submit" disabled={saving}>{saving ? "Saving…" : "Save project"}</button></form>{message && <p className="auth-message" role="status">{message}</p>}{error && <p className="auth-error" role="alert">{error}</p>}</section>{["product_bundle", "cross_sell"].includes(project.objective)
-      ? <CommerceResearch projectId={project.id} objective={project.objective}
-          requiresSelectedProduct={!project.seedNative} />
-      : null}
-      <Link className="project-page-back" href="/account">← All projects</Link></>}
+  return <><Header /><main className="shell rs-page">
+    {loading ? <p className="rs-quiet">Opening project…</p> : !project ? <div className="rs-card"><h2>Project unavailable</h2>
+      <p className="rs-error" role="alert">{error}</p><p style={{ marginTop: 14 }}><Link className="rs-link" href="/account">Back to workspace</Link></p></div> : <>
+      <div className="rs-head"><div><Link href="/account" className="rs-quiet" style={{ display: "inline-block", marginBottom: 14 }}>← Workspace</Link>
+        <h1>{project.name}</h1>
+        <div className="rs-meta"><span>{project.seedName}</span><span>{marketName(project.market ?? "US")}</span>
+          <span>{GOALS[project.objective]?.label ?? "Partnership"}</span></div></div>
+</div>
+
+      <CommerceResearch projectId={project.id} />
+
+      <details className="rs-more" style={{ marginTop: 34 }}><summary>Working notes</summary>
+        <form className="rs-form" onSubmit={saveNotes}>
+          <label className="rs-field">Notes <small>Private to you</small>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={10000} rows={6}
+              placeholder="Questions to raise with partners, ideas to try next…" /></label>
+          <div><button className="rs-button-quiet" type="submit" disabled={saving}>{saving ? "Saving…" : "Save notes"}</button></div>
+          {message && <p className="rs-note" role="status">{message}</p>}
+          {error && <p className="rs-error" role="alert">{error}</p>}
+        </form></details>
+    </>}
   </main></>;
 }

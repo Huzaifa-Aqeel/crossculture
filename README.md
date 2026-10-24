@@ -1,6 +1,6 @@
 # CrossCulture
 
-CrossCulture is a partnership planning app for finding brand partners around specific product bundles and cross-sells, and for researching creator partnerships from a brand's cultural directions. [Brand × Brand Architecture v2.2](CrossCulture_Brand_Brand_Architecture_v2.2_Clarified.md) governs the commerce workflow, and [Scoring Engine v1.1](CrossCulture_Brand_Brand_Scoring_Engine_v1.1.md) governs commerce opportunity assessment and ranking. [BUILD_PLAN.md](BUILD_PLAN.md) describes the separate Qloo-led creator research path.
+CrossCulture is a partnership planning app for finding brand partners around specific product bundles and cross-sells. [Brand × Brand Architecture v2.2](CrossCulture_Brand_Brand_Architecture_v2.2_Clarified.md) governs the commerce workflow, and [Scoring Engine v1.1](CrossCulture_Brand_Brand_Scoring_Engine_v1.1.md) governs commerce opportunity assessment and ranking. [BUILD_PLAN.md](BUILD_PLAN.md) holds the implementation plan.
 
 ## Repository layout
 
@@ -16,4 +16,8 @@ Install dependencies with `npm ci` in both `api/` and `web/`. Configure the Supa
 
 The API requires a database connection, Supabase authentication configuration, and the relevant provider credentials for live research. Qloo research uses the separately installed `qloo` MCP command. Provider keys are server-only; only Supabase's publishable configuration belongs in `NEXT_PUBLIC_` variables. The local Qloo hackathon kit is a development reference and is not vendored in this repository.
 
-Brand × Brand research depends on configured Qloo, Shopify Catalog, and selective Tavily access. Creator research uses Qloo cultural directions and YouTube video/content evidence without Tavily. Its private saved runs, channel metadata, and extracted observations expire after 15 days; raw transcripts are not saved. See [BUILD_PLAN.md](BUILD_PLAN.md) for the current verification state. Product-context discovery for brands absent from Qloo remains disabled until its separate live evidence gate passes.
+Brand × Brand research depends on configured Qloo and Shopify Catalog access, with Tavily used only for the Compare Two Brands cultural check and the public-source review of a saved partner. Research starts at `/research/new`: the brand and its country (which sets the market, currency and website guess), then a goal and a chosen starting product. Brand × YouTube creator research has been removed from the app. See [BUILD_PLAN.md](BUILD_PLAN.md) for the current verification state. Product-context discovery for brands absent from Qloo remains disabled until its separate live evidence gate passes.
+
+## Checks
+
+From `api/`, `npm test` runs the offline fixture checks; they load no provider credentials. `npm run test:local` runs the checks that need the local Supabase stack (database, RLS and API authentication) and its status file at `/tmp/crossculture-supabase-status.env`. Neither suite calls a live provider. From `web/`, `npx tsc --noEmit` and `npm run build` check the interface.

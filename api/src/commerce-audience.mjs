@@ -1,4 +1,5 @@
 import { personalQlooAudienceDemographics, personalQlooEntityTags } from "./personal-qloo.mjs";
+import { sharedAudienceTastes } from "./commerce-evidence.mjs";
 
 const QLOO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SPECIFIC_TAG = /^urn:tag:(?:aesthetic_property|keyword):qloo:[a-z0-9_]+$/;
@@ -45,7 +46,9 @@ export async function investigateCommerceAudience(ownerUserId, seedQlooId, partn
   ]);
   const tagEvidenceAvailable = seedTags?.status === "ok" && partnerTags?.status === "ok" &&
     seedTags.sampleData !== true && partnerTags.sampleData !== true;
-  const connections = tagEvidenceAvailable ? sharedPatterns(seedTags, partnerTags) : [];
+  const patterns = tagEvidenceAvailable ? sharedPatterns(seedTags, partnerTags) : [];
+  const connections = patterns.length ? patterns : tagEvidenceAvailable
+    ? sharedAudienceTastes(seedTags.tags, partnerTags.tags).map((name) => ({ name })) : [];
   const result = { status: !tagEvidenceAvailable ? "unavailable"
     : connections.length ? "specific_patterns_observed" : "no_specific_pattern_observed",
   connections,

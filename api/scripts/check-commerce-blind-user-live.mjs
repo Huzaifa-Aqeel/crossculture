@@ -126,7 +126,7 @@ try {
           requestedIndex >= pool.length)) throw new Error("The requested product index is unavailable.");
       const selectedIndex = focusIndexFlag ? requestedIndex : randomInt(pool.length);
       heroProduct = { productId: pool[selectedIndex].productId,
-        variantId: pool[selectedIndex].variantId };
+        variantId: pool[selectedIndex].variantId, title: pool[selectedIndex].title };
       report("product_focus", { objective, coverage: preview.coverage,
         observedCount: products.length, selectedIndex, productTitle: pool[selectedIndex].title,
         availableAtPreview: pool[selectedIndex].available });
@@ -170,7 +170,8 @@ try {
         searchPagesFetched: item.searchPagesFetched,
         recommendableCount: item.recommendableCount,
         assessedCount: item.assessedCount, hypothesesConsidered: item.hypothesesConsidered,
-        catalogCallsUsed: item.catalogCallsUsed, stopReason: item.stopReason })) ?? [],
+        catalogCallsUsed: item.catalogCallsUsed,
+        stopReason: item.stopReason })) ?? [],
       pairs: run.matches.map((item) => ({ partner: item.partnerName,
         outcome: item.score?.status, reasonCodes: item.score?.reasonCodes,
         roles: item.savedScore?.productMechanism?.roles,
@@ -236,9 +237,17 @@ try {
     })).entity;
     const project = (await api("/projects", "POST", { seedEntityId: confirmed.entity.id,
       name: `${brand} direct comparison blind test`, objective: "product_bundle" })).project;
+    // Every run starts from a chosen starting product.
+    const directQuery = productQueryFlag?.slice("--product-query=".length) ?? "";
+    const directPreview = await api(`/projects/${project.id}/commerce-products?market=US&query=${encodeURIComponent(directQuery)}`);
+    const directPick = (directPreview.products ?? [])[focusIndexFlag ? Number(focusIndexFlag.slice("--focus-index=".length)) : 0];
+    if (!directPick) throw new Error("No starting product for the direct comparison.");
+    report("direct_product", { productTitle: directPick.title });
     const started = await api("/personal/runs", "POST", { projectId: project.id,
       partnerType: "brand", mode: "direct_pair", partnerEntityId: partner.id,
-      researchMode: "live_commerce", market: "US", idempotencyKey: randomUUID() });
+      researchMode: "live_commerce", market: "US", idempotencyKey: randomUUID(),
+      commerceRequirements: { heroProduct: { productId: directPick.productId,
+        variantId: directPick.variantId, title: directPick.title } } });
     report("direct_started", { partner: discoveredPartnerName, runId: started.runId });
     let state;
     for (let attempt = 0; attempt < 160; attempt += 1) {
@@ -256,6 +265,11 @@ try {
       outcomes: Object.fromEntries(["supported", "needs_verification", "unsupported"].map((status) =>
         [status, run.matches.filter((item) => item.score?.status === status).length])),
       reasonCodes: [...new Set(run.matches.flatMap((item) => item.score?.reasonCodes ?? []))],
+      culturalRelationships: [...new Set(run.matches.map((item) => item.score?.culturalRelationship))],
+      trace: audit ? (await developerRunTrace(started.runId))?.candidates?.map((item) => ({ name: item.name,
+        status: item.status, coverage: item.coverage, assessed: item.assessedCount,
+        calls: item.catalogCallsUsed, stop: item.stopReason, issues: item.coverageIssues,
+        identity: item.identityDiagnostics })) : undefined,
       currentOfferPairs: run.matches.filter((item) => item.currentOffers?.seed?.status === "current" &&
         item.currentOffers?.partner?.status === "current").length });
   }

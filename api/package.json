@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "node --env-file-if-exists=../.env.local --watch src/server.mjs",
     "start": "node --env-file-if-exists=../.env.local src/server.mjs",
-    "inspect-qloo": "node scripts/inspect-qloo.mjs"
+    "inspect-qloo": "node scripts/inspect-qloo.mjs",
+    "test": "node scripts/run-checks.mjs offline",
+    "test:local": "node scripts/run-checks.mjs local",
+    "eval:mechanism": "node --env-file-if-exists=../.env.local scripts/eval-commerce-mechanism.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1152.0",

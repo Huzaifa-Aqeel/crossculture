@@ -1,0 +1,1171 @@
+{
+  "version": 1,
+  "synthetic": true,
+  "note": "Hand-written product text, not Shopify Catalog data. Labels apply Scoring Engine v1.1 sections 4, 5.2 and 5.3 to the product mechanism only (identity, culture and offers are out of scope). Labelled by Claude with written reasons; not human-adjudicated. 'good' means a reviewer should accept the product mechanism as Supported; 'bad' means it must not be Supported.",
+  "splits": {
+    "dev": "Used while changing prompts and rules.",
+    "holdout": "Different products. Frozen before any run; evaluated only after changes are final."
+  },
+  "cases": [
+    {
+      "id": "dev-b01",
+      "split": "dev",
+      "category": "outdoor",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (store) plus one wet-weather hike: the jacket packs into its own pocket and the daypack carries it and the water.",
+      "seed": {
+        "title": "Packable Rain Jacket",
+        "description": "A 2.5-layer waterproof rain jacket that keeps you dry on wet trail days. Stuffs into its own chest pocket when the rain stops."
+      },
+      "partner": {
+        "title": "Trail Daypack 20L",
+        "description": "A 20-liter hiking daypack with a hydration sleeve, stretch side pockets and a water-resistant base for rainy hikes."
+      }
+    },
+    {
+      "id": "dev-b02",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (maintain): the scrubber is made for cleaning cast iron without stripping seasoning.",
+      "seed": {
+        "title": "10-Inch Cast Iron Skillet",
+        "description": "Pre-seasoned cast iron skillet for searing, sauteing and baking. Hand wash and dry to keep the seasoning."
+      },
+      "partner": {
+        "title": "Chainmail Scrubber",
+        "description": "Stainless steel chainmail scrubber that removes stuck-on food from cast iron cookware without stripping its seasoning."
+      }
+    },
+    {
+      "id": "dev-b03",
+      "split": "dev",
+      "category": "food",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (prepare): whole beans need grinding; the grinder covers pour-over and drip settings the coffee names.",
+      "seed": {
+        "title": "House Blend Whole Bean Coffee",
+        "description": "Medium roast whole bean coffee, 12 oz. Grind fresh just before brewing for pour-over or drip."
+      },
+      "partner": {
+        "title": "Manual Burr Grinder",
+        "description": "Conical burr hand grinder with adjustable settings from fine espresso to coarse French press, including pour-over and drip."
+      }
+    },
+    {
+      "id": "dev-b04",
+      "split": "dev",
+      "category": "food",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (prepare): loose leaf tea needs an infuser; the mug has one built in.",
+      "seed": {
+        "title": "Jasmine Green Loose Leaf Tea",
+        "description": "Organic jasmine green tea, 3 oz tin of loose leaves. Steep one teaspoon per cup at 175F for three minutes."
+      },
+      "partner": {
+        "title": "Ceramic Infuser Mug",
+        "description": "12 oz ceramic mug with a removable stainless steel infuser basket for steeping loose leaf tea."
+      }
+    },
+    {
+      "id": "dev-b05",
+      "split": "dev",
+      "category": "home",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (maintain): the duvet care label allows tumble drying; dryer balls shorten drying and soften laundry. Care instructions are compatible.",
+      "seed": {
+        "title": "Stonewashed Linen Duvet Cover",
+        "description": "Queen linen duvet cover, stonewashed for softness. Machine wash cold and tumble dry low."
+      },
+      "partner": {
+        "title": "Wool Dryer Balls, Set of 6",
+        "description": "Reusable wool dryer balls that reduce drying time and naturally soften laundry in the tumble dryer."
+      }
+    },
+    {
+      "id": "dev-b06",
+      "split": "dev",
+      "category": "personal_care",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (use): shave soap provides the lather a safety razor shave needs.",
+      "seed": {
+        "title": "Double-Edge Safety Razor",
+        "description": "Weighted stainless steel safety razor for a close, smooth shave with replaceable double-edge blades."
+      },
+      "partner": {
+        "title": "Sandalwood Shave Soap",
+        "description": "Shave soap that whips into a dense lather with a brush and cushions skin for a close razor shave."
+      }
+    },
+    {
+      "id": "dev-b07",
+      "split": "dev",
+      "category": "pet",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (use): the leash clip attaches to the harness's leash clips for a walk.",
+      "seed": {
+        "title": "No-Pull Dog Harness",
+        "description": "Padded no-pull harness with front and back leash attachment clips for calmer walks."
+      },
+      "partner": {
+        "title": "6 ft Rope Dog Leash",
+        "description": "Climbing-rope leash with a swivel clip that attaches to dog collars and harnesses."
+      }
+    },
+    {
+      "id": "dev-b08",
+      "split": "dev",
+      "category": "outdoor",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Occasion: a park picnic, with distinct needed parts (dry seating on damp grass, cold food and drinks).",
+      "seed": {
+        "title": "Waterproof Picnic Blanket",
+        "description": "60 x 80 in picnic blanket with a waterproof backing for sitting on damp grass. Folds into a carry strap."
+      },
+      "partner": {
+        "title": "Insulated Cooler Tote",
+        "description": "Insulated cooler tote that keeps food and drinks cold for up to 8 hours. Holds 24 cans."
+      }
+    },
+    {
+      "id": "dev-b09",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (prepare): bread flour plus the oven-safe Dutch oven the flour's crusty-loaf use needs.",
+      "seed": {
+        "title": "Organic Bread Flour, 5 lb",
+        "description": "High-protein organic bread flour for sourdough and crusty yeasted loaves."
+      },
+      "partner": {
+        "title": "5.5 Qt Enameled Dutch Oven",
+        "description": "Enameled cast iron Dutch oven, oven safe to 500F, for braising and baking crusty bread."
+      }
+    },
+    {
+      "id": "dev-b10",
+      "split": "dev",
+      "category": "home",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Scoring Engine section 4 example: a specific evening-reflection kit where both items are evidenced for that ritual.",
+      "seed": {
+        "title": "Evening Reflection Journal",
+        "description": "Guided journal with 90 nightly prompts to help you wind down and reflect before bed."
+      },
+      "partner": {
+        "title": "Lavender Wind-Down Candle",
+        "description": "Lavender soy candle made for an evening wind-down ritual before sleep. 40-hour burn."
+      }
+    },
+    {
+      "id": "dev-x01",
+      "split": "dev",
+      "category": "home",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Parallel ambience (the Ruggable rug + candle false positive): warmth/color and scent are independent benefits.",
+      "seed": {
+        "title": "Rayne Tufted Washable Rug",
+        "description": "Machine-washable tufted rug in pink and orange that adds warmth and color to living rooms."
+      },
+      "partner": {
+        "title": "Cedar and Amber Candle",
+        "description": "Scented soy candle with notes of cedar and amber for a cozy atmosphere."
+      }
+    },
+    {
+      "id": "dev-x02",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Scoring Engine fixture 13: socks + coffee joined only by a morning routine.",
+      "seed": {
+        "title": "Merino Crew Socks",
+        "description": "Soft merino wool crew socks that regulate temperature and resist odor."
+      },
+      "partner": {
+        "title": "Morning Blend Ground Coffee",
+        "description": "Smooth medium roast ground coffee to start your morning, 12 oz."
+      }
+    },
+    {
+      "id": "dev-x03",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Ordinary co-wear: jeans and socks merely worn together.",
+      "seed": {
+        "title": "Straight Leg Jeans",
+        "description": "Mid-rise straight leg jeans in rigid organic cotton denim."
+      },
+      "partner": {
+        "title": "Striped Cotton Socks",
+        "description": "Breathable striped cotton socks for everyday wear."
+      }
+    },
+    {
+      "id": "dev-x04",
+      "split": "dev",
+      "category": "outdoor",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Duplicate: two insulated bottles doing the same job.",
+      "seed": {
+        "title": "Insulated Water Bottle 24 oz",
+        "description": "Double-wall vacuum insulated stainless steel bottle keeps drinks cold for 24 hours."
+      },
+      "partner": {
+        "title": "Insulated Bottle 32 oz",
+        "description": "Vacuum insulated steel water bottle that keeps water cold all day."
+      }
+    },
+    {
+      "id": "dev-x05",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Unrelated (the Our Place case): kitchen shears and a pregnancy skincare set share no task.",
+      "seed": {
+        "title": "Shear Genius Kitchen Shears",
+        "description": "Heavy-duty kitchen shears for cutting herbs, poultry and packaging."
+      },
+      "partner": {
+        "title": "Mindful Mama Skincare Kit",
+        "description": "Pregnancy-safe skincare set with a gentle cleanser, belly oil and nourishing body cream."
+      }
+    },
+    {
+      "id": "dev-x06",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Care-product conflict: the kit is for smooth leather with liquid conditioner; the loafers are suede and forbid liquid cleaners.",
+      "seed": {
+        "title": "Suede Penny Loafer",
+        "description": "Suede penny loafer. Professional suede cleaning recommended; do not use water or liquid cleaners."
+      },
+      "partner": {
+        "title": "Leather Care Kit",
+        "description": "Leather conditioner and cleaning cloth to clean and condition smooth leather shoes and bags."
+      }
+    },
+    {
+      "id": "dev-x07",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Visual outfit styling (the Everlane shirt + belt case as a Bundle): independent styling benefits, no joint task.",
+      "seed": {
+        "title": "The Linen Shirt",
+        "description": "Relaxed women's linen shirt with a straight hem, breathable for warm days."
+      },
+      "partner": {
+        "title": "Men's Owen Belt Linen Suede",
+        "description": "Belt with a linen-textured suede strap and a brushed brass buckle."
+      }
+    },
+    {
+      "id": "dev-x08",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Scoring Engine fixture 31: the selected item is a book; its page mentions bags, which must not make it a bag.",
+      "seed": {
+        "title": "BAGGU: The Book",
+        "description": "A visual history of BAGGU, the brand known for reusable nylon bags in every color."
+      },
+      "partner": {
+        "title": "High-Rise Leggings",
+        "description": "High-rise leggings in a sculpting knit for studio workouts."
+      }
+    },
+    {
+      "id": "dev-x09",
+      "split": "dev",
+      "category": "personal_care",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Generic gift story: hand cream and a mug have independent uses.",
+      "seed": {
+        "title": "Rose Hand Cream",
+        "description": "Rich rose-scented hand cream that softens dry hands."
+      },
+      "partner": {
+        "title": "Speckled Stoneware Mug",
+        "description": "Handmade speckled stoneware mug, 14 oz."
+      }
+    },
+    {
+      "id": "dev-x10",
+      "split": "dev",
+      "category": "home",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Shared setting only: a pillow and a plant both decorate a living room.",
+      "seed": {
+        "title": "Boucle Throw Pillow",
+        "description": "Textured boucle throw pillow with a feather insert for sofas and chairs."
+      },
+      "partner": {
+        "title": "Potted Snake Plant",
+        "description": "Low-maintenance snake plant in a ceramic pot, tolerant of low light."
+      }
+    },
+    {
+      "id": "dev-c01",
+      "split": "dev",
+      "category": "outdoor",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Adjudicated in the 21 October report: blanket for warmth at a game, pack for essentials at the same event.",
+      "seed": {
+        "title": "Gametime Puffy Blanket",
+        "description": "Insulated puffy blanket for warmth and cushioning on cold bleachers at outdoor games."
+      },
+      "partner": {
+        "title": "Utility Fanny Pack",
+        "description": "Hands-free fanny pack with zip pockets to keep phone, keys and tickets within reach at events."
+      }
+    },
+    {
+      "id": "dev-c02",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: blister prevention for runners buying running shoes.",
+      "seed": {
+        "title": "Road Running Shoe",
+        "description": "Cushioned neutral road running shoe for daily training miles."
+      },
+      "partner": {
+        "title": "Cushioned Running Socks",
+        "description": "Running socks with targeted cushioning and a seamless toe to help prevent blisters on long runs."
+      }
+    },
+    {
+      "id": "dev-c03",
+      "split": "dev",
+      "category": "outdoor",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: insulation from cold ground inside the tent.",
+      "seed": {
+        "title": "2-Person Backpacking Tent",
+        "description": "Lightweight freestanding two-person tent for three-season backpacking."
+      },
+      "partner": {
+        "title": "Insulated Sleeping Pad",
+        "description": "Inflatable sleeping pad with R-value 4.2 insulation for comfort on cold ground."
+      }
+    },
+    {
+      "id": "dev-c04",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: a cutting surface that protects the knife's edge.",
+      "seed": {
+        "title": "8-Inch Chef's Knife",
+        "description": "High-carbon stainless steel chef's knife with a razor-sharp edge for everyday chopping."
+      },
+      "partner": {
+        "title": "End-Grain Cutting Board",
+        "description": "End-grain walnut cutting board that is gentle on knife edges and resists deep cuts."
+      }
+    },
+    {
+      "id": "dev-c05",
+      "split": "dev",
+      "category": "food",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: controlled pouring that pour-over brewing requires.",
+      "seed": {
+        "title": "Ceramic Pour-Over Dripper",
+        "description": "Ceramic cone dripper for brewing pour-over coffee one cup at a time."
+      },
+      "partner": {
+        "title": "Gooseneck Kettle",
+        "description": "Electric gooseneck kettle with precise pour control and temperature settings for pour-over coffee."
+      }
+    },
+    {
+      "id": "dev-c06",
+      "split": "dev",
+      "category": "fitness",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: blocks support alignment and pose modification on the mat.",
+      "seed": {
+        "title": "Natural Rubber Yoga Mat",
+        "description": "Grippy 5 mm natural rubber yoga mat for studio and home practice."
+      },
+      "partner": {
+        "title": "Cork Yoga Blocks, Set of 2",
+        "description": "Firm cork yoga blocks that support alignment and help modify poses."
+      }
+    },
+    {
+      "id": "dev-c07",
+      "split": "dev",
+      "category": "personal_care",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional customer task: daily UV protection is a distinct skincare job from cleansing.",
+      "seed": {
+        "title": "Gentle Gel Cleanser",
+        "description": "Low-foam gel cleanser that removes dirt and oil without stripping skin."
+      },
+      "partner": {
+        "title": "Mineral Sunscreen SPF 30",
+        "description": "Daily mineral sunscreen with zinc oxide for broad-spectrum UV protection."
+      }
+    },
+    {
+      "id": "dev-c08",
+      "split": "dev",
+      "category": "pet",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional walking need: carrying waste bags on the leash.",
+      "seed": {
+        "title": "Reflective Dog Leash",
+        "description": "5 ft nylon leash with reflective stitching for walks at dusk."
+      },
+      "partner": {
+        "title": "Leash Poop Bag Dispenser",
+        "description": "Waste bag dispenser that clips onto any leash so bags are always on hand during walks."
+      }
+    },
+    {
+      "id": "dev-c09",
+      "split": "dev",
+      "category": "travel",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: organizing and compressing clothes inside the suitcase.",
+      "seed": {
+        "title": "Carry-On Spinner Suitcase",
+        "description": "Hard-shell carry-on suitcase with spinner wheels that fits most airline overhead bins."
+      },
+      "partner": {
+        "title": "Compression Packing Cubes",
+        "description": "Set of compression packing cubes that organize clothes and save space in carry-on luggage."
+      }
+    },
+    {
+      "id": "dev-c10",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: safely handling hot cast iron from the oven.",
+      "seed": {
+        "title": "Enameled Cast Iron Dutch Oven",
+        "description": "5.5 qt enameled cast iron Dutch oven, oven safe to 500F, with heavy lid and loop handles."
+      },
+      "partner": {
+        "title": "Silicone Oven Mitts",
+        "description": "Heat-resistant silicone oven mitts rated to 500F for gripping hot cookware and cast iron."
+      }
+    },
+    {
+      "id": "dev-d01",
+      "split": "dev",
+      "category": "outdoor",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Substitute: another insulated bottle with the same job.",
+      "seed": {
+        "title": "Insulated Water Bottle 24 oz",
+        "description": "Double-wall vacuum insulated stainless steel bottle keeps drinks cold for 24 hours."
+      },
+      "partner": {
+        "title": "Insulated Bottle 32 oz",
+        "description": "Vacuum insulated steel water bottle that keeps water cold all day."
+      }
+    },
+    {
+      "id": "dev-d02",
+      "split": "dev",
+      "category": "outdoor",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Substitute: a second rain shell repeats the starting item's job.",
+      "seed": {
+        "title": "Packable Rain Jacket",
+        "description": "A 2.5-layer waterproof rain jacket that keeps you dry on wet trail days."
+      },
+      "partner": {
+        "title": "Storm Shell Jacket",
+        "description": "Waterproof breathable shell jacket for hiking in heavy rain."
+      }
+    },
+    {
+      "id": "dev-d03",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Unrelated: no customer task links kitchen shears to pregnancy skincare.",
+      "seed": {
+        "title": "Shear Genius Kitchen Shears",
+        "description": "Heavy-duty kitchen shears for cutting herbs, poultry and packaging."
+      },
+      "partner": {
+        "title": "Mindful Mama Skincare Kit",
+        "description": "Pregnancy-safe skincare set with a gentle cleanser, belly oil and nourishing body cream."
+      }
+    },
+    {
+      "id": "dev-d04",
+      "split": "dev",
+      "category": "home",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Generic lifestyle: a candle adds only a 'cozy' mood next to a throw.",
+      "seed": {
+        "title": "Chunky Knit Throw",
+        "description": "Chunky knit cotton throw blanket for the sofa."
+      },
+      "partner": {
+        "title": "Vanilla Bean Candle",
+        "description": "Vanilla-scented candle for a cozy home."
+      }
+    },
+    {
+      "id": "dev-d05",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "More choice only: the same basic tee in another color.",
+      "seed": {
+        "title": "Organic Cotton Tee, Black",
+        "description": "Classic crew neck tee in organic cotton jersey."
+      },
+      "partner": {
+        "title": "Essential Crew Tee, White",
+        "description": "Everyday crew neck t-shirt in soft cotton jersey."
+      }
+    },
+    {
+      "id": "dev-d06",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Material mismatch: leather conditioner has no task for a cotton canvas tote.",
+      "seed": {
+        "title": "Canvas Market Tote",
+        "description": "Sturdy cotton canvas tote for groceries and errands. Machine washable."
+      },
+      "partner": {
+        "title": "Leather Conditioner",
+        "description": "Conditioning cream that restores and protects smooth leather goods."
+      }
+    },
+    {
+      "id": "dev-d07",
+      "split": "dev",
+      "category": "food",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Variety substitute: another bag of whole bean coffee.",
+      "seed": {
+        "title": "House Blend Whole Bean Coffee",
+        "description": "Medium roast whole bean coffee, 12 oz."
+      },
+      "partner": {
+        "title": "Colombia Single Origin Beans",
+        "description": "Single origin Colombian whole bean coffee with notes of caramel, 12 oz."
+      }
+    },
+    {
+      "id": "dev-d08",
+      "split": "dev",
+      "category": "pet",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Unrelated with a possible fluent story: a leash and a candle share no customer task.",
+      "seed": {
+        "title": "Reflective Dog Leash",
+        "description": "5 ft nylon leash with reflective stitching for walks at dusk."
+      },
+      "partner": {
+        "title": "Fresh Linen Candle",
+        "description": "Fresh linen scented soy candle, 8 oz."
+      }
+    },
+    {
+      "id": "dev-d09",
+      "split": "dev",
+      "category": "personal_care",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Substitute: a second daily moisturizer.",
+      "seed": {
+        "title": "Daily Face Moisturizer",
+        "description": "Lightweight daily moisturizer with hyaluronic acid for hydrated skin."
+      },
+      "partner": {
+        "title": "Hydrating Face Cream",
+        "description": "Hydrating face cream for soft, moisturized skin every day."
+      }
+    },
+    {
+      "id": "dev-d10",
+      "split": "dev",
+      "category": "fitness",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Unrelated: rigid jeans do not serve a yoga customer's practice.",
+      "seed": {
+        "title": "Natural Rubber Yoga Mat",
+        "description": "Grippy 5 mm natural rubber yoga mat for studio and home practice."
+      },
+      "partner": {
+        "title": "Rigid Selvedge Jeans",
+        "description": "Raw selvedge denim jeans that fade with wear."
+      }
+    },
+    {
+      "id": "dev-x11",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "addedAfter": "2026-10-24 live Everlane run",
+      "why": "Outfit styling written as marketing copy: a belt's polished finish next to a breathable shirt is co-wear, not a joint task.",
+      "seed": {
+        "title": "Relaxed Linen Shirt",
+        "description": "A relaxed shirt in breathable European linen that keeps you cool and comfortable on warm days. Easy to dress up or down."
+      },
+      "partner": {
+        "title": "Leather Dress Belt",
+        "description": "Full-grain leather belt with a brushed brass buckle that adds a polished, timeless finish to any outfit."
+      }
+    },
+    {
+      "id": "dev-x12",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "addedAfter": "2026-10-24 live Everlane run",
+      "why": "Worn and carried during the same outing: the shirt's comfort and the tote's carrying are independent benefits.",
+      "seed": {
+        "title": "Relaxed Linen Shirt",
+        "description": "A relaxed shirt in breathable European linen that keeps you cool and comfortable on warm days."
+      },
+      "partner": {
+        "title": "Canvas Beach Tote",
+        "description": "Roomy beach tote that carries towels, sunscreen and snacks for a day at the beach."
+      }
+    },
+    {
+      "id": "dev-x13",
+      "split": "dev",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "addedAfter": "2026-10-24 live Everlane run",
+      "why": "Outfit pairing for a summer outing: shirt and sandals are merely worn together.",
+      "seed": {
+        "title": "Relaxed Linen Shirt",
+        "description": "A relaxed shirt in breathable European linen that keeps you cool and comfortable on warm days."
+      },
+      "partner": {
+        "title": "Leather Slide Sandal",
+        "description": "Handcrafted leather slide sandal with a cushioned footbed for warm-weather outings."
+      }
+    },
+    {
+      "id": "dev-b11",
+      "split": "dev",
+      "category": "outdoor",
+      "objective": "product_bundle",
+      "label": "good",
+      "addedAfter": "2026-10-24 live Everlane run",
+      "why": "Both worn, but functional: the helmet's rear clip holds the goggle strap in place.",
+      "seed": {
+        "title": "Snow Sport Helmet",
+        "description": "Lightweight ski and snowboard helmet with a rear goggle clip that holds goggle straps in place."
+      },
+      "partner": {
+        "title": "Cylindrical Ski Goggles",
+        "description": "Anti-fog ski goggles with a wide adjustable strap that fits over helmets."
+      }
+    },
+    {
+      "id": "dev-b12",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "product_bundle",
+      "label": "good",
+      "addedAfter": "2026-10-24 live Caraway run",
+      "why": "Same food, two stages: the pasta cooked in the pan is served in the bowls.",
+      "seed": {
+        "title": "Ceramic Sauté Pan",
+        "description": "Non-toxic ceramic non-stick sauté pan for searing, simmering sauces and cooking pasta dishes."
+      },
+      "partner": {
+        "title": "Stoneware Pasta Bowls, Set of 4",
+        "description": "Wide, shallow stoneware bowls for serving pasta and saucy dishes."
+      }
+    },
+    {
+      "id": "dev-x14",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "product_bundle",
+      "label": "bad",
+      "addedAfter": "2026-10-24 live Caraway run",
+      "why": "Same dinner party, different food: cheese knives do nothing with what the pan cooks.",
+      "seed": {
+        "title": "Ceramic Sauté Pan",
+        "description": "Non-toxic ceramic non-stick sauté pan for searing, simmering sauces and cooking pasta dishes."
+      },
+      "partner": {
+        "title": "Cheese Knife Set",
+        "description": "Set of three knives for cutting and serving soft and aged cheeses."
+      }
+    },
+    {
+      "id": "dev-x15",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "product_bundle",
+      "label": "bad",
+      "addedAfter": "2026-10-24 live Caraway run",
+      "why": "Invented role: a carafe serves drinks, not food from the pan.",
+      "seed": {
+        "title": "Ceramic Sauté Pan",
+        "description": "Non-toxic ceramic non-stick sauté pan for searing, simmering sauces and cooking pasta dishes."
+      },
+      "partner": {
+        "title": "Hand-Blown Glass Carafe",
+        "description": "Hand-blown glass carafe for serving water or wine at the table."
+      }
+    },
+    {
+      "id": "dev-x16",
+      "split": "dev",
+      "category": "kitchen",
+      "objective": "product_bundle",
+      "label": "bad",
+      "addedAfter": "2026-10-24 live Caraway run",
+      "why": "Same room, separate jobs: hand towels dry hands; they do nothing with the pan or its food.",
+      "seed": {
+        "title": "Ceramic Sauté Pan",
+        "description": "Non-toxic ceramic non-stick sauté pan for searing, simmering sauces and cooking pasta dishes."
+      },
+      "partner": {
+        "title": "Turkish Cotton Hand Towels",
+        "description": "Plush, absorbent Turkish cotton hand towels for kitchen and bath."
+      }
+    },
+    {
+      "id": "hold-b01",
+      "split": "holdout",
+      "category": "outdoor",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional with explicit compatibility on both pages: EN417 threaded canister and stove.",
+      "seed": {
+        "title": "Ultralight Canister Stove",
+        "description": "Compact backpacking stove that screws onto standard EN417 threaded isobutane fuel canisters."
+      },
+      "partner": {
+        "title": "Isobutane Fuel Canister 230g",
+        "description": "230 g isobutane-propane fuel canister with an EN417 threaded valve for backpacking stoves."
+      }
+    },
+    {
+      "id": "hold-b02",
+      "split": "holdout",
+      "category": "food",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional plus occasion: a cheese board and the knives made to cut and serve on it.",
+      "seed": {
+        "title": "Acacia Cheese Board",
+        "description": "Large acacia wood board for serving cheese, charcuterie and fruit."
+      },
+      "partner": {
+        "title": "Cheese Knife Set",
+        "description": "Set of three cheese knives for cutting soft, semi-firm and hard cheeses on a serving board."
+      }
+    },
+    {
+      "id": "hold-b03",
+      "split": "holdout",
+      "category": "outdoor",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional: tree straps hang a gathered-end hammock.",
+      "seed": {
+        "title": "Single Camping Hammock",
+        "description": "Gathered-end nylon camping hammock that packs into an attached stuff sack."
+      },
+      "partner": {
+        "title": "Tree Strap Suspension",
+        "description": "Tree-friendly suspension straps with loops to hang any gathered-end hammock in minutes."
+      }
+    },
+    {
+      "id": "hold-b04",
+      "split": "holdout",
+      "category": "food",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional (prepare): matcha powder is whisked with a bamboo whisk.",
+      "seed": {
+        "title": "Ceremonial Grade Matcha",
+        "description": "Stone-ground ceremonial grade matcha powder, 30 g. Whisk with hot water until frothy."
+      },
+      "partner": {
+        "title": "Bamboo Matcha Whisk",
+        "description": "Hand-carved bamboo whisk (chasen) with 100 prongs for whisking matcha into a smooth froth."
+      }
+    },
+    {
+      "id": "hold-b05",
+      "split": "holdout",
+      "category": "kitchen",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional: the peel transfers pizza onto and off the hot stone.",
+      "seed": {
+        "title": "Cordierite Pizza Stone",
+        "description": "15-inch cordierite baking stone for crisp pizza crusts in a home oven."
+      },
+      "partner": {
+        "title": "Wooden Pizza Peel",
+        "description": "Wooden pizza peel for sliding pizzas onto a hot baking stone and lifting them out."
+      }
+    },
+    {
+      "id": "hold-b06",
+      "split": "holdout",
+      "category": "home",
+      "objective": "product_bundle",
+      "label": "good",
+      "why": "Functional: a drainage pot plus the fast-draining container potting mix needed to plant in it.",
+      "seed": {
+        "title": "Terracotta Planter with Drainage",
+        "description": "8-inch terracotta planter with a drainage hole and saucer for indoor plants."
+      },
+      "partner": {
+        "title": "Indoor Potting Mix",
+        "description": "Fast-draining potting mix for container plants and indoor pots."
+      }
+    },
+    {
+      "id": "hold-x01",
+      "split": "holdout",
+      "category": "home",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Parallel ambience: wall art (visual) and a diffuser (scent) are independent.",
+      "seed": {
+        "title": "Abstract Canvas Print",
+        "description": "Gallery-wrapped abstract canvas print in warm earth tones."
+      },
+      "partner": {
+        "title": "Ceramic Oil Diffuser",
+        "description": "Ultrasonic ceramic diffuser that fills a room with essential oil scent."
+      }
+    },
+    {
+      "id": "hold-x02",
+      "split": "holdout",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Co-wear only: sneakers and a cap.",
+      "seed": {
+        "title": "Canvas Low-Top Sneaker",
+        "description": "Classic canvas low-top sneaker with a vulcanized rubber sole."
+      },
+      "partner": {
+        "title": "Washed Baseball Cap",
+        "description": "Garment-washed cotton baseball cap with an adjustable strap."
+      }
+    },
+    {
+      "id": "hold-x03",
+      "split": "holdout",
+      "category": "home",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Duplicate: two scented candles.",
+      "seed": {
+        "title": "Fig Leaf Candle",
+        "description": "Fig leaf scented soy candle with a cotton wick, 50-hour burn."
+      },
+      "partner": {
+        "title": "Santal Candle",
+        "description": "Sandalwood scented candle in a glass vessel, 45-hour burn."
+      }
+    },
+    {
+      "id": "hold-x04",
+      "split": "holdout",
+      "category": "home",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Unrelated with a 'desk refresh' story.",
+      "seed": {
+        "title": "Slim Phone Case",
+        "description": "Slim protective phone case with raised edges for screen protection."
+      },
+      "partner": {
+        "title": "Mini Pothos Plant",
+        "description": "Trailing pothos plant in a 4-inch nursery pot."
+      }
+    },
+    {
+      "id": "hold-x05",
+      "split": "holdout",
+      "category": "personal_care",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Generic 'winter essentials': a sweater and hand cream have independent uses.",
+      "seed": {
+        "title": "Lambswool Crewneck Sweater",
+        "description": "Warm lambswool crewneck sweater for cold days."
+      },
+      "partner": {
+        "title": "Shea Hand Balm",
+        "description": "Shea butter hand balm for dry winter hands."
+      }
+    },
+    {
+      "id": "hold-x06",
+      "split": "holdout",
+      "category": "apparel",
+      "objective": "product_bundle",
+      "label": "bad",
+      "why": "Care conflict: dry-clean-only cashmere versus machine-wash detergent for cotton and synthetics.",
+      "seed": {
+        "title": "Cashmere V-Neck",
+        "description": "Pure cashmere v-neck sweater. Dry clean only."
+      },
+      "partner": {
+        "title": "Laundry Detergent Pods",
+        "description": "Detergent pods for machine washing everyday cotton and synthetic fabrics."
+      }
+    },
+    {
+      "id": "hold-c01",
+      "split": "holdout",
+      "category": "outdoor",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: lighting the tent interior at camp.",
+      "seed": {
+        "title": "3-Person Dome Tent",
+        "description": "Weatherproof three-person dome tent for car camping."
+      },
+      "partner": {
+        "title": "Rechargeable Camp Lantern",
+        "description": "Rechargeable LED lantern with a hanging hook to light a tent interior or campsite."
+      }
+    },
+    {
+      "id": "hold-c02",
+      "split": "holdout",
+      "category": "food",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: frothing milk for lattes made with the espresso.",
+      "seed": {
+        "title": "Espresso Roast Beans",
+        "description": "Dark espresso roast whole beans, 12 oz, for espresso and milk drinks."
+      },
+      "partner": {
+        "title": "Handheld Milk Frother",
+        "description": "Battery-powered frother that whips milk into foam for lattes and cappuccinos."
+      }
+    },
+    {
+      "id": "hold-c03",
+      "split": "holdout",
+      "category": "outdoor",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: stability and knee relief on descents.",
+      "seed": {
+        "title": "Hiking Backpack 40L",
+        "description": "40-liter backpacking pack with a ventilated back panel for multi-day hikes."
+      },
+      "partner": {
+        "title": "Carbon Trekking Poles",
+        "description": "Adjustable carbon trekking poles that add stability and reduce knee strain on steep descents."
+      }
+    },
+    {
+      "id": "hold-c04",
+      "split": "holdout",
+      "category": "apparel",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: shoe trees absorb moisture and hold the shape of leather boots.",
+      "seed": {
+        "title": "Leather Chelsea Boot",
+        "description": "Full-grain leather Chelsea boot with elastic side panels."
+      },
+      "partner": {
+        "title": "Cedar Shoe Trees",
+        "description": "Cedar shoe trees that absorb moisture and help leather boots and shoes keep their shape."
+      }
+    },
+    {
+      "id": "hold-c05",
+      "split": "holdout",
+      "category": "kitchen",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: a proofing basket shapes sourdough during the final rise.",
+      "seed": {
+        "title": "Sourdough Bread Flour",
+        "description": "Unbleached high-protein flour for sourdough loaves, 5 lb."
+      },
+      "partner": {
+        "title": "Banneton Proofing Basket",
+        "description": "Rattan banneton that shapes and supports bread dough during its final rise."
+      }
+    },
+    {
+      "id": "hold-c06",
+      "split": "holdout",
+      "category": "travel",
+      "objective": "cross_sell",
+      "label": "good",
+      "why": "Additional need: drying off after swimming with a towel that packs small.",
+      "seed": {
+        "title": "Recycled One-Piece Swimsuit",
+        "description": "One-piece swimsuit made from recycled nylon for the beach and pool."
+      },
+      "partner": {
+        "title": "Quick-Dry Beach Towel",
+        "description": "Microfiber beach towel that dries fast and packs small for swims and travel."
+      }
+    },
+    {
+      "id": "hold-d01",
+      "split": "holdout",
+      "category": "apparel",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Substitute: another linen shirt.",
+      "seed": {
+        "title": "The Linen Shirt",
+        "description": "Relaxed linen shirt with a straight hem, breathable for warm days."
+      },
+      "partner": {
+        "title": "Classic Linen Button-Up",
+        "description": "Breathable linen button-up shirt for summer."
+      }
+    },
+    {
+      "id": "hold-d02",
+      "split": "holdout",
+      "category": "home",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Variety substitute: another scented candle.",
+      "seed": {
+        "title": "Fig Leaf Candle",
+        "description": "Fig leaf scented soy candle, 50-hour burn."
+      },
+      "partner": {
+        "title": "Ocean Breeze Candle",
+        "description": "Ocean scented soy candle, 40-hour burn."
+      }
+    },
+    {
+      "id": "hold-d03",
+      "split": "holdout",
+      "category": "outdoor",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Generic 'cozy' story: a throw pillow does not serve a car-camping need.",
+      "seed": {
+        "title": "3-Person Dome Tent",
+        "description": "Weatherproof three-person dome tent for car camping."
+      },
+      "partner": {
+        "title": "Velvet Throw Pillow",
+        "description": "Plush velvet throw pillow for living room sofas."
+      }
+    },
+    {
+      "id": "hold-d04",
+      "split": "holdout",
+      "category": "apparel",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Unrelated: sunglasses and a coffee mug.",
+      "seed": {
+        "title": "Polarized Sunglasses",
+        "description": "Polarized sunglasses with acetate frames and UV400 lenses."
+      },
+      "partner": {
+        "title": "Enamel Camp Mug",
+        "description": "Enamel steel mug, 12 oz."
+      }
+    },
+    {
+      "id": "hold-d05",
+      "split": "holdout",
+      "category": "personal_care",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Substitute: a manual toothbrush repeats the electric toothbrush's job.",
+      "seed": {
+        "title": "Sonic Electric Toothbrush",
+        "description": "Rechargeable sonic toothbrush with a two-minute timer."
+      },
+      "partner": {
+        "title": "Bamboo Toothbrush",
+        "description": "Manual toothbrush with a bamboo handle and soft bristles."
+      }
+    },
+    {
+      "id": "hold-d06",
+      "split": "holdout",
+      "category": "personal_care",
+      "objective": "cross_sell",
+      "label": "bad",
+      "why": "Substitute: a second body wash.",
+      "seed": {
+        "title": "Eucalyptus Body Wash",
+        "description": "Refreshing eucalyptus body wash that cleans without drying skin."
+      },
+      "partner": {
+        "title": "Citrus Shower Gel",
+        "description": "Energizing citrus shower gel for a clean, fresh feel."
+      }
+    }
+  ]
+}

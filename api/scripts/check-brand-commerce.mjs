@@ -8,13 +8,14 @@ import { chooseProductCombinations, isCommerceMerchandise, observedProductQuerie
   transientProductFacts, validatePartnerSearchPlan, prioritizeObservedPartnerProducts,
   prioritizePartnerResearchProducts, mergeRefinedSearchPlans,
   commerceRoleKey, prioritizeUnexploredRole,
-  usefulCollectionSearch, searchResultMatchesQuery } from "../src/commerce-products.mjs";
+  usefulCollectionSearch, searchResultMatchesQuery, productWearer, brandWearer } from "../src/commerce-products.mjs";
 import { parseCommerceMechanismProposal, parseCommerceMechanismRubric,
   parsePartnerProductSearchPlan, parsePartnerProductSelection } from "../src/commerce-mechanism.mjs";
 import { researchCommercePair } from "../src/commerce-research.mjs";
 import { researchNativeCommerce, selectNativeCommerceLeads,
   verifyCommerceBusiness, verifyFirstPartyCommerceBusiness,
-  verifySelectedCommerceBrand } from "../src/commerce-native.mjs";
+  verifySelectedCommerceBrand, recentConfirmedSeed, siteNameMatchesBrand,
+  reuseRecentCommerceConfirmation } from "../src/commerce-native.mjs";
 import { investigateDirectCommerceCulture } from "../src/commerce-culture.mjs";
 import { publicIpAddress } from "../src/shopify-catalog.mjs";
 import { normalizeCommerceConcepts, developCommerceConcepts, checkedConceptFallback,
@@ -34,21 +35,25 @@ const inspectedPage = (url) => ({ url, title: "Cuyana | Premium essentials",
   snippet: "Cuyana makes premium essentials.", inspected: true });
 const fishwifePage = (url) => ({ url, title: "Fishwife Tinned Seafood Co.",
   snippet: "Fishwife sells tinned seafood.", inspected: true });
-const businessWithSocial = await verifyCommerceBusiness({ qlooId: businessId,
-  name: "Fishwife" }, { firstParty: async (candidate) => candidate.website ===
-    "https://eatfishwife.com" ? { qlooId: businessId, name: "Fishwife",
-      officialWebsite: candidate.website, identityStatus: "verified" } : null,
-  search: async () => ({ results: [fishwifePage("https://www.instagram.com/fishwife/"),
-    fishwifePage("https://eatfishwife.com/")] }) });
-assert.equal(businessWithSocial?.officialWebsite, "https://eatfishwife.com");
-const ambiguousBusiness = await verifyCommerceBusiness({ qlooId: businessId,
-  name: "Fishwife" }, { firstParty: async (candidate) => ["https://eatfishwife.com",
-    "https://fishwifefoods.com"].includes(candidate.website)
-      ? { qlooId: businessId, officialWebsite: candidate.website,
-        identityStatus: "verified" } : null,
-  search: async () => ({ results: [fishwifePage("https://eatfishwife.com/"),
-    fishwifePage("https://fishwifefoods.com/")] }) });
-assert.equal(ambiguousBusiness, null);
+// Identity order: Qloo website, then brandname.com; no web search.
+const fishwifeSites = [];
+const fishwifeProof = async (candidate) => { fishwifeSites.push(candidate.website);
+  return candidate.website === "https://fishwife.com" ? { qlooId: businessId, name: "Fishwife",
+    officialWebsite: candidate.website, identityStatus: "verified" } : null; };
+const guessedFirst = await verifyCommerceBusiness({ qlooId: businessId, name: "Fishwife",
+  website: "https://old-fishwife.example.com" }, { firstParty: fishwifeProof });
+assert.equal(guessedFirst?.officialWebsite, "https://fishwife.com");
+assert.deepEqual(fishwifeSites, ["https://old-fishwife.example.com", "https://fishwife.com"]);
+const needsWebsiteTrace = [];
+assert.equal(await verifyCommerceBusiness({ qlooId: businessId, name: "Our Place" },
+  { firstParty: async () => null, trace: needsWebsiteTrace }), null);
+assert.equal(needsWebsiteTrace.at(-1).reason, "official_website_needed",
+  "When neither site verifies, the user enters the official website");
+assert.equal(siteNameMatchesBrand("Faherty Brand", "Faherty"), true);
+assert.equal(siteNameMatchesBrand("Oak + Fort", "Oak + Fort"), true);
+assert.equal(siteNameMatchesBrand("HydroFlask", "Hydro Flask"), true);
+assert.equal(siteNameMatchesBrand("Salomon", "On"), false, "Whole words only");
+assert.equal(siteNameMatchesBrand("Fahertyish Goods", "Faherty"), false);
 const disambiguated = normalizeQlooBrands({ status: "needs_input", results: [],
   resolution: { issues: [{ candidates: [
     { id: businessId, name: "Cuyana", type: "urn:entity:brand", description: "Leather goods" },
@@ -62,10 +67,9 @@ const inferredIdentity = await verifyCommerceBusiness({ qlooId: businessId, name
   firstParty: async (candidate) => { hypothesizedSites.push(candidate.website);
     return candidate.website === "https://cuyana.com"
       ? { officialWebsite: candidate.website, identityStatus: "verified" } : null; },
-  search: async () => { throw new Error("Search should be skipped after site proof."); },
 });
 assert.equal(inferredIdentity.officialWebsite, "https://cuyana.com");
-assert.deepEqual(hypothesizedSites, [undefined, "https://cuyana.com"]);
+assert.deepEqual(hypothesizedSites, ["https://cuyana.com"]);
 const directIdentity = { qlooId: businessId, name: "Cuyana",
   website: "https://www.cuyana.com" };
 let identitySearches = 0;
@@ -78,7 +82,6 @@ const firstParty = (candidate, siteName = "Cuyana", shopId = "gid://shopify/Shop
 });
 const directVerified = await verifyCommerceBusiness(directIdentity, {
   firstParty: (candidate) => firstParty(candidate),
-  search: async () => { identitySearches++; throw new Error("Tavily should be skipped."); },
 });
 assert.equal(directVerified?.officialWebsite, "https://www.cuyana.com");
 assert.equal(directVerified?.storefrontProofUrl,
@@ -90,6 +93,37 @@ const corrected = await verifySelectedCommerceBrand({ qlooId: businessId, name: 
   discoverStorefront: async () => ({ shopId: "gid://shopify/Shop/7" }) });
 assert.equal(corrected.qlooId, businessId);
 assert.equal(corrected.shopId, "gid://shopify/Shop/7");
+assert.equal(await verifySelectedCommerceBrand({ qlooId: businessId, name: "Cuyana" },
+  "https://www.cuyana.com", { verifyBusiness: async (candidate) => ({ ...candidate,
+    officialWebsite: candidate.website, identityStatus: "verified",
+    shopId: "gid://shopify/Shop/7" }),
+  discoverStorefront: async () => ({ shopId: "gid://shopify/Shop/8" }) }), null);
+const confirmedSeed = { id: "seed-entity", qlooId: businessId,
+  proofQlooId: businessId, name: "Cuyana", identityStatus: "verified",
+  officialWebsite: "https://www.cuyana.com",
+  proofOfficialWebsite: "https://www.cuyana.com",
+  identitySourceUrl: "https://www.cuyana.com/",
+  storefrontProofUrl: "https://checkout.cuyana.com/.well-known/ucp",
+  verifiedShopId: "gid://shopify/Shop/7",
+  identityVerifiedAt: "2026-10-24T12:00:00.000Z" };
+const proofNow = Date.parse("2026-10-24T12:05:00.000Z");
+assert.equal(recentConfirmedSeed(confirmedSeed, businessId, proofNow)?.verifiedShopId,
+  "gid://shopify/Shop/7");
+assert.equal(recentConfirmedSeed({ ...confirmedSeed,
+  proofQlooId: "different" }, businessId, proofNow), null);
+assert.equal(recentConfirmedSeed({ ...confirmedSeed,
+  storefrontProofUrl: "https://other-shop.example.com/.well-known/ucp" },
+businessId, proofNow), null);
+assert.equal(recentConfirmedSeed({ ...confirmedSeed,
+  identityVerifiedAt: "2026-10-24T11:00:00.000Z" }, businessId, proofNow), null);
+assert.equal(reuseRecentCommerceConfirmation({ id: businessId, name: "Cuyana" },
+  confirmedSeed, null, proofNow)?.id, confirmedSeed.id);
+assert.equal(reuseRecentCommerceConfirmation({ id: businessId, name: "Cuyana" },
+  confirmedSeed, "https://www.cuyana.com/", proofNow)?.id, confirmedSeed.id);
+assert.equal(reuseRecentCommerceConfirmation({ id: businessId, name: "Cuyana" },
+  confirmedSeed, "https://other.example.com", proofNow), null);
+assert.equal(reuseRecentCommerceConfirmation({ id: businessId, name: "Another" },
+  confirmedSeed, null, proofNow), null);
 assert.equal(await verifySelectedCommerceBrand({ qlooId: businessId, name: "Cuyana" },
   "http://cuyana.com", { verifyBusiness: async () => { throw new Error("must not run"); } }), null);
 assert.equal(await verifySelectedCommerceBrand({ qlooId: businessId, name: "Cuyana" },
@@ -132,12 +166,9 @@ for (const [siteName, shopId, officialHost] of [
 ]) {
   const fallback = await verifyCommerceBusiness(directIdentity, {
     firstParty: (candidate) => firstParty(candidate, siteName, shopId, officialHost),
-    search: async () => { identitySearches++; return { results: [
-      inspectedPage("https://cuyana.com/about") ] }; },
   });
   assert.equal(fallback, null);
 }
-assert.equal(identitySearches, 3);
 const calls = [];
 const productStore = { domain: "shop.example.com", endpointHost: "shop.example.com" };
 assert.deepEqual(productSearchInput("  Bath towel  ", "https://seed.example.com", productStore),
@@ -363,6 +394,11 @@ assert.throws(() => assessCommerceOpportunity({ identity: "supported",
   culturalRelationship: "native_recommendation_verified", objectiveSuitability: "matches_explicit_focus" }),
 /Server-validated commerce evidence required/);
 assert.equal(assessFixture().status, "supported");
+// The judgment's short customer reason is kept for display; it never changes the verdict.
+const withReason = assessFixture({ rubricVerification: { ...bathRubric, customerReason: "drying off after a bath" } });
+assert.equal(withReason.productMechanism.customerReason, "drying off after a bath");
+assert.equal(withReason.status, "supported");
+assert.equal(assessFixture().productMechanism.customerReason, undefined);
 const coBrandFixture = { ...fixtureEvidence,
   partner: { ...fixtureEvidence.partner, name: "Partner" },
   partnerDetail: { ...fixtureEvidence.partnerDetail,
@@ -715,10 +751,17 @@ assert.deepEqual(chooseProductCombinations([{ ...towel, variants: [
   { id: "seed-alternate", availability: { available: true } },
 ] }], [mat], "product_bundle").map((item) => item.seedVariant.id),
 ["seed-primary", "seed-alternate"]);
+// Research always starts from a chosen starting product.
+const chosenTowel = { heroProduct: { productId: towel.id, variantId: towel.variants[0].id } };
 const pairInput = { seed: fixtureEvidence.seed,
   partner: fixtureEvidence.partner,
   objective: "product_bundle", discoveryBasis: "qloo_native_brand",
-  cultureEvidence: fixtureEvidence.cultureEvidence };
+  cultureEvidence: fixtureEvidence.cultureEvidence, userConstraints: chosenTowel };
+const withoutProduct = await researchCommercePair({ ...pairInput, userConstraints: {} },
+  { createCatalog: () => ({ callsUsed: () => 0 }), discoverStorefront: async (url) => ({
+    domain: new URL(url).hostname, shopId: url.includes("seed") ? "gid://shopify/Shop/1" : "gid://shopify/Shop/2" }) });
+assert.equal(withoutProduct.coverage, "selected_seed_product_required");
+assert.equal(withoutProduct.callsUsed, 0);
 const productWithOffer = (item, shop) => ({ product: item, variant: { ...item.variants[0],
   price: { amount: 4400, currency: "USD" }, availability: { available: true } },
   shop, fetchedAt: new Date().toISOString() });
@@ -737,6 +780,77 @@ const researchDeps = { discoverStorefront: async (url) => ({
     callsUsed: () => 6,
   }) };
 const qualified = await researchCommercePair(pairInput, researchDeps);
+// A discovered partner whose catalog sample adds no value stops before deep search.
+let screenedSample = null;
+const screenedOut = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  screenPartner: async ({ partnerProducts, seedProduct }) => { screenedSample = { partnerProducts, seedProduct };
+    return { addsValue: false, exampleTitles: [] }; } });
+assert.equal(screenedOut.coverage, "partner_no_product_value");
+assert.equal(screenedSample.seedProduct.id, towel.id, "The screen sees the exact chosen product");
+assert.ok(screenedSample.partnerProducts.length > 0);
+// A partner screened out on its first page is re-screened with a second page
+// before it is dropped (one sample can miss the department that fits).
+const screenSamples = [];
+const sofa = { ...mat, id: "gid://shopify/Product/sofa", title: "Sofa",
+  variants: [{ id: "gid://shopify/ProductVariant/sofa" }] };
+const pagedSearch = async (domain, _query, _tools, input = {}) => {
+  if (domain.startsWith("seed")) return { products: [towel], pagination: { cursor: null, hasNextPage: false } };
+  if (input.cursor === "page-3") return { products: [mat], pagination: { cursor: null, hasNextPage: false } };
+  if (input.cursor === "page-2") return { products: [{ ...sofa, id: "gid://shopify/Product/lamp", title: "Lamp",
+    variants: [{ id: "gid://shopify/ProductVariant/lamp" }] }], pagination: { cursor: "page-3", hasNextPage: true } };
+  return { products: [sofa], pagination: { cursor: "page-2", hasNextPage: true } };
+};
+const secondPageKept = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: () => ({ ...researchDeps.createCatalog(), searchPage: pagedSearch }),
+  screenPartner: async ({ partnerProducts }) => { screenSamples.push(partnerProducts.length);
+    return { addsValue: partnerProducts.some((item) => item.id === mat.id), exampleTitles: [] }; } });
+assert.deepEqual(screenSamples, [2, 3], "Dropped only after one more page also shows nothing");
+assert.notEqual(secondPageKept.coverage, "partner_no_product_value");
+const specifiedNotScreened = await researchCommercePair({ ...pairInput, discoveryBasis: "user_specified" },
+  { ...researchDeps, productQueries: null,
+    screenPartner: async () => { throw new Error("A user-chosen partner is never screened"); } });
+assert.notEqual(specifiedNotScreened.coverage, "partner_no_product_value");
+// Who a product is for comes from the merchant's own labels (real Everlane data:
+// "/products/mens-linen-ls-shirt-white-blue" in "Men's Clothing").
+assert.equal(productWearer({ title: "The Classic Shirt in Linen | White / Blue",
+  url: "https://www.everlane.com/products/mens-linen-ls-shirt-white-blue",
+  collections: [{ title: "Men’s Clothing" }] }), "men");
+assert.equal(productWearer({ title: "Ribbed Cap Sleeve Top", collections: [{ title: "Women's Tops" }, { title: "New" }] }), "women");
+assert.equal(productWearer({ title: "Leather Belt", collections: [{ title: "Men's" }, { title: "Women's" }] }), null);
+assert.equal(productWearer({ title: "Unisex Hoodie", collections: [{ title: "Men" }] }), null);
+assert.equal(productWearer({ title: "Female Founder Candle" }), null, "Only wearer labels count");
+assert.equal(brandWearer("Cuyana is a women's premium essentials brand offering handbags"), "women");
+assert.equal(brandWearer("Madewell is known for women's and men's jeans"), null);
+// A men's starting product: a women-only partner stops before any partner
+// search, and women's items never reach the screen or a pair.
+const mensTowel = { ...towel, url: "https://seed.example/products/mens-bath-towel" };
+const womensMat = { ...mat, collections: [{ title: "Women's Bath" }] };
+const bathRobe = { ...mat, id: "gid://shopify/Product/robe", title: "Bath Robe",
+  variants: [{ id: "gid://shopify/ProductVariant/robe" }] };
+const wearerCatalog = (partnerProducts) => () => ({ ...researchDeps.createCatalog(),
+  search: async (domain) => domain.startsWith("seed") ? [mensTowel] : partnerProducts,
+  detail: async (domain, id) => productWithOffer(domain.startsWith("seed") ? mensTowel
+    : partnerProducts.find((item) => item.id === id) ?? partnerProducts[0]) });
+const neverScreened = async () => { throw new Error("Not screened"); };
+const womenOnlyBrand = await researchCommercePair({ ...pairInput,
+  partner: { ...pairInput.partner, description: "A women's fashion label." } },
+{ ...researchDeps, productQueries: null, createCatalog: wearerCatalog([bathRobe]), screenPartner: neverScreened });
+assert.equal(womenOnlyBrand.coverage, "partner_no_product_value");
+assert.deepEqual(womenOnlyBrand.coverageIssues, ["partner_wearer_mismatch"]);
+let wearerSample = null;
+await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: wearerCatalog([womensMat, bathRobe]),
+  screenPartner: async ({ partnerProducts }) => { wearerSample = partnerProducts.map((item) => item.id);
+    return { addsValue: false, exampleTitles: [] }; } });
+assert.deepEqual(wearerSample, [bathRobe.id]);
+const onlyWomensItems = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: wearerCatalog([womensMat]), screenPartner: neverScreened });
+assert.equal(onlyWomensItems.coverage, "partner_no_product_value");
+const chosenWomenBrand = await researchCommercePair({ ...pairInput, discoveryBasis: "user_specified",
+  partner: { ...pairInput.partner, description: "A women's fashion label." } },
+{ ...researchDeps, createCatalog: wearerCatalog([bathRobe]) });
+assert.notDeepEqual(chosenWomenBrand.coverageIssues, ["partner_wearer_mismatch"],
+  "A partner the user chose is not dropped by its brand description");
 assert.equal(qualified.opportunities.supported.length, 1);
 const evidenceRetryEvents = [];
 const targetedEvidence = await researchCommercePair(pairInput, { ...researchDeps,
@@ -759,49 +873,6 @@ await assert.rejects(researchCommercePair(pairInput, { ...researchDeps,
     callsUsed: () => 1,
   }),
 }), (error) => error.code === "catalog_rate_limited");
-const requestedPartnerQueries = [];
-await researchCommercePair({ ...pairInput,
-  userConstraints: { softPreferences: ["bath mat"] } }, { ...researchDeps, productQueries: null,
-  createCatalog: () => { const catalog = researchDeps.createCatalog(); return { ...catalog,
-    search: async (domain, query, ...args) => {
-      if (domain.startsWith("partner")) requestedPartnerQueries.push(query);
-      return catalog.search(domain, query, ...args);
-    } }; } });
-assert.equal(requestedPartnerQueries[0], "bath mat");
-const broadQueries = [];
-await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
-  createCatalog: () => { const catalog = researchDeps.createCatalog(); return { ...catalog,
-    search: async (domain, query, ...args) => {
-      broadQueries.push({ domain, query });
-      return catalog.search(domain, query, ...args);
-    } }; } });
-assert.equal(broadQueries[0].query, "products");
-assert.equal(broadQueries[1].query, "products");
-assert.ok(broadQueries.some((entry) => entry.query.toLowerCase() === "bath towel"));
-assert.ok(broadQueries.some((entry) => entry.query.toLowerCase() === "bath mat"));
-let prematureMarketChecks = 0;
-const spread = await researchCommercePair(pairInput, { ...researchDeps,
-  productQueries: ["q1", "q2", "q3", "q4"],
-  proposeMechanism: async () => ({ ...bathProposal, kind: "unproven" }),
-  createCatalog: () => ({
-    tools: async () => new Set(["search_catalog", "lookup_catalog"]),
-    search: async (domain, query) => [{ id: `gid://shopify/Product/${
-      domain.startsWith("seed") ? "1" : "2"}${query.slice(1)}`,
-    title: domain.startsWith("seed") ? "Bath towel" : "Bath mat",
-    variants: [{ id: `gid://shopify/ProductVariant/${
-      domain.startsWith("seed") ? "3" : "4"}${query.slice(1)}` }] }],
-    detail: async (domain, productId, variantId) => ({ product: { id: productId,
-      title: domain.startsWith("seed") ? "Bath towel" : "Bath mat" },
-    variant: { id: variantId, price: { amount: 4400, currency: "USD" },
-      availability: { available: true } } }),
-    globalOfferFor: async () => { prematureMarketChecks += 1; return { state: "supported" }; },
-    callsUsed: () => 12,
-  }) });
-assert.equal(spread.assessedCount, 4);
-assert.equal(spread.inspectedQueries.length, 4);
-assert.equal(spread.recommendableCount, 0);
-assert.equal(spread.opportunities.needs_verification.length, 0);
-assert.equal(prematureMarketChecks, 0);
 const alternateMat = { ...mat, id: "gid://shopify/Product/alternate",
   title: "Bath mat with non-slip backing",
   variants: [{ id: "gid://shopify/ProductVariant/alternate" }] };
@@ -894,6 +965,10 @@ assert.equal(heroRateLimited.coverage, "catalog_rate_limited");
 assert.equal(heroRateLimited.callsUsed, 2);
 const qualifiedCrossSell = await researchCommercePair({ ...pairInput,
   objective: "cross_sell" }, researchDeps);
+const changedSeedShop = await researchCommercePair({ ...pairInput,
+  seed: { ...pairInput.seed, verifiedShopId: "gid://shopify/Shop/different" } }, researchDeps);
+assert.equal(changedSeedShop.coverage, "seed_storefront_changed");
+assert.equal(changedSeedShop.callsUsed, 0);
 assert.equal(qualifiedCrossSell.opportunities.supported.length, 1);
 assert.equal(qualifiedCrossSell.opportunities.supported[0].best.assessment.productMechanism.kind,
   "assortment_complement");
@@ -922,6 +997,80 @@ const productSpecificFocus = assessFixture({
   userConstraints: { heroProduct: fixtureEvidence.selectedSeed },
 });
 assert.equal(productSpecificFocus.status, "supported");
+// The reverse proof is accepted only when Qloo's explainability shows the
+// partner as the request's input signal.
+const reverseProof = (envelope) => ({ discoveryBasis: "user_specified", cultureEvidence: {
+  kind: "reverse_unconstrained_native", seedQlooId: fixtureEvidence.seed.qlooId,
+  partnerQlooId: fixtureEvidence.partner.qlooId, unconstrained: true, envelope } });
+const anchoredEnvelope = (signalId) => ({ status: "ok", explainability: { "signal.interests.entities": {
+  effect_on_all_recs: [{ avg_score: 1, entity_id: signalId }] } },
+  results: [{ entity_id: fixtureEvidence.seed.qlooId, type: "urn:entity" }] });
+const reverseAccepted = assessFixture(reverseProof(anchoredEnvelope(fixtureEvidence.partner.qlooId.toUpperCase())));
+assert.equal(reverseAccepted.culturalRelationship, "direct_pair_supported");
+assert.equal(reverseAccepted.status, "supported");
+assert.equal(assessFixture(reverseProof(anchoredEnvelope(fixtureEvidence.seed.qlooId))).culturalRelationship,
+  "unknown", "A list built from another brand is not the partner's recommendation");
+const unanchored = anchoredEnvelope(fixtureEvidence.partner.qlooId); delete unanchored.explainability;
+assert.equal(assessFixture(reverseProof(unanchored)).culturalRelationship, "unknown");
+// A Qloo taste tag both brands carry names the cultural theme: broad on its
+// own, specific when the selected products' own text corroborates it.
+const sharedTag = { id: "urn:tag:keyword:qloo:spa_like_bathroom", name: "Spa Like Bathroom" };
+const genericTag = { id: "urn:tag:keyword:qloo:lifestyle", name: "lifestyle" };
+const taggedCulture = (seedTags, partnerTags) => ({ ...fixtureEvidence.cultureEvidence, seedTags, partnerTags });
+const broadTheme = assessFixture({ cultureEvidence: taggedCulture([sharedTag, genericTag], [sharedTag, genericTag]) });
+assert.equal(broadTheme.culturalExplanation, "broad_theme");
+assert.equal(broadTheme.culturalTheme, "Spa Like Bathroom");
+assert.equal(broadTheme.status, "supported", "A theme explains; it never changes the verdict");
+const specificTheme = assessFixture({ cultureEvidence: taggedCulture([sharedTag], [sharedTag]),
+  sourceAuthority: { seedDescription: true, partnerDescription: true },
+  seedDetail: { ...fixtureEvidence.seedDetail, product: { ...fixtureEvidence.seedDetail.product,
+    description: { plain: "Plush towel for a spa like bathroom at home." } } } });
+assert.equal(specificTheme.culturalExplanation, "specific_theme");
+assert.equal(assessFixture({ cultureEvidence: taggedCulture([genericTag], [genericTag]) }).culturalExplanation,
+  "no_named_theme", "Generic tags never name a theme");
+assert.equal(assessFixture({ cultureEvidence: taggedCulture([sharedTag], []) }).culturalExplanation,
+  "no_named_theme", "A tag only one brand carries is not shared");
+// Shared audience tastes (real tag kinds from a Caraway/Brooklinen lookup):
+// meaningful tastes kept, payment/price/story-word noise dropped, no ranking effect.
+const tasteTags = [{ id: "urn:tag:genre:media:cookbooks", name: "Cookbooks" },
+  { id: "urn:tag:genre:music:folk", name: " folk" }, { id: "urn:tag:credit_card:place:discover", name: "Discover" },
+  { id: "urn:tag:cost_description:place:expensive", name: "Expensive" },
+  { id: "urn:tag:keyword:media:friendship", name: "friendship" },
+  { id: "urn:tag:specialty_dish:place:avocado_toast", name: "Avocado Toast" }];
+const withTastes = assessFixture({ cultureEvidence: taggedCulture(tasteTags,
+  [...tasteTags, { id: "urn:tag:genre:media:food", name: "Food" }]) });
+assert.deepEqual(withTastes.sharedAudienceTastes, ["cookbooks", "folk music"],
+  "Readable tastes; dishes and story keywords are noise");
+// Brand-attribute tags from a real Everlane/Cuyana/Nisolo lookup name themes,
+// matched by descriptor across tag kinds; up to three are kept for display.
+const everlaneTags = [{ id: "urn:tag:lifestyle:qloo:conscious_consumerism", name: "Conscious Consumerism" },
+  { id: "urn:tag:keyword:qloo:minimalist_design", name: "Minimalist Design" },
+  { id: "urn:tag:customer_identity:qloo:socially_responsible", name: "Socially Responsible" },
+  { id: "urn:tag:product_service:qloo:womens_apparel", name: "Womens Apparel" }];
+const partnerTags = [{ id: "urn:tag:keyword:qloo:minimalist_design", name: "Minimalist Design" },
+  { id: "urn:tag:lifestyle:qloo:socially_responsible", name: "Socially Responsible" },
+  { id: "urn:tag:lifestyle:qloo:conscious_consumerism", name: "Conscious Consumerism" },
+  { id: "urn:tag:product_service:qloo:womens_apparel", name: "Womens Apparel" }];
+const themed = assessFixture({ cultureEvidence: taggedCulture(everlaneTags, partnerTags) });
+assert.equal(themed.culturalExplanation, "broad_theme");
+assert.deepEqual(themed.culturalThemes, ["Conscious Consumerism", "Minimalist Design", "Socially Responsible"],
+  "Product categories are not themes");
+assert.deepEqual(assessFixture().culturalThemes, []);
+assert.equal(withTastes.culturalExplanation, "no_named_theme", "Audience tastes never set the ranking theme");
+assert.deepEqual(withTastes.rankingFeatures, assessFixture().rankingFeatures);
+// A stated occasion and preferences rank higher only from the judgment's
+// answers, which can never change the verdict.
+const occasionFocus = assessFixture({ userConstraints: { occasion: "weekend guest bathroom refresh",
+  softPreferences: ["quick drying"] },
+  rubricVerification: { ...bathRubric, servesStatedOccasion: true, verifiedPreferences: ["quick drying"] } });
+assert.equal(occasionFocus.status, "supported");
+assert.equal(occasionFocus.rankingFeatures.objectiveSuitability, "matches_explicit_focus");
+assert.equal(occasionFocus.rankingFeatures.verifiedMatchedPreferencesCount, 1);
+const occasionMissed = assessFixture({ userConstraints: { occasion: "weekend guest bathroom refresh",
+  softPreferences: ["quick drying"] }, rubricVerification: { ...bathRubric, servesStatedOccasion: false } });
+assert.equal(occasionMissed.status, "supported", "A missed preference never changes the verdict");
+assert.notEqual(occasionMissed.rankingFeatures.objectiveSuitability, "matches_explicit_focus");
+assert.equal(occasionMissed.rankingFeatures.verifiedMatchedPreferencesCount, 0);
 assert.equal(productSpecificFocus.rankingFeatures.objectiveSuitability, "matches_explicit_focus");
 assert.deepEqual(parsePartnerProductSelection('{"productIds":["observed-1"]}'),
   { productIds: ["observed-1"] });
@@ -937,17 +1086,22 @@ assert.equal(rankedPartnerProducts[0].id, widePartnerSample[15].id);
 assert.ok(rankedPartnerProducts.some((item) => item.id === widePartnerSample[12].id));
 assert.ok(rankedPartnerProducts.every((item) => widePartnerSample.includes(item)));
 const priceBlocked = await researchCommercePair({ ...pairInput, discoveryBasis: "user_specified",
-  userConstraints: { priceLimit: { amountMinor: 3000, currencyCode: "USD" } } }, researchDeps);
+  userConstraints: { ...chosenTowel, priceLimit: { amountMinor: 3000, currencyCode: "USD" } } }, researchDeps);
 assert.equal(priceBlocked.opportunities.unsupported.length, 1);
 const changedVariant = await researchCommercePair(pairInput, { ...researchDeps,
   createCatalog: () => ({
     tools: async () => new Set(["search_catalog", "lookup_catalog"]),
     search: async (domain) => domain.startsWith("seed") ? [towel] : [mat],
-    detail: async () => { throw new Error("selected variant changed"); },
+    detail: async (domain) => { if (domain.startsWith("seed")) return productWithOffer(towel);
+      throw new Error("selected variant changed"); },
     callsUsed: () => 4,
   }) });
 assert.equal(changedVariant.opportunities.supported.length, 0);
-assert.deepEqual(changedVariant.coverageIssues, ["selected_variant_or_product_unverified"]);
+assert.ok(changedVariant.coverageIssues.includes("selected_variant_or_product_unverified"));
+const changedChosenProduct = await researchCommercePair(pairInput, { ...researchDeps,
+  createCatalog: () => ({ ...researchDeps.createCatalog(),
+    detail: async () => { throw new Error("selected variant changed"); } }) });
+assert.equal(changedChosenProduct.coverage, "selected_seed_product_unverified");
 const uncertain = await researchCommercePair({ ...pairInput, cultureEvidence: null }, researchDeps);
 assert.equal(uncertain.opportunities.supported.length, 0);
 assert.equal(uncertain.opportunities.needs_verification.length, 1);
@@ -1075,14 +1229,17 @@ const coBrandConcepts = normalizeCommerceConcepts({ concepts: normalizedConcepts
 assert.match(coBrandConcepts.concepts[0].validation, /named co-brand/);
 assert.equal(await verifyCommerceConcepts(normalizedConcepts.concepts, { productReason: "Towel and mat" },
   { classify: async () => JSON.stringify({ concepts: Array.from({ length: 3 }, () => ({
-    productGrounded: true, claimsSupported: true, practicalFormat: true })) }) }), true);
+    productGrounded: true, unsupportedClaim: "none", practicalFormat: true })) }) }), true);
 assert.equal(await verifyCommerceConcepts(normalizedConcepts.concepts, { productReason: "Towel and mat" },
   { classify: async () => JSON.stringify({ concepts: [
-    { productGrounded: true, claimsSupported: false, practicalFormat: true },
+    { productGrounded: true, unsupportedClaim: "keeps both products dry", practicalFormat: true },
     ...Array.from({ length: 2 }, () => ({ productGrounded: true,
-      claimsSupported: true, practicalFormat: true }))] }) }), false);
+      unsupportedClaim: "none", practicalFormat: true }))] }) }), false);
 const unsupportedConcepts = normalizedConcepts.concepts.map((item) => ({ ...item }));
 unsupportedConcepts[0].summary = "The pairing was validated by a native recommendation for joint use.";
+assert.equal(await verifyCommerceConcepts(unsupportedConcepts,
+  { objective: "product_bundle" }, { classify: async () => { throw new Error("Should reject first"); } }), false);
+unsupportedConcepts[0].summary = "Pair the towel and mat, grounded in native cultural recommendation.";
 assert.equal(await verifyCommerceConcepts(unsupportedConcepts,
   { objective: "product_bundle" }, { classify: async () => { throw new Error("Should reject first"); } }), false);
 unsupportedConcepts[0].summary = "Real users show how to use the selected towel and mat.";
@@ -1165,6 +1322,37 @@ const native = await researchNativeCommerce({ ownerUserId: "owner",
 assert.deepEqual(attempted, [firstId, secondId]);
 assert.equal(native.opportunities.supported.length, 1);
 assert.equal(native.candidates[0].status, "no_catalog_results");
+let proofFallbackCalls = 0;
+const reusedSeedProof = await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { ...confirmedSeed, qlooId: seedId, proofQlooId: seedId,
+    identityVerifiedAt: new Date().toISOString() },
+  seedQlooId: seedId, objective: "product_bundle" }, {
+  ...nativeDeps, verifyBusiness: async (item) => {
+    if (item.qlooId === seedId) proofFallbackCalls += 1;
+    return nativeDeps.verifyBusiness(item);
+  },
+});
+assert.equal(proofFallbackCalls, 0);
+assert.equal(reusedSeedProof.opportunities.supported.length, 1);
+let vetClock = 0;
+let postResearchVetting = 0;
+const vettedAfterResearchLimit = await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { name: "Seed", officialWebsite: "https://seed.example.com" },
+  seedQlooId: seedId, objective: "product_bundle", maxResearchMs: 1 }, {
+  ...nativeDeps, now: () => vetClock,
+  recommend: async () => ({ envelope: { status: "ok", results: [
+    { entity_id: secondId, name: "Second candidate",
+      properties: { website: "https://second.example.com" } },
+  ] } }),
+  researchPair: async (input) => {
+    vetClock = 2;
+    return nativeDeps.researchPair(input);
+  },
+  vetShortlist: async () => { postResearchVetting += 1;
+    return { status: "no_inspected_context", sourceUrls: [] }; },
+});
+assert.equal(postResearchVetting, 0, "Public-source review runs when the user saves, not during research");
+assert.equal(vettedAfterResearchLimit.stopReason, "research_time_limit_reached");
 let nativeClockReads = 0;
 const nativeTimeLimit = await researchNativeCommerce({ ownerUserId: "owner",
   seed: { name: "Seed", officialWebsite: "https://seed.example.com" },
@@ -1194,14 +1382,19 @@ const afterRateLimit = [];
 const stoppedAtRateLimit = await researchNativeCommerce({ ownerUserId: "owner",
   seed: { name: "Seed", officialWebsite: "https://seed.example.com" },
   seedQlooId: seedId, objective: "product_bundle" }, {
-  ...nativeDeps, researchPair: async (input) => {
+  ...nativeDeps,
+  recommend: async () => ({ envelope: { status: "ok", results: [firstId, secondId,
+    "66666666-6666-4666-8666-666666666666", "77777777-7777-4777-8777-777777777777"].map((id, index) => ({
+    entity_id: id, name: `Rate candidate ${index}`, properties: { website: `https://rate${index}.example.com` } })) } }),
+  researchPair: async (input) => {
     afterRateLimit.push(input.partner.id);
     return { coverage: "catalog_rate_limited", coverageIssues: ["catalog_rate_limited"],
       stopReason: "catalog_rate_limited", callsUsed: 3,
       opportunities: { supported: [], needs_verification: [], unsupported: [] } };
   },
 });
-assert.deepEqual(afterRateLimit, [firstId]);
+// Two partners run at a time; after a rate limit no further partner starts.
+assert.ok(afterRateLimit.length <= 2 && afterRateLimit[0] === firstId);
 assert.equal(stoppedAtRateLimit.stopReason, "catalog_rate_limited");
 assert.equal(stoppedAtRateLimit.coverage, "catalog_rate_limited");
 assert.equal(stoppedAtRateLimit.candidates[0].status, "catalog_rate_limited");
@@ -1241,6 +1434,35 @@ const corroborated = await investigateDirectCommerceCulture("owner", {
 });
 assert.equal(corroborated.relationship, "direct_pair_supported");
 assert.equal(corroborated.sourceUrls.length, 2);
+// A partner outside the top 12 but inside Qloo's top 20 for the same open
+// recommendation is still a native recommendation.
+const recommendLimits = [];
+const deeperDirect = await investigateDirectCommerceCulture("owner", {
+  qlooId: seedId, name: "Seed", officialWebsite: "https://seed.example.com",
+}, { qlooId: secondId, name: "Second", officialWebsite: "https://second.example.com" }, {
+  recommend: async (_owner, _seed, options = {}) => { recommendLimits.push(options.limit ?? 12);
+    return { envelope: { status: "ok", results: options.limit === 20
+      ? [{ entity_id: firstId, type: "urn:entity:brand" }, { entity_id: secondId, type: "urn:entity:brand" }]
+      : [{ entity_id: firstId, type: "urn:entity:brand" }] }, responseId: firstId, sampleData: false }; },
+  focused: async () => { throw new Error("A native result needs no forced query."); },
+});
+assert.deepEqual(recommendLimits, [12, 20]);
+assert.equal(deeperDirect.relationship, "native_recommendation_verified");
+assert.equal(deeperDirect.supportProof.kind, "direct_unconstrained_native");
+// Reverse check: Brand A in the chosen partner's own top-20 recommendation.
+const reverseEnvelope = { status: "ok", explainability: { "signal.interests.entities": {
+  effect_on_all_recs: [{ avg_score: 1, entity_id: secondId.toUpperCase() }] } },
+  results: [{ entity_id: seedId.toUpperCase(), type: "urn:entity", subtype: "urn:entity:brand" }] };
+const reverseDirect = await investigateDirectCommerceCulture("owner", {
+  qlooId: seedId, name: "Seed", officialWebsite: "https://seed.example.com",
+}, { qlooId: secondId, name: "Second", officialWebsite: "https://second.example.com" }, {
+  recommend: async (_owner, signal) => signal === secondId
+    ? { envelope: reverseEnvelope, responseId: secondId, sampleData: false }
+    : { envelope: { status: "ok", results: [{ entity_id: firstId }] }, responseId: firstId, sampleData: false },
+  focused: async () => { throw new Error("A reverse recommendation needs no forced query."); },
+});
+assert.equal(reverseDirect.relationship, "direct_pair_supported");
+assert.equal(reverseDirect.supportProof.kind, "reverse_unconstrained_native");
 const nativeDirect = await investigateDirectCommerceCulture("owner", {
   qlooId: seedId, name: "Seed", officialWebsite: "https://seed.example.com",
 }, { qlooId: secondId, name: "Second", officialWebsite: "https://second.example.com" }, {

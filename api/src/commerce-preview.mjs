@@ -31,18 +31,25 @@ export function productSearchInput(input, officialWebsite, store) {
 
 // Transient, authenticated selected-product chooser. The response is no-store;
 // the worker verifies a chosen product and variant again when research starts.
-export async function previewCommerceSeedProducts(userId, projectId, market = "US", {
-  createCatalog = () => catalogClient(), discoverStorefront = discoverVerifiedStorefront,
-  query = "",
-} = {}) {
+export async function previewCommerceSeedProducts(userId, projectId, market = "US", options = {}) {
   const project = await getProject(userId, projectId);
   if (!project || !["product_bundle", "cross_sell"].includes(project.objective)) {
     throw Object.assign(new Error("Commerce project not found."), { statusCode: 404 });
   }
+  return previewStartingBrandProducts(project.seedEntityId, market, options);
+}
+
+// Products of a starting brand the caller has already authorized (a fresh
+// confirmation or one of the user's projects); used before a project exists.
+export async function previewStartingBrandProducts(seedEntityId, market = "US", {
+  createCatalog = () => catalogClient(), discoverStorefront = discoverVerifiedStorefront,
+  query = "",
+} = {}) {
   if (!/^[A-Z]{2}$/.test(market)) throw Object.assign(new Error("Choose a market country."), { statusCode: 400 });
   const entity = await db().query(`select canonical_name as name,
     coalesce(official_website,canonical_url) as website,
-    description from catalog.entities where id=$1 and kind='brand'`, [project.seedEntityId]);
+    description from catalog.entities where id=$1 and kind='brand'`, [seedEntityId]);
+  if (!entity.rows[0]) throw Object.assign(new Error("Brand not found."), { statusCode: 404 });
   const store = await discoverStorefront(entity.rows[0]?.website);
   if (!store?.shopId) return { products: [], coverage: store?.coverage ?? "storefront_identity_unverified" };
   const searchInput = productSearchInput(query, entity.rows[0].website, store);

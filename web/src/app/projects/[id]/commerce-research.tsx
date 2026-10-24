@@ -1,470 +1,426 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 
-type Candidate = { id: string; name: string; description?: string | null; website?: string | null };
-type Resolution = { id: string; qloo: { candidates: Candidate[] }; message: string };
 type Offer = { status: string; title?: string; url?: string | null;
   price?: { amountMinor: number; currencyCode: string } | null; available?: boolean | null;
-  checkedAt?: string; message?: string; selectedOptions?: string[];
-  marketCheck?: { state: string } };
-type SeedProduct = { productId: string; variantId: string; title: string; url?: string | null };
+  message?: string; selectedOptions?: string[]; marketCheck?: { state: string } };
 type Assessment = { policyVersion: string; status: "supported" | "needs_verification" | "unsupported";
   culturalRelationship: string; culturalExplanation: string; culturalTheme?: string | null;
+  culturalThemes?: string[]; sharedAudienceTastes?: string[];
   reasonCodes: string[]; currentOfferReview?: "current" | "changed_since_assessment" | "refresh_unavailable" | "not_checked";
   materialUnknowns: string[]; dealUnknowns: string[]; reviewFlags?: string[];
-  assortmentScope?: { observedFamilies: string[]; inspectedQueries: string[];
-    coverage: string; limitationNotes: string[] } | null;
+  assortmentScope?: { observedFamilies: string[]; coverage: string } | null;
   rankingFeatures?: { objectiveSuitability?: string; productQuality?: string;
     culturalExplanation?: string; partnerDifferentiation?: string } | null;
-  productMechanism: { boundedRationale: string; roles: { seedRole: string; partnerRole: string } } };
-type Match = { id: string; partnerEntityId: string; partnerName: string; score: Assessment;
+  productMechanism: { boundedRationale: string; customerReason?: string; roles: { seedRole: string; partnerRole: string } } };
+type Match = { id: string; partnerEntityId: string; partnerName: string; partnerDescription?: string | null; score: Assessment;
   savedScore?: Assessment & { evaluatedAt?: string }; savedAt?: string | null;
   evidence?: { commerce?: { identitySourceRefs?: string[]; culturalSourceRefs?: string[];
-    externalSourceRefs?: string[];
     externalFindings?: { kind: string; url: string; publishedAt?: string | null }[] } };
   currentOffers?: { seed: Offer; partner: Offer };
   conceptOptions?: { id: string; title: string; format: string; summary: string }[];
   briefId?: string | null; briefMarkdown?: string | null; briefRevision?: number | null };
-type AudienceFit = { status: "specific_patterns_observed" | "no_specific_pattern_observed" | "unavailable";
-  connections: { name: string }[]; demographicStatus: "not_requested" | "observed" | "unavailable";
-  sharedDemographicSignals: { age: string[]; gender: string[] } | null };
 type Run = { id: string; kind: string; status: string; stage: string; seedName: string;
-  errorCode?: string | null;
-  result?: { message?: string; coverage?: string; stopReason?: string };
-  matches: Match[] };
+  errorCode?: string | null; createdAt?: string;
+  result?: { message?: string; coverage?: string; stopReason?: string }; matches: Match[] };
+type Launch = { status: string; areas: string[] };
 
-const title = { supported: "Supported opportunity", needs_verification: "Needs verification",
-  unsupported: "Unsupported" };
-const coverageMessage: Record<string, string> = {
-  seed_storefront_unverified: "We confirmed the starting business but could not verify a product store linked to it.",
-  seed_identity_unverified: "The starting business could not be confirmed against its current public sources.",
-  storefront_identity_unverified: "A product store could not be linked to the businesses reviewed.",
-  storefront_probe_unavailable: "A product store could not be reached for verification right now.",
-  catalog_capability_unavailable: "The verified stores did not provide enough product detail for this review.",
-  no_catalog_results: "No suitable product listings were returned in the reviewed searches.",
-  no_verified_product_opportunity: "No product opportunity was verified within this review.",
-  catalog_rate_limited: "Current product research was temporarily limited. Please retry later.",
-  catalog_unavailable: "Current product research could not reach the store. Please retry later.",
-  selected_seed_product_unverified: "The chosen starting product or variant could not be confirmed. Please choose it again.",
-  no_source_backed_context_reference: "This product's description did not establish a specific cultural connection for partner discovery. Choose another product with a clearly documented cultural context.",
-  no_resolved_context_signal: "A product detail suggested a cultural reference, but no matching cultural signal could be confirmed.",
-  no_qloo_context_recommendation: "The confirmed cultural reference did not return usable partner suggestions right now.",
-  no_qloo_brand_candidates: "No partner brands were returned for this confirmed cultural reference.",
-  context_candidate_identity_unverified: "Suggested businesses could not be confirmed as suitable partners in this review.",
-  qloo_unavailable: "Cultural partner suggestions were temporarily unavailable.",
+const STATUS = { supported: ["Recommended", "rs-pill-good"], needs_verification: ["Needs checking", "rs-pill-check"],
+  unsupported: ["Not suitable", "rs-pill-no"] } as const;
+const UNKNOWN_LABELS: Record<string, string> = {
+  product_mechanism: "The product benefit needs more evidence from the listings.",
+  objective_fit: "How well this serves your goal needs checking.",
+  cultural_relationship: "The cultural link between the brands is not confirmed.",
+  identity: "A store or seller detail needs confirming.",
+  product_attributes: "Some product details could not be confirmed.",
+  joint_use: "How the products are used together needs checking.",
+  incremental_value: "The added benefit of pairing them needs checking.",
+  requirement_shipping: "Shipping to your market is not confirmed.",
+  requirement_seedAvailability: "Your product's availability is not confirmed.",
+  requirement_partnerAvailability: "The partner product's availability is not confirmed.",
+  requirement_partnerPrice: "The partner product's price is not confirmed against your limit.",
 };
-const currencyDigits = (currency: string) => new Intl.NumberFormat("en", { style: "currency", currency })
+const RUN_NOTES: Record<string, string> = {
+  no_partner_product_fit: "None of the suggested brands sell products that add value to this product for your goal. Try another product or the other goal.",
+  no_verified_product_opportunity: "No opportunity could be confirmed in this review.",
+  seed_storefront_unverified: "Your store could not be reached for this review.",
+  seed_identity_unverified: "Your brand could not be confirmed for this review.",
+  selected_seed_product_unverified: "Your chosen product could not be confirmed. Start a new search and pick it again.",
+  catalog_rate_limited: "Stores were busy during this review. Please try again shortly.",
+  catalog_unavailable: "A store could not be reached during this review. Please try again shortly.",
+  qloo_unavailable: "Partner suggestions were unavailable. Please try again shortly.",
+};
+
+const digitsFor = (currency: string) => new Intl.NumberFormat("en", { style: "currency", currency })
   .resolvedOptions().maximumFractionDigits ?? 2;
-function rankingReasons(features: NonNullable<Assessment["rankingFeatures"]>) {
-  const objective = { matches_explicit_focus: "Matches your selected focus",
-    clearly_serves_objective: "Clear fit for your objective",
-    adequately_serves_objective: "Fits your objective" };
-  const quality = { distinct_concrete_joint_value: "Detailed product benefits",
-    credible_joint_value: "Concrete complementary roles" };
-  const culture = { specific_theme: "Specific cultural connection",
-    broad_theme: "Broad cultural connection",
-    no_named_theme: "Cultural connection without a verified theme" };
-  return [objective[features.objectiveSuitability as keyof typeof objective],
-    quality[features.productQuality as keyof typeof quality],
-    culture[features.culturalExplanation as keyof typeof culture],
-    features.partnerDifferentiation === "evidenced_partner_specific_reason"
-      ? "Verified detail specific to this partner" : null].filter(Boolean).join(" · ");
+function priceText(offer?: Offer) {
+  if (!offer?.price) return null;
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: offer.price.currencyCode })
+    .format(offer.price.amountMinor / 10 ** digitsFor(offer.price.currencyCode));
 }
-function groupedMatches(matches: Match[]) {
-  return (["supported", "needs_verification", "unsupported"] as const).map((status) => {
-    const byPartner = new Map<string, Match[]>();
-    for (const match of matches.filter((item) => item.score?.status === status)) {
-      const key = match.partnerEntityId || match.partnerName;
-      byPartner.set(key, [...(byPartner.get(key) ?? []), match]);
-    }
-    return { status, partners: [...byPartner.values()] };
-  }).filter((section) => section.partners.length);
+function ProductTile({ label, offer, fallback, checking }: { label: string; offer?: Offer; fallback: string; checking?: boolean }) {
+  const current = offer?.status === "current";
+  const details = [current ? priceText(offer) : null,
+    current ? offer?.available === true ? "In stock" : offer?.available === false ? "Out of stock" : null : null]
+    .filter(Boolean).join(" · ");
+  const name = offer?.title ?? fallback;
+  return <div className="rs-product"><small>{label}</small>
+    {offer?.url ? <a href={offer.url} target="_blank" rel="noopener noreferrer">{name}</a> : <strong>{name}</strong>}
+    <span>{checking ? "Loading current details…" : details || (current ? "Current details checked" : "Current details not loaded")}</span></div>;
 }
-function OfferCard({ label, offer }: { label: string; offer?: Offer }) {
-  if (!offer || offer.status !== "current") return <p>{label}: {offer?.message ?? "Current offer not verified."}</p>;
-  const price = offer.price ? new Intl.NumberFormat(undefined, { style: "currency",
-    currency: offer.price.currencyCode }).format(offer.price.amountMinor /
-      10 ** currencyDigits(offer.price.currencyCode)) : "Price not verified";
-  return <p>{label}: {offer.url ? <a href={offer.url} target="_blank" rel="noopener noreferrer">{offer.title}</a>
-    : offer.title}{offer.selectedOptions?.length ? ` (${offer.selectedOptions.join(", ")})` : ""} · {price} · {offer.available === true ? "Available when checked"
-      : offer.available === false ? "Unavailable when checked" : "Availability unknown"}
-    {offer.marketCheck && <> · {offer.marketCheck.state === "supported"
-      ? "Shown for the selected market when checked" : offer.marketCheck.state === "contradicted"
-        ? "Selected market requirement not met" : "Selected market delivery not confirmed"}</>}
-    {offer.checkedAt && <> · Checked {new Date(offer.checkedAt).toLocaleString()}</>}</p>;
+const listText = (items: string[]) => items.length < 2 ? items.join("")
+  : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+
+function culturalLine(score: Assessment, seedName: string, partnerName: string) {
+  const themes = (score.culturalThemes?.length ? score.culturalThemes : score.culturalTheme ? [score.culturalTheme] : [])
+    .map((theme) => theme.toLowerCase());
+  const tastes = score.sharedAudienceTastes ?? [];
+  const affinity = score.culturalRelationship === "native_recommendation_verified"
+    ? `${seedName}'s customers also favor ${partnerName}.`
+    : score.culturalRelationship === "direct_pair_supported"
+      ? `${partnerName}'s customers also favor ${seedName}.` : "";
+  if (!affinity && !themes.length) return "The cultural link between these brands is not confirmed.";
+  return [affinity, themes.length ? `Both brands are known for ${listText(themes)}.` : "",
+    tastes.length ? `Their audiences share a taste for ${listText(tastes)}.` : ""].filter(Boolean).join(" ");
 }
 
-export function CommerceResearch({ projectId, objective, requiresSelectedProduct = false }:
-  { projectId: string; objective: string; requiresSelectedProduct?: boolean }) {
+// The first sentence of the partner's brand description, kept short.
+function aboutLine(description?: string | null) {
+  const sentence = String(description ?? "").trim().split(/(?<=[.!?])\s/)[0] ?? "";
+  return sentence.length > 160 ? `${sentence.slice(0, 157).trimEnd()}…` : sentence;
+}
+function challenges(score: Assessment) {
+  const items = new Set<string>();
+  if (score.currentOfferReview === "changed_since_assessment") items.add("A product's current details changed since this review.");
+  if (score.reviewFlags?.includes("selected_product_compatibility_unverified")) items.add("Check the product care instructions before suggesting the treatment.");
+  if (score.reviewFlags?.includes("selected_offer_explicit_third_party_cobrand")) items.add("A product names another brand; confirm the maker and any campaign rights.");
+  for (const unknown of score.materialUnknowns ?? []) if (UNKNOWN_LABELS[unknown]) items.add(UNKNOWN_LABELS[unknown]);
+  return [...items];
+}
+
+const sentenceCase = (text: string) => {
+  const value = text.trim();
+  return value ? `${value[0].toUpperCase()}${value.slice(1)}${/[.!?]$/.test(value) ? "" : "."}` : "";
+};
+
+// Renders the small Markdown subset proposals use: headings, lists, bold and links.
+function inline(text: string, key: string) {
+  return text.split(/(\*\*[^*]+\*\*|https:\/\/[^\s)]+)/g).filter(Boolean).map((part, index) =>
+    part.startsWith("**") && part.endsWith("**") ? <strong key={`${key}-${index}`}>{part.slice(2, -2)}</strong>
+      : part.startsWith("https://") ? <a key={`${key}-${index}`} href={part} target="_blank" rel="noopener noreferrer">{part.replace(/^https:\/\/(www\.)?/, "")}</a>
+        : part);
+}
+function ProposalView({ text }: { text: string }) {
+  const blocks: ReactNode[] = [];
+  let list: string[] = [];
+  const flush = () => { if (list.length) blocks.push(<ul key={`l${blocks.length}`}>{list.map((item, index) =>
+    <li key={index}>{inline(item, `li${blocks.length}-${index}`)}</li>)}</ul>); list = []; };
+  for (const raw of text.split("\n")) {
+    const lineText = raw.trim();
+    if (/^[-*] /.test(lineText)) { list.push(lineText.slice(2)); continue; }
+    flush();
+    if (!lineText) continue;
+    if (lineText.startsWith("## ")) blocks.push(<h4 key={blocks.length}>{lineText.slice(3)}</h4>);
+    else if (lineText.startsWith("# ")) blocks.push(<h3 key={blocks.length}>{lineText.slice(2)}</h3>);
+    else blocks.push(<p key={blocks.length}>{inline(lineText, `p${blocks.length}`)}</p>);
+  }
+  flush();
+  return <div className="rs-proposal-view">{blocks}</div>;
+}
+
+// The proposal is the user's draft: read it formatted, edit any part, then save, copy or download.
+function ProposalStudio({ match, saving, onChange, onSave, onClose }: { match: Match; saving: boolean;
+  onChange: (text: string) => void; onSave: () => void; onClose: () => void }) {
+  const [text, setText] = useState(match.briefMarkdown ?? "");
+  const [editing, setEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const unsaved = text !== (match.briefMarkdown ?? "");
+  return <div className="rs-studio">
+    <div className="rs-studio-head"><strong>Proposal</strong>
+      <div className="rs-studio-tools">
+        <button className="rs-link" type="button" onClick={() => setEditing((value) => !value)}>{editing ? "Preview" : "Edit"}</button>
+        <button className="rs-link" type="button" onClick={() => { void navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true); window.setTimeout(() => setCopied(false), 1500); }); }}>{copied ? "Copied" : "Copy"}</button>
+        <button className="rs-link" type="button" onClick={() => {
+          const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+          const link = document.createElement("a"); link.href = url;
+          link.download = `${match.partnerName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-proposal.md`; link.click();
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Download</button>
+        <button className="rs-link" type="button" onClick={onClose}>Close</button></div></div>
+    {editing ? <textarea aria-label={`Proposal for ${match.partnerName}`} value={text} autoFocus
+      onChange={(event) => { setText(event.target.value); onChange(event.target.value); }} />
+      : <ProposalView text={text} />}
+    <div className="rs-studio-foot">
+      <span className="rs-quiet">{editing ? "Edit, add or remove anything. Headings start with ##, list items with -." : "This is your draft. Change anything before sharing it."}</span>
+      <button className="rs-button-quiet" type="button" disabled={saving || !unsaved} onClick={onSave}>
+        {saving ? "Saving…" : unsaved ? "Save changes" : "Saved"}</button></div>
+  </div>;
+}
+
+type Action = "check" | "concepts" | "proposal" | "saveBrief";
+const PENDING_LABEL: Record<Action, string> = { check: "Checking current details…", concepts: "Preparing concepts…",
+  proposal: "Writing proposal…", saveBrief: "Saving…" };
+
+function Opportunity({ match, others, run, pending, launch, onShow, onCheck, onConcepts, onBrief, onSaveBrief }: {
+  match: Match; others: Match[]; run: Run; pending: Record<string, Action>; launch?: Launch;
+  onShow: (match: Match) => void; onCheck: (match: Match) => void;
+  onConcepts: (match: Match, conceptId?: string) => void; onBrief: (match: Match, text: string) => void;
+  onSaveBrief: (match: Match) => void }) {
+  // One partner card can hold several product combinations; the user picks which one to view.
+  const combinations = [match, ...others];
+  const [shownId, setShownId] = useState(match.id);
+  const shown = combinations.find((item) => item.id === shownId) ?? match;
+  const score = shown.score;
+  const action = pending[shown.id];
+  // The studio opens when a proposal is written and can be closed and reopened;
+  // once opened it stays mounted so unsaved edits survive closing it.
+  const [studio, setStudio] = useState<Record<string, boolean>>({});
+  // Only the concept the user picked shows progress; the others stay as they are.
+  const [writingConcept, setWritingConcept] = useState<string | null>(null);
+  const [label, pill] = STATUS[score.status] ?? STATUS.needs_verification;
+  const issues = challenges(score);
+  const commerce = shown.evidence?.commerce;
+  // Live product names, prices and links load as soon as a combination is shown.
+  useEffect(() => { onShow(shown); }, [shown, onShow]);
+  const changed = score.currentOfferReview === "changed_since_assessment";
+  const checkFailed = score.currentOfferReview === "refresh_unavailable";
+  const canDevelop = score.status === "supported" && !changed;
+  return <article className="rs-opportunity">
+    <div className="rs-opp-head"><div><h3>{shown.partnerName}</h3>
+      {aboutLine(shown.partnerDescription) && <p className="rs-opp-about">{aboutLine(shown.partnerDescription)}</p>}</div>
+      <span className={`rs-pill ${pill}`}>{label}</span></div>
+    <div className="rs-products">
+      <ProductTile label="Your product" offer={shown.currentOffers?.seed} checking={action === "check"}
+        fallback={score.productMechanism?.roles?.seedRole || "Your product"} />
+      <span className="rs-plus" aria-hidden="true">+</span>
+      <ProductTile label={shown.partnerName} offer={shown.currentOffers?.partner} checking={action === "check"}
+        fallback={score.productMechanism?.roles?.partnerRole || "Partner product"} />
+    </div>
+    {changed && <p className="rs-note-warn">A product or price changed since this was reviewed, so it can&apos;t be developed further. Start a new search for an up-to-date result.</p>}
+    {checkFailed && action !== "check" && <p className="rs-note-warn">Current product details couldn&apos;t be loaded.{" "}
+      <button className="rs-link" type="button" onClick={() => onCheck(shown)}>Try again</button></p>}
+    <dl className="rs-facts">
+      <div className="rs-fact"><dt>Why it fits</dt><dd>{score.productMechanism?.customerReason &&
+        <strong className="rs-reason">{sentenceCase(score.productMechanism.customerReason)}</strong>}
+        {score.productMechanism?.boundedRationale || "The product benefit needs more evidence."}</dd></div>
+      <div className="rs-fact"><dt>Cultural connection</dt><dd>{culturalLine(score, run.seedName, shown.partnerName)}</dd></div>
+      {launch?.areas.length ? <div className="rs-fact"><dt>Where to launch</dt><dd>
+        <div className="rs-tags">{launch.areas.map((area) => <span key={area}>{area}</span>)}</div>
+        <span className="rs-quiet">Areas where both brands&apos; audiences are strongest.</span></dd></div> : null}
+      {issues.length ? <div className="rs-fact"><dt>Potential challenges</dt><dd><ul>{issues.map((item) => <li key={item}>{item}</li>)}</ul></dd></div> : null}
+    </dl>
+
+    {shown.briefId ? <>
+      {studio[shown.id] !== undefined && <div hidden={!studio[shown.id]}><ProposalStudio key={shown.id} match={shown}
+        saving={action === "saveBrief"} onChange={(text) => onBrief(shown, text)} onSave={() => onSaveBrief(shown)}
+        onClose={() => setStudio((current) => ({ ...current, [shown.id]: false }))} /></div>}
+      {!studio[shown.id] && <div className="rs-proposal-closed"><div><strong>Proposal ready</strong>
+        <span className="rs-quiet">Your draft for {shown.partnerName} is saved.</span></div>
+        <button className="rs-button-quiet" type="button"
+          onClick={() => setStudio((current) => ({ ...current, [shown.id]: true }))}>Open proposal</button></div>}</>
+      : shown.conceptOptions?.length ? <div className="rs-concepts">
+        <p className="rs-quiet">Pick a concept to turn into a proposal you can edit and send.</p>
+        {shown.conceptOptions.map((concept) => <div className="rs-concept" key={concept.id}>
+          <strong>{concept.title}</strong><em>{concept.format}</em><p>{concept.summary}</p>
+          <button className="rs-button-quiet" type="button" disabled={!canDevelop || (action === "proposal" && writingConcept === concept.id)}
+            onClick={() => { if (action) return; setWritingConcept(concept.id);
+              setStudio((current) => ({ ...current, [shown.id]: true })); onConcepts(shown, concept.id); }}>
+            {action === "proposal" && writingConcept === concept.id ? PENDING_LABEL.proposal : "Write proposal"}</button></div>)}</div> : null}
+
+    {!shown.briefId && !shown.conceptOptions?.length && score.status === "supported" && <div className="rs-opp-actions">
+      <button className="rs-button" type="button" disabled={Boolean(action) || !canDevelop}
+        onClick={() => onConcepts(shown)}>{action === "concepts" ? PENDING_LABEL.concepts : "Develop concepts"}</button></div>}
+
+    {others.length > 0 && <div className="rs-combos"><span className="rs-quiet">Other combinations with {shown.partnerName}</span>
+      <div className="rs-combo-list">{combinations.filter((item) => item.id !== shown.id).map((item) =>
+        <button type="button" className="rs-combo" key={item.id} onClick={() => setShownId(item.id)}>
+          <strong>{item.currentOffers?.partner?.title ?? item.score.productMechanism?.roles?.partnerRole ?? "Partner product"}</strong>
+          <span>{item.score.productMechanism?.boundedRationale || "Needs more evidence."}</span></button>)}</div></div>}
+
+    <details className="rs-details"><summary>Details</summary><div className="rs-details-body">
+      <p>Partner interest, rights, pricing and fulfilment still need to be agreed with {shown.partnerName}. The seller is the verified store; the product maker is not separately confirmed.</p>
+      {score.assortmentScope?.observedFamilies?.length ? <p>Products reviewed: {score.assortmentScope.observedFamilies.map((family) => family.replaceAll("_", " ")).join(", ")}. This was a sample of the catalog, not all of it.</p> : null}
+      {commerce?.identitySourceRefs?.length ? <p>Store sources: {commerce.identitySourceRefs.map((url) =>
+        <a key={url} href={url} target="_blank" rel="noopener noreferrer">{new URL(url).hostname}</a>)}</p> : null}
+      {commerce?.culturalSourceRefs?.length ? <p>Cultural sources: {commerce.culturalSourceRefs.map((url) =>
+        <a key={url} href={url} target="_blank" rel="noopener noreferrer">{new URL(url).hostname}</a>)}</p> : null}
+      {commerce?.externalFindings?.length ? <p>Public context to review: {commerce.externalFindings.map((finding) =>
+        <a key={finding.url} href={finding.url} target="_blank" rel="noopener noreferrer">{new URL(finding.url).hostname}
+          {finding.publishedAt ? ` (${new Date(finding.publishedAt).toLocaleDateString()})` : ""}</a>)}</p> : null}
+    </div></details>
+  </article>;
+}
+
+// Research the user has opened stays in memory for this browser tab, so going
+// back to it is instant. Nothing is written to browser storage; running research
+// and actions always fetch fresh data.
+const PAGE_CACHE_MS = 30 * 60_000;
+const runCache = new Map<string, { run: Run; at: number }>();
+const launchCache = new Map<string, Launch>();
+const checkedAt = new Map<string, number>();
+const isFresh = (at?: number) => at !== undefined && Date.now() - at < PAGE_CACHE_MS;
+const isRunning = (status: string) => ["queued", "running"].includes(status);
+
+function updateMatch(setRun: Dispatch<SetStateAction<Run | null>>, id: string, patch: Partial<Match>) {
+  setRun((current) => current ? { ...current, matches: current.matches.map((item) =>
+    item.id === id ? { ...item, ...patch } : item) } : current);
+}
+
+export function CommerceResearch({ projectId }: { projectId: string }) {
   const [runs, setRuns] = useState<{ id: string; status: string; createdAt: string }[]>([]);
   const [run, setRun] = useState<Run | null>(null);
-  const [mode, setMode] = useState<"discovery" | "direct_pair">("discovery");
-  const [market, setMarket] = useState("US");
-  const [mustShip, setMustShip] = useState(false);
-  const [mustBeAvailable, setMustBeAvailable] = useState(false);
-  const [occasion, setOccasion] = useState("");
-  const [softPreferences, setSoftPreferences] = useState("");
-  const [priceCap, setPriceCap] = useState("");
-  const [priceCurrency, setPriceCurrency] = useState("USD");
-  const [seedProducts, setSeedProducts] = useState<SeedProduct[]>([]);
-  const [productQuery, setProductQuery] = useState("");
-  const [selectedHero, setSelectedHero] = useState("");
-  const [productCoverage, setProductCoverage] = useState("");
-  const [partnerName, setPartnerName] = useState("");
-  const [resolution, setResolution] = useState<Resolution | null>(null);
-  const [qlooId, setQlooId] = useState("");
-  const [partner, setPartner] = useState<{ id: string; name: string } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<Record<string, Action>>({});
+  const [loadingRun, setLoadingRun] = useState(false);
   const [error, setError] = useState("");
-  const [proposal, setProposal] = useState<Record<string, string>>({});
-  const [audienceFit, setAudienceFit] = useState<Record<string, AudienceFit>>({});
-  const audienceRequested = useRef(new Set<string>());
+  const [launch, setLaunch] = useState<Record<string, Launch>>({});
+  const drafts = useRef<Record<string, string>>({});
+  const launchRequested = useRef(new Set<string>());
 
   const loadRuns = useCallback(async () => {
     const response = await fetch(`/api/personal/runs?projectId=${projectId}`, { cache: "no-store" });
     if (!response.ok) throw new Error("Research history is unavailable.");
-    setRuns((await response.json()).runs ?? []);
+    const list = (await response.json()).runs ?? [];
+    setRuns(list);
+    return list as { id: string }[];
   }, [projectId]);
-  const loadRun = useCallback(async (id: string) => {
+  const loadRun = useCallback(async (id: string, force = false) => {
+    const cached = runCache.get(id);
+    if (!force && cached && isFresh(cached.at) && !isRunning(cached.run.status)) { setRun(cached.run); return; }
     const response = await fetch(`/api/personal/runs/${id}`, { cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.message ?? "Research unavailable.");
-    setRun(payload.run);
-    await loadRuns();
-  }, [loadRuns]);
-  async function refreshMatch(matchId: string) {
-    setBusy(true); setError("");
-    try {
-      const response = await fetch(`/api/personal/matches/${matchId}/current-offers`,
-        { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Current product details are unavailable.");
-      setRun((current) => current ? { ...current, matches: current.matches.map((item) =>
-        item.id === matchId ? { ...item, ...payload.match } : item) } : current);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Current product details are unavailable."); }
-    finally { setBusy(false); }
-  }
+    runCache.set(id, { run: payload.run, at: Date.now() });
+    // A reload returns live details only for a few combinations; keep the
+    // details already loaded for the others.
+    setRun((current) => !current || current.id !== payload.run.id ? payload.run : { ...payload.run,
+      matches: payload.run.matches.map((item: Match) => {
+        const previous = current.matches.find((match) => match.id === item.id);
+        return previous?.currentOffers && !item.currentOffers
+          ? { ...item, currentOffers: previous.currentOffers, score: { ...item.score,
+            currentOfferReview: previous.score.currentOfferReview } } : item;
+      }) });
+  }, []);
+
   useEffect(() => {
-    queueMicrotask(() => loadRuns().catch((failure) => setError(failure.message)));
-  }, [loadRuns]);
+    const requested = new URLSearchParams(window.location.search).get("run");
+    queueMicrotask(() => loadRuns().then((list) => {
+      const id = requested ?? list[0]?.id;
+      if (id) return loadRun(id);
+    }).catch((failure) => setError(failure.message)));
+  }, [loadRuns, loadRun]);
   useEffect(() => {
     if (!run || !["queued", "running"].includes(run.status)) return;
-    const timer = window.setInterval(() => loadRun(run.id).catch((failure) => setError(failure.message)), 2200);
+    const timer = window.setInterval(() => loadRun(run.id, true).then(() => loadRuns())
+      .catch((failure) => setError(failure.message)), 2500);
     return () => window.clearInterval(timer);
-  }, [run, loadRun]);
+  }, [run, loadRun, loadRuns]);
+  // Keep the cached copy in step with details and proposals loaded on this page.
+  useEffect(() => {
+    if (run && !isRunning(run.status)) runCache.set(run.id, { run, at: runCache.get(run.id)?.at ?? Date.now() });
+  }, [run]);
   useEffect(() => {
     if (!run || !["completed", "partial"].includes(run.status)) return;
-    const shortlist = new Map<string, Match>();
-    for (const match of run.matches) {
-      if (!["supported", "needs_verification"].includes(match.score?.status) ||
-          match.score?.culturalRelationship === "contradicted") continue;
-      if (!shortlist.has(match.partnerEntityId)) shortlist.set(match.partnerEntityId, match);
+    const firstByPartner = new Map<string, Match>();
+    for (const match of run.matches) if (match.score?.status !== "unsupported" && !firstByPartner.has(match.partnerEntityId))
+      firstByPartner.set(match.partnerEntityId, match);
+    for (const [partnerId, match] of firstByPartner) {
+      const key = `${run.id}:${partnerId}`;
+      if (launchRequested.current.has(key) || launchCache.has(key)) continue;
+      launchRequested.current.add(key);
+      fetch(`/api/personal/matches/${match.id}/launch-areas`, { cache: "no-store" })
+        .then((response) => response.ok ? response.json() : null)
+        .then((payload) => { if (payload?.launch) { launchCache.set(key, payload.launch);
+          setLaunch((current) => ({ ...current, [key]: payload.launch })); } })
+        .catch(() => {});
     }
-    async function inspect() {
-      for (const [partnerId, match] of shortlist) {
-        const key = `${run!.id}:${partnerId}`;
-        if (audienceRequested.current.has(key)) continue;
-        audienceRequested.current.add(key);
-        try {
-          const response = await fetch(`/api/personal/matches/${match.id}/audience-fit?demographics=auto`,
-            { cache: "no-store" });
-          if (!response.ok) continue;
-          const payload = await response.json();
-          setAudienceFit((current) => ({ ...current, [key]: payload.audience }));
-        } catch { /* Optional evidence must not interrupt the product review. */ }
-      }
-    }
-    void inspect();
   }, [run]);
 
-  async function resolvePartner() {
-    setBusy(true); setError(""); setPartner(null);
-    try {
-      const response = await fetch("/api/entities/resolve", { method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: partnerName.trim(), purpose: "commerce_partner" }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Partner could not be found.");
-      setResolution(payload); setQlooId("");
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Partner lookup unavailable."); }
-    finally { setBusy(false); }
+  // Each action belongs to one combination: only that card shows progress.
+  async function act(match: Match, action: Action, task: () => Promise<void>) {
+    setPending((current) => ({ ...current, [match.id]: action })); setError("");
+    try { await task(); } catch (failure) { setError(failure instanceof Error ? failure.message : "Something went wrong."); }
+    finally { setPending((current) => { const next = { ...current }; delete next[match.id]; return next; }); }
   }
-  async function confirmPartner() {
-    if (!resolution || !qlooId) return;
-    setBusy(true); setError("");
-    try {
-      const response = await fetch("/api/entities/confirm", { method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ resolutionId: resolution.id, qlooId, purpose: "commerce_partner" }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Partner could not be confirmed.");
-      setPartner({ id: payload.entity.id, name: payload.entity.name }); setResolution(null);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Partner confirmation unavailable."); }
-    finally { setBusy(false); }
-  }
-  async function start() {
-    setBusy(true); setError("");
-    try {
-      let digits = 2;
-      if (priceCap.trim()) {
-        try { digits = currencyDigits(priceCurrency.trim().toUpperCase()); }
-        catch { throw new Error("Enter a valid three-letter price currency."); }
-      }
-      const pricePattern = digits ? new RegExp(`^\\d+(?:\\.\\d{1,${digits}})?$`) : /^\d+$/;
-      if (priceCap.trim() && !pricePattern.test(priceCap.trim())) {
-        throw new Error(`Enter a price with no more than ${digits} decimal places.`);
-      }
-      const hero = seedProducts.find((item) => item.productId === selectedHero);
-      if (requiresSelectedProduct && !hero) throw new Error("Choose a starting product from your store.");
-      if (productQuery.trim() && !hero) throw new Error("Select an exact result from your product search, or clear the search for automatic discovery.");
-      const preferences = [...new Set(softPreferences.split(",")
-        .map((value) => value.trim()).filter(Boolean))];
-      if (preferences.length > 6 || preferences.some((value) => value.length < 3 || value.length > 60)) {
-        throw new Error("Enter up to six short product preferences, separated by commas.");
-      }
-      const response = await fetch("/api/personal/runs", { method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectId, mode, partnerType: "brand", researchMode: "live_commerce",
-          ...(mode === "direct_pair" ? { partnerEntityId: partner?.id } : {}),
-          market: market.trim().toUpperCase(),
-          commerceRequirements: { mustShipToMarket: mustShip, mustBeAvailableNow: mustBeAvailable,
-            ...(occasion.trim() ? { occasion: occasion.trim() } : {}),
-            ...(preferences.length ? { softPreferences: preferences } : {}),
-            ...(priceCap.trim() ? { priceLimit: { amountMinor: Math.round(Number(priceCap) * 10 ** digits),
-              currencyCode: priceCurrency.trim().toUpperCase() } } : {}),
-            ...(hero ? { heroProduct: { productId: hero.productId,
-              variantId: hero.variantId } } : {}) },
-          idempotencyKey: crypto.randomUUID() }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Research could not start.");
-      await loadRun(payload.runId);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Research unavailable."); }
-    finally { setBusy(false); }
-  }
-  async function loadSeedProducts() {
-    setBusy(true); setError("");
-    try {
-      if (productQuery.trim().length < 3) throw new Error("Enter a product name or product page URL.");
-      const response = await fetch(`/api/projects/${projectId}/commerce-products?market=${encodeURIComponent(market)}&query=${encodeURIComponent(productQuery.trim())}`,
-        { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Starting products could not be loaded.");
-      setSeedProducts(payload.products ?? []); setSelectedHero("");
-      setProductCoverage(payload.coverage ?? "");
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Products unavailable."); }
-    finally { setBusy(false); }
-  }
-  async function createProposal(match: Match, conceptId?: string) {
-    setBusy(true); setError("");
-    try {
-      const response = await fetch(`/api/personal/matches/${match.id}/proposal`, { method: "POST",
-        headers: { "content-type": "application/json" }, body: JSON.stringify(conceptId ? { conceptId } : {}) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Proposal could not be prepared.");
-      await loadRun(run!.id);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Proposal unavailable."); }
-    finally { setBusy(false); }
-  }
-  async function saveProposal(match: Match) {
+  const fetchCurrent = async (match: Match) => {
+    const response = await fetch(`/api/personal/matches/${match.id}/current-offers`, { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message ?? "Current details are unavailable.");
+    updateMatch(setRun, match.id, payload.match);
+    return { ...match, ...payload.match } as Match;
+  };
+  const check = (match: Match) => act(match, "check", async () => { await fetchCurrent(match); });
+  // Shown combinations load live details once, without a click.
+  const show = useCallback((match: Match) => {
+    if (match.score?.currentOfferReview !== "not_checked" || isFresh(checkedAt.get(match.id))) return;
+    checkedAt.set(match.id, Date.now());
+    queueMicrotask(() => { void check(match); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Concepts need current product details; they are loaded first when missing.
+  const concepts = (match: Match, conceptId?: string) => act(match, conceptId ? "proposal" : "concepts", async () => {
+    const ready = match.score.currentOfferReview === "current" ? match : await fetchCurrent(match);
+    if (ready.score.status !== "supported" || ready.score.currentOfferReview !== "current")
+      throw new Error("Current product details couldn't be confirmed, so concepts can't be prepared yet.");
+    const response = await fetch(`/api/personal/matches/${match.id}/proposal`, { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify(conceptId ? { conceptId } : {}) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message ?? "Concepts could not be prepared.");
+    // Developing concepts is the sign of interest: the opportunity is kept
+    // (and its partner reviewed against public sources) without a Save step.
+    if (!match.savedAt) void fetch("/api/personal/feedback", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ runId: run!.id, matchId: match.id, action: "save" }) }).catch(() => {});
+    await loadRun(run!.id, true);
+  });
+  const saveBrief = (match: Match) => act(match, "saveBrief", async () => {
     if (!match.briefId || !match.briefRevision) return;
-    setBusy(true); setError("");
-    try {
-      const response = await fetch(`/api/personal/briefs/${match.briefId}`, { method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ revision: match.briefRevision, markdown: proposal[match.id] }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? "Proposal could not be saved.");
-      await loadRun(run!.id);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "Proposal unavailable."); }
-    finally { setBusy(false); }
-  }
-  function downloadProposal(match: Match) {
-    const markdown = proposal[match.id] ?? match.briefMarkdown ?? "";
-    if (!markdown) return;
-    const objectUrl = URL.createObjectURL(new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = "partnership-proposal.md";
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-  }
-  return <section className="account-panel preview-panel"><span className="workspace-kicker">PARTNER RESEARCH</span>
-    <h2>{objective === "product_bundle" ? "Find a product bundle partner" : "Find a cross-sell partner"}</h2>
-    <p>Explore existing products from culturally connected brands. Each product opportunity is assessed separately.</p>
-    <div className="research-form">
-      <div className="research-grid research-grid-two">
-        <label className="research-field">Research path<select value={mode}
-          onChange={(event) => { setMode(event.target.value as "discovery" | "direct_pair"); setRun(null); }}>
-          <option value="discovery">Find partners</option>{!requiresSelectedProduct &&
-            <option value="direct_pair">Compare two brands</option>}
-        </select></label>
-        <label className="research-field">Market country code<input value={market} maxLength={2}
-          onChange={(event) => { setMarket(event.target.value.toUpperCase()); setSeedProducts([]); setSelectedHero(""); }}
-          aria-describedby="market-help" /></label>
-      </div>
-      <p className="research-help" id="market-help">Current offers are checked for this market. Use a two-letter country code, such as US.</p>
-      <fieldset className="research-requirements"><legend>Required offer conditions</legend>
-        <label className="research-check"><input type="checkbox" checked={mustShip}
-          onChange={(event) => setMustShip(event.target.checked)} /><span>Shipping to this market must be verified</span></label>
-        <label className="research-check"><input type="checkbox" checked={mustBeAvailable}
-          onChange={(event) => setMustBeAvailable(event.target.checked)} /><span>Both selected products must be available now</span></label>
-      </fieldset>
-      <div className="research-grid research-grid-three">
-        <label className="research-field">Specific use occasion <span>(optional)</span><input value={occasion}
-          maxLength={100} onChange={(event) => setOccasion(event.target.value)}
-          placeholder="e.g. a weekend travel kit" /></label>
-        <label className="research-field">Maximum partner product price <span>(optional)</span><input value={priceCap}
-          inputMode="decimal" onChange={(event) => setPriceCap(event.target.value)} placeholder="Amount" /></label>
-        <label className="research-field">Price currency<input value={priceCurrency} maxLength={3}
-          disabled={!priceCap.trim()}
-          onChange={(event) => setPriceCurrency(event.target.value.toUpperCase())} /></label>
-      </div>
-      <label className="research-field">Product preferences <span>(optional)</span><input value={softPreferences}
-        onChange={(event) => setSoftPreferences(event.target.value)} maxLength={365}
-        placeholder="e.g. organic cotton, botanical print" /></label>
-      <p className="research-help">Preferences guide product research and ranking when the listings verify them. They do not guarantee a match.</p>
-      <div className="research-product"><div><h3>Your product focus</h3><p>{requiresSelectedProduct
-        ? "Enter one product from your verified store, then choose it from the results."
-        : "Enter a product name or its product page URL to focus the search. Leave this blank to explore your store automatically."}</p></div>
-        <div className="research-search-row"><label className="research-field" htmlFor="starting-product-query">Product name or page URL
-          <input id="starting-product-query" value={productQuery} maxLength={300}
-            onChange={(event) => { setProductQuery(event.target.value); setSeedProducts([]); setSelectedHero(""); setProductCoverage(""); }}
-            placeholder="e.g. Made in Italy Ballet Flat" /></label>
-          <button className="button button-dark" type="button" disabled={busy || market.length !== 2 ||
-            productQuery.trim().length < 3} onClick={loadSeedProducts}>Search my store</button></div>
-        {seedProducts.length > 0 && <fieldset className="research-product-results"><legend>Choose your product</legend>
-          {seedProducts.map((item) => <label className="research-product-option" key={item.productId}>
-            <input type="radio" name="starting-product" checked={selectedHero === item.productId}
-              onChange={() => setSelectedHero(item.productId)} /><span><strong>{item.title}</strong></span>
-            {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer"
-              onClick={(event) => event.stopPropagation()}>View listing</a>}</label>)}
-          <p className="research-help">These are matching products from your store. Refine the name or paste a product URL if yours is missing.</p>
-        </fieldset>}
-        {productCoverage && !seedProducts.length && <p className="research-help" role="status">{coverageMessage[productCoverage] ??
-          "No exact product was confirmed in this search. Try its product page URL or a more specific name."}</p>}
-      </div>
-    </div>
-    {mode === "direct_pair" && <><div className="preview-controls"><label>Partner brand
-      <input value={partnerName} onChange={(event) => { setPartnerName(event.target.value); setPartner(null); }}
-        placeholder="Brand name" /></label><button type="button" disabled={busy || partnerName.trim().length < 2}
-        onClick={resolvePartner}>Find brand</button></div>
-      {resolution && <div className="brand-resolution"><p>{resolution.message}</p>
-        {resolution.qloo.candidates.map((item) => <label className="brand-choice" key={item.id}>
-          <input type="radio" name="commerce-partner" checked={qlooId === item.id}
-            onChange={() => setQlooId(item.id)} /><span>{item.name}</span></label>)}
-        <button type="button" disabled={busy || !qlooId} onClick={confirmPartner}>Confirm brand</button></div>}
-      {partner && <p>Comparing with {partner.name}.</p>}</>}
-    <button className="button button-dark" type="button" disabled={busy || (mode === "direct_pair" && !partner)}
-      onClick={start}>{busy ? "Working…" : mode === "discovery" ? "Find partners" : "Compare brands"}</button>
-    {error && <p role="alert" className="auth-error">{error}</p>}
-    {runs.length > 0 && <div className="preview-history"><h3>Research runs</h3>
-      {runs.map((item) => <button key={item.id} type="button"
-        onClick={() => loadRun(item.id).catch((failure) => setError(failure.message))}>
-        {new Date(item.createdAt).toLocaleString()} · {item.status}</button>)}</div>}
-    {run && <div className="preview-result"><h3>{run.kind === "discovery" ? "Partner opportunities" : "Brand comparison"}</h3>
-      <p role="status">{run.status === "failed" &&
-        run.errorCode === "commerce_catalog_rate_limited"
-        ? "Product research could not finish after temporary storefront limits. Try again later."
-        : ["queued", "running"].includes(run.status) ? run.stage : run.result?.message ?? run.stage}</p>
-      {run.result?.coverage === "partial_assortment" && <p>Catalog coverage: We reviewed a limited sample of current listings. Other products or combinations may exist.</p>}
-      {run.result?.coverage && run.result.coverage !== "partial_assortment" &&
-        !["queued", "running"].includes(run.status) &&
-        <p>{coverageMessage[run.result.coverage] ?? "Product research was incomplete. Another combination may be available."}</p>}
-      {run.result?.stopReason === "candidate_cap_reached" &&
-        <p>Research stopped after the planned partner sample. Other culturally connected brands may exist.</p>}
-      {run.result?.stopReason === "catalog_budget_reached" &&
-        <p>Research stopped at the current product review limit.</p>}
-      {run.result?.stopReason === "research_time_limit_reached" &&
-        <p>Research reached its time limit. Other product combinations may still exist.</p>}
-      {run.result?.stopReason === "catalog_rate_limited" &&
-        <p>Product research was limited by the current storefront response.</p>}
-      {run.result?.stopReason === "catalog_unavailable" &&
-        <p>The product store could not be reached during this review. Please retry later.</p>}
-      {groupedMatches(run.matches).map((section) => <section key={section.status}>
-        <h4>{title[section.status]}</h4>
-        {section.partners.map((opportunities) => <div key={opportunities[0].partnerEntityId}>
-          <h5>{opportunities[0].partnerName}</h5>
-          <p>These pairings cover selected products from a limited review. Other products from this partner may offer a better fit.</p>
-          {opportunities.map((match, index) => <article className="preview-match" key={match.id}>
-        <strong>{index === 0 ? "Best reviewed combination" : "Another reviewed combination"}</strong>
-        {match.score?.currentOfferReview === "changed_since_assessment" &&
-          <p role="status">Current offer facts changed or could not be confirmed. This opportunity needs a new review before a proposal.</p>}
-        {match.score?.currentOfferReview === "refresh_unavailable" &&
-          <p role="status">Live offer refresh is temporarily unavailable. The saved assessment was {
-            match.savedScore?.status?.replaceAll("_", " ") ?? "recorded"} on {
-            match.savedScore?.evaluatedAt ? new Date(match.savedScore.evaluatedAt).toLocaleString()
-              : "an earlier date"}; current details need a new check before a proposal.</p>}
-        {match.score?.currentOfferReview === "not_checked" &&
-          <p role="status">This is the saved assessment. Check these exact products for current details before using this opportunity.</p>}
-        <p>Cultural connections: {match.score?.culturalRelationship === "native_recommendation_verified"
-          ? "Recommended from the starting brand’s cultural profile."
-          : match.score?.culturalRelationship === "direct_pair_supported" && match.score.culturalTheme
-            ? `Both brands have source-backed connections to ${match.score.culturalTheme}.`
-            : "The specific cultural relationship still needs verification."}</p>
-        {audienceFit[`${run.id}:${match.partnerEntityId}`]?.status === "specific_patterns_observed" && <div>
-            <p>Cultural audience patterns: Both brands are associated with {audienceFit[`${run.id}:${match.partnerEntityId}`].connections
-                .map((item) => item.name).join(", ")} in separate cultural research. This suggests a possible shared cultural territory.</p>
-            {audienceFit[`${run.id}:${match.partnerEntityId}`].demographicStatus === "observed" &&
-              (audienceFit[`${run.id}:${match.partnerEntityId}`].sharedDemographicSignals?.age.length ||
-                audienceFit[`${run.id}:${match.partnerEntityId}`].sharedDemographicSignals?.gender.length) ?
-              <p>Aggregate preference patterns: {audienceFit[`${run.id}:${match.partnerEntityId}`].sharedDemographicSignals?.age.length
-                ? `These age groups show stronger-than-average affinity with both brands: ${audienceFit[`${run.id}:${match.partnerEntityId}`].sharedDemographicSignals!.age
-                  .map((age) => age.replaceAll("_", " ")).join(", ")}.` : ""}
-                {audienceFit[`${run.id}:${match.partnerEntityId}`].sharedDemographicSignals?.gender.length
-                  ? ` These gender groups show stronger-than-average affinity with both brands: ${audienceFit[`${run.id}:${match.partnerEntityId}`].sharedDemographicSignals!.gender.join(", ")}.`
-                  : ""}</p> : null}
-            <p>These are cultural preference signals, not a measure of shared customers or likely sales.</p>
-        </div>}
-        {match.evidence?.commerce?.culturalSourceRefs?.length ? <p>Cultural sources: {match.evidence.commerce.culturalSourceRefs.map((url, sourceIndex) =>
-          <a key={url} href={url} target="_blank" rel="noopener noreferrer">Source {sourceIndex + 1} </a>)}</p> : null}
-        <OfferCard label={run.seedName} offer={match.currentOffers?.seed} />
-        <OfferCard label={match.partnerName + " storefront"} offer={match.currentOffers?.partner} />
-        {match.score?.currentOfferReview !== "current" &&
-          <button type="button" disabled={busy} onClick={() => refreshMatch(match.id)}>
-            Check current products</button>}
-        <p>Seller is the verified storefront; the product maker has not been separately confirmed.</p>
-        {match.evidence?.commerce?.identitySourceRefs?.length ? <p>Partner identity: {match.evidence.commerce.identitySourceRefs.map((url) =>
-          <a key={url} href={url} target="_blank" rel="noopener noreferrer">Official source</a>)}</p> : null}
-        {match.evidence?.commerce?.externalFindings?.length ? <p>Further public context to review: {match.evidence.commerce.externalFindings.map((finding, sourceIndex) =>
-          <a key={finding.url} href={finding.url} target="_blank" rel="noopener noreferrer">
-            {finding.kind === "official_context" ? "Official source" : "Independent source"} {sourceIndex + 1}
-            {finding.publishedAt ? ` (${new Date(finding.publishedAt).toLocaleDateString()})` : " (date unverified)"} </a>)}</p> : null}
-        <p>Why together: {match.score?.productMechanism?.boundedRationale ||
-          "The product relationship needs more evidence."}</p>
-        {match.score?.reviewFlags?.includes("generic_co_use_only") &&
-          <p>Potential challenge: The selected items may be used at the same time, but the reviewed details do not show a clear additional benefit from pairing them.</p>}
-        {match.score?.reviewFlags?.includes("selected_product_compatibility_unverified") &&
-          <p>Potential challenge: Check the selected product’s care instructions and confirm that the proposed treatment is suitable before using this idea.</p>}
-        {match.score?.reviewFlags?.includes("selected_offer_explicit_third_party_cobrand") &&
-          <p>Potential challenge: A selected product names another brand. Confirm who made it and what campaign rights would be needed; the verified store is the prospective supplier.</p>}
-        {match.score?.assortmentScope && <p>Reviewed assortment: {match.score.assortmentScope.observedFamilies
-          .map((family) => family.replaceAll("_", " ")).join(", ") || "Selected products only"}.
-          {match.score.assortmentScope.coverage === "partial" && " This was a limited sample, not the full catalog."}
-          {match.score.assortmentScope.inspectedQueries?.length ?
-            ` Product searches included ${match.score.assortmentScope.inspectedQueries.join(", ")}.` : ""}</p>}
-        {match.score?.rankingFeatures && <p>Why it ranks here: {
-          rankingReasons(match.score.rankingFeatures)}.</p>}
-        {match.score?.materialUnknowns?.length ? <p>Potential challenges: {match.score.materialUnknowns.join(", ")}.</p> : null}
-        <p>Partner interest, commercial rights, pricing terms and fulfillment still need agreement.</p>
-        {match.briefId ? <><h5>Proposal Studio</h5>
-          <textarea aria-label={"Proposal for " + match.partnerName}
-            value={proposal[match.id] ?? match.briefMarkdown ?? ""}
-            onChange={(event) => setProposal((current) => ({ ...current, [match.id]: event.target.value }))} />
-          <button type="button" disabled={busy} onClick={() => saveProposal(match)}>Save proposal</button>
-          <button type="button" onClick={() => downloadProposal(match)}>Download draft</button></>
-          : match.conceptOptions?.length ? <div><h5>Choose a product concept</h5>
-            {match.conceptOptions.map((concept) => <div key={concept.id}><strong>{concept.title}</strong>
-              <p>{concept.summary}</p><button type="button"
-                disabled={busy || match.score?.status !== "supported" ||
-                  match.score?.currentOfferReview !== "current"}
-                onClick={() => createProposal(match, concept.id)}>Use this concept</button></div>)}</div>
-            : <button type="button" disabled={busy || match.score?.status !== "supported" ||
-                match.score?.currentOfferReview !== "current"}
-              onClick={() => createProposal(match)}>Develop three concepts</button>}
-        {!match.briefId && match.score?.status !== "supported" &&
-          <p>The product opportunity needs further verification before concept development.</p>}
-      </article>)}</div>)}</section>)}
-    </div>}
+    const response = await fetch(`/api/personal/briefs/${match.briefId}`, { method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ revision: match.briefRevision, markdown: drafts.current[match.id] ?? match.briefMarkdown }) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.message ?? "The proposal could not be saved.");
+    updateMatch(setRun, match.id, { briefRevision: payload.brief.revision, briefMarkdown: payload.brief.markdown });
+  });
+
+  const working = run && ["queued", "running"].includes(run.status);
+  const groups = (["supported", "needs_verification"] as const).map((status) => {
+    const byPartner = new Map<string, Match[]>();
+    for (const match of run?.matches ?? []) if (match.score?.status === status)
+      byPartner.set(match.partnerEntityId, [...(byPartner.get(match.partnerEntityId) ?? []), match]);
+    return { status, partners: [...byPartner.values()] };
+  });
+  const counts = { supported: groups[0].partners.length, checking: groups[1].partners.length };
+  const note = run?.result?.coverage ? RUN_NOTES[run.result.coverage] : null;
+  const failedMessage = run?.status === "failed" ? run.errorCode === "commerce_run_invalid"
+    ? "This research could not start. Start a new search." : "This research could not finish. Please try again." : null;
+
+  return <section>
+    {runs.length > 1 && <div className="rs-toolbar"><span className="rs-quiet">Research history</span>
+      <select value={run?.id ?? ""} disabled={loadingRun} aria-label="Research history" onChange={(event) => {
+        setLoadingRun(true); setError("");
+        loadRun(event.target.value).catch((failure) => setError(failure.message)).finally(() => setLoadingRun(false)); }}>
+        {runs.map((item) => <option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString()}</option>)}</select></div>}
+
+    {!run && !error && <div className="rs-empty">No research yet. Start a new search to find partners for one of your products.</div>}
+    {working && <div className="rs-status"><strong>{run.kind === "discovery" ? "Finding partners" : "Comparing brands"}</strong>
+      <div className="rs-progress"><i /></div>
+      <p>{run.stage}. This usually takes 3–5 minutes; you can leave this page and come back.</p></div>}
+    {failedMessage && <div className="rs-status"><strong>{failedMessage}</strong></div>}
+
+    {run && !working && !failedMessage && <>
+      <div className="rs-summary"><strong>{counts.supported ? `${counts.supported} recommended ${counts.supported === 1 ? "partner" : "partners"}` : "No recommended partner yet"}</strong>
+        {counts.checking ? <span>{counts.checking} worth checking</span> : null}</div>
+      {note && <p className="rs-quiet">{note}</p>}
+      {run.result?.stopReason === "research_time_limit_reached" && counts.supported + counts.checking > 0 &&
+        <p className="rs-quiet">This review covered a sample of each store. Other combinations may exist.</p>}
+      {groups.map((group) => group.partners.length ? <div key={group.status}>
+        <h4 className="rs-section-title">{group.status === "supported" ? "Recommended" : "Worth checking"}</h4>
+        {group.partners.map((matches) => <Opportunity key={matches[0].id} match={matches[0]} others={matches.slice(1)} run={run}
+          pending={pending} launch={launch[`${run.id}:${matches[0].partnerEntityId}`] ?? launchCache.get(`${run.id}:${matches[0].partnerEntityId}`)} onShow={show} onCheck={check}
+          onConcepts={concepts} onBrief={(match, text) => { drafts.current[match.id] = text; }} onSaveBrief={saveBrief} />)}
+      </div> : null)}
+    </>}
+    {error && <p className="rs-error" role="alert">{error}</p>}
   </section>;
 }
