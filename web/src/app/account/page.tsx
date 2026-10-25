@@ -24,6 +24,7 @@ function projectStatus(project: Project): [string, string] {
 export default function AccountPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
+  const [projectsLoading, setProjectsLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [error, setError] = useState("");
 
@@ -36,8 +37,12 @@ export default function AccountPage() {
         if (data.user && !failure) fetch("/api/projects", { cache: "no-store" }).then((response) => {
           if (!response.ok) throw new Error("Your projects could not be loaded.");
           return response.json();
-        }).then((payload) => { if (active && payload?.projects) setProjects(payload.projects); })
-          .catch(() => { if (active) setError("Your projects could not be loaded."); });
+        }).then((payload) => {
+          if (!Array.isArray(payload?.projects)) throw new Error("Your projects could not be loaded.");
+          if (active) { setProjects(payload.projects); setError(""); }
+        })
+          .catch(() => { if (active) setError("Your projects could not be loaded."); })
+          .finally(() => { if (active) setProjectsLoading(false); });
         setChecking(false);
       }).catch(() => { if (active) setChecking(false); });
     return () => { active = false; };
@@ -51,7 +56,9 @@ export default function AccountPage() {
         <Link className="button button-dark" href="/research/new">New research</Link></div>
 
       <h4 className="rs-section-title">Your projects</h4>
-      {projects.length ? <div className="rs-projects">{projects.map((project) => {
+      {projectsLoading ? <p className="rs-quiet">Loading your projects…</p>
+        : error ? <p className="rs-error" role="alert">{error}</p>
+        : projects.length ? <div className="rs-projects">{projects.map((project) => {
         const [status, pill] = projectStatus(project);
         const draft = !project.latestRunStatus;
         // A draft continues where setup stopped: choosing the product.
@@ -64,7 +71,6 @@ export default function AccountPage() {
             <span>{draft ? "Continue setup" : new Date(project.updatedAt).toLocaleDateString()}</span></div></Link>;
       })}</div>
         : <div className="rs-empty">No projects yet. Start new research to find partners for one of your products.</div>}
-      {error && <p className="rs-error" role="alert">{error}</p>}
     </>}
   </main></>;
 }

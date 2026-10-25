@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "node --env-file-if-exists=../.env.local --watch src/server.mjs",
     "start": "node --env-file-if-exists=../.env.local src/server.mjs",
+    "aws:package": "node scripts/package-lambda.mjs",
+    "aws:worker-concurrency": "node --env-file-if-exists=../.env.local scripts/configure-worker-concurrency.mjs",
     "inspect-qloo": "node scripts/inspect-qloo.mjs",
     "test": "node scripts/run-checks.mjs offline",
     "test:local": "node scripts/run-checks.mjs local",
@@ -13,9 +15,12 @@
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1152.0",
+    "@aws-sdk/client-lambda": "^3.1156.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "@qloo/qloo-harness": "0.1.26",
     "@supabase/supabase-js": "^2.117.3",
     "pg": "^8.23.1",
+    "serverless-http": "4.0.0",
     "zod": "^4.6.5"
   }
 }

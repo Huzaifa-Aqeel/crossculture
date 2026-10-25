@@ -52,7 +52,7 @@ grant select,insert,update,delete on private.provider_cache to service_role;
 insert into private.provider_cache(provider,resource_type,resource_key,request_hash,scope,
   payload_json,payload_hash,fetched_at,fresh_until,retain_until)
 select 'youtube',resource,request_hash,request_hash,'shared',response_json,
-  encode(digest(response_json::text,'sha256'),'hex'),reserved_at,fresh_until,retain_until
+  encode(sha256(convert_to(response_json::text,'UTF8')),'hex'),reserved_at,fresh_until,retain_until
 from private.youtube_api_requests
 where status = 'succeeded' and response_json is not null and retain_until > now()
 on conflict (provider,resource_type,resource_key,request_hash) where scope = 'shared'

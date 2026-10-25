@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { invokeResearchWorker } from "./research-dispatch.mjs";
 import { verifiedUser } from "./auth.mjs";
 import { normalizeQlooBrands } from "./brand-resolution.mjs";
 import { persistSelectedBrand, persistVerifiedCommerceSite,
@@ -21,6 +22,9 @@ import { startPersonalRun, listPersonalRuns, getPersonalRun, recordPersonalFeedb
 const port = Number(process.env.API_PORT ?? 8787);
 const host = process.env.API_HOST ?? "127.0.0.1";
 const userError = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
+if (process.env.AWS_LAMBDA_FUNCTION_NAME && !process.env.RESEARCH_WORKER_FUNCTION_NAME)
+  throw new Error("RESEARCH_WORKER_FUNCTION_NAME is required for the API Lambda.");
+let wakePersonalQueue = () => {};
 
 function send(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8",
@@ -38,7 +42,7 @@ async function readJson(request) {
   catch { throw userError("Please check the information you entered."); }
 }
 
-createServer(async (request, response) => {
+export const httpServer = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
   const pathname = url.pathname;
   if (request.method === "GET" && pathname === "/health") return send(response, 200, { status: "ok" });
@@ -63,6 +67,10 @@ createServer(async (request, response) => {
     if (pathname === "/personal/runs") {
       if (request.method === "POST") {
         const created = await startPersonalRun(user.id, await readJson(request));
+        if (process.env.RESEARCH_WORKER_FUNCTION_NAME) {
+          try { await invokeResearchWorker(created.runId); }
+          catch (error) { process.stderr.write(`Research worker invoke failed: ${error instanceof Error ? error.message : String(error)}\n`); }
+        } else wakePersonalQueue();
         return send(response, created.reused ? 200 : 202, created);
       }
       if (request.method === "GET") return send(response, 200,
@@ -223,20 +231,32 @@ createServer(async (request, response) => {
     return send(response, status, { message: status === 503
       ? "Personal research is temporarily unavailable." : error.message });
   }
-}).listen(port, host, () => process.stdout.write(`CrossCulture API listening on ${host}:${port}\n`));
+});
 
-if (process.env.DATABASE_URL) {
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  httpServer.listen(port, host, () => process.stdout.write(`CrossCulture API listening on ${host}:${port}\n`));
+}
+
+if (process.env.DATABASE_URL && !process.env.AWS_LAMBDA_FUNCTION_NAME &&
+    !process.env.RESEARCH_WORKER_FUNCTION_NAME) {
   let working = false;
+  let pendingWake = false;
   const processPersonalQueue = async () => {
-    if (working) return;
+    if (working) { pendingWake = true; return; }
     working = true;
-    try { for (let i = 0; i < 3 && await workOnePersonalRun(); i += 1) {} }
+    try {
+      do {
+        pendingWake = false;
+        while (await workOnePersonalRun()) {}
+      } while (pendingWake);
+    }
     catch (error) { if (process.env.DEBUG_PERSONAL_RUNS === "1")
       process.stderr.write(`Personal worker unavailable: ${error instanceof Error ? error.message : String(error)}\n`); }
     finally { working = false; }
   };
+  wakePersonalQueue = () => { void processPersonalQueue(); };
   void processPersonalQueue();
-  setInterval(processPersonalQueue, 3000).unref();
+  setInterval(processPersonalQueue, 60_000).unref();
   void purgeDueQlooResponses(100).catch((error) =>
     process.stderr.write(`Qloo retention purge failed: ${error instanceof Error ? error.message : "unknown error"}\n`));
   setInterval(() => void purgeDueQlooResponses(100).catch(() => {}), 15 * 60 * 1000).unref();

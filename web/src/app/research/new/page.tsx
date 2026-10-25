@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/header";
 import { GOALS, MARKETS, marketCurrency, marketName } from "@/lib/markets";
@@ -10,7 +9,7 @@ import "../research.css";
 type Candidate = { id: string; name: string; description: string | null; website: string | null };
 type Resolution = { id: string; qloo: { status: string; candidates: Candidate[] } };
 type Brand = { id: string; name: string; website?: string | null };
-type Product = { productId: string; variantId: string; title: string; url?: string | null };
+type Product = { productId: string; variantId: string; title: string; url?: string | null; categoryId?: string | null };
 
 const productCoverage: Record<string, string> = {
   selected_seed_product_unverified: "That product could not be confirmed. Try its product page link.",
@@ -195,7 +194,8 @@ export default function NewResearchPage() {
         ...(occasion.trim() ? { occasion: occasion.trim() } : {}),
         ...(softPreferences.length ? { softPreferences } : {}),
         ...(priceCap.trim() ? { priceLimit: { amountMinor: Math.round(Number(priceCap) * 10 ** digits), currencyCode: currency } } : {}),
-        heroProduct: { productId: hero.productId, variantId: hero.variantId, title: hero.title } },
+        heroProduct: { productId: hero.productId, variantId: hero.variantId, title: hero.title,
+          ...(hero.categoryId ? { categoryId: hero.categoryId } : {}) } },
       idempotencyKey: crypto.randomUUID() });
     if (!ok) { setBusy(false); setError(payload.message ?? "Research could not start right now."); return; }
     router.push(`/projects/${runProjectId}?run=${payload.runId}`);
@@ -220,7 +220,7 @@ export default function NewResearchPage() {
     {step > 1 && brand ? <section className="rs-card rs-done"><div><strong>{brand.name}</strong>
       <div><span>{marketName(market)}{brand.website ? ` · ${brand.website.replace(/^https?:\/\//, "")}` : ""}</span></div></div>
     </section> : <section className="rs-card"><h2>Your brand</h2>
-      <p>Choose the country you sell in, then find your brand.</p>
+      <p>Choose the brand and the country you sell in.</p>
       <form className="rs-form" onSubmit={findBrand}><div className="rs-row">
         <label className="rs-field">Brand name<input value={brandQuery} onChange={(event) => setBrandQuery(event.target.value)}
           minLength={2} maxLength={90} required placeholder="e.g. Caraway" /></label>
@@ -311,6 +311,5 @@ export default function NewResearchPage() {
     </section>}
 
     {error && <p className="rs-error" role="alert">{error}</p>}
-    <p className="rs-hint" style={{ marginTop: 26 }}><Link href="/account" className="rs-link">Back to workspace</Link></p>
   </main></>;
 }

@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { fileURLToPath } from "node:url";
 
 const EXPECTED_HACKATHON_URL = "https://hackathon.api.qloo.com";
 let client;
@@ -22,7 +23,9 @@ async function connect() {
   if (connection) return connection;
   connection = (async () => {
     const next = new Client({ name: "crossculture-api", version: "0.1.0" });
-    const transport = new StdioClientTransport({ command: "qloo", args: ["mcp"], env: qlooEnvironment() });
+    const command = fileURLToPath(new URL("../node_modules/@qloo/qloo-harness/dist/bin.js", import.meta.url));
+    const transport = new StdioClientTransport({ command: process.execPath,
+      args: [command, "mcp"], env: qlooEnvironment() });
     await next.connect(transport);
     client = next;
     return next;

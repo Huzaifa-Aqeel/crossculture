@@ -1,0 +1,30 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageOnlyCrossCultureExecutionRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:AttachRolePolicy",
+        "iam:PutRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::390402563459:role/crossculture-*"
+    },
+    {
+      "Sid": "PassOnlyCrossCultureRolesToLambdaAndScheduler",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::390402563459:role/crossculture-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "lambda.amazonaws.com",
+            "scheduler.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}

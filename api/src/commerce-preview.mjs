@@ -2,6 +2,7 @@ import pg from "pg";
 import { getProject } from "./projects.mjs";
 import { observedProductType } from "./commerce-products.mjs";
 import { catalogClient, discoverVerifiedStorefront } from "./shopify-catalog.mjs";
+import { taxonomyCategory } from "./research-memory.mjs";
 
 let pool;
 const db = () => pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -110,7 +111,8 @@ export async function previewStartingBrandProducts(seedEntityId, market = "US", 
           const family = observedProductType(detail.product);
           if (!family) continue;
           products.push({ productId: detail.product.id, variantId: detail.variant.id,
-            title: detail.product.title, url: detail.product.url ?? null, family });
+            title: detail.product.title, url: detail.product.url ?? null, family,
+            categoryId: taxonomyCategory(detail.product) });
           seenProducts.add(hit.id);
           break;
         } catch (error) {

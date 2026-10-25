@@ -3,6 +3,7 @@ import { withWebSearch, officialDomainOf } from "./web-research.mjs";
 import { researchCommercePair } from "./commerce-research.mjs";
 import { triageCommerceLeads } from "./commerce-mechanism.mjs";
 import { verifiedWebsitesForQlooIds } from "./catalog.mjs";
+import { recallPartnerMemory, partnerMemoryTiers, orderLeadsWithMemory } from "./research-memory.mjs";
 import { rankCommerceOpportunities } from "./brand-commerce.mjs";
 import { investigateDirectCommerceCulture } from "./commerce-culture.mjs";
 import { discoverVerifiedStorefront, secureCatalogFetch, fetchFailureCode,
@@ -439,6 +440,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   discoverStorefront = discoverVerifiedStorefront,
   investigateDirect = investigateDirectCommerceCulture,
   triageLeads = triageCommerceLeads, knownWebsites = verifiedWebsitesForQlooIds,
+  recallPartners = recallPartnerMemory,
   maxCandidates = 6, now = () => Date.now() } = {}) {
   if (!QLOO_UUID.test(seedQlooId ?? "") || !["product_bundle", "cross_sell"].includes(objective)) {
     throw new Error("Verified native brand and commerce objective required.");
@@ -528,11 +530,22 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   // may sell dinnerware), so they only set the order. Every lead is screened
   // against its real catalog sample inside pair research; partners with no
   // value stop there, before deep search. Time and budget still bound the run.
-  const excludedLeads = [];
   const excludedTrace = [];
   const rank = { likely: 0, possible: 1, unlikely: 2 };
-  const selectedLeads = specifiedPartner ? leads : [...leads].sort((a, b) =>
+  const hintOrder = [...leads].sort((a, b) =>
     rank[fitOf(a)] - rank[fitOf(b)] || (a.originalOrder ?? 0) - (b.originalOrder ?? 0));
+  // Earlier research on these same partners (from any run) then moves proven
+  // partners forward, unpromising ones back, and skips lasting identity failures.
+  const memoryTiers = specifiedPartner ? new Map() : partnerMemoryTiers(
+    await recallPartners({ qlooIds: leads.map((lead) => lead.qlooId), objective, market })
+      .catch(() => []), userConstraints.heroProduct?.categoryId ?? null);
+  const remembered = specifiedPartner ? { ordered: leads, skipped: [] }
+    : orderLeadsWithMemory(hintOrder, memoryTiers);
+  const selectedLeads = remembered.ordered;
+  for (const lead of remembered.skipped) {
+    excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
+      status: "identity_unverified_recently", identityReason: memoryTiers.get(lead.qlooId).identityFailure });
+  }
   // Product research stays one partner at a time so the shared Catalog budget
   // and rate-limit stop remain exact. Identity checks for the next few leads
   // start early, so a slow website does not hold up the research queue.
@@ -568,7 +581,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   const researchLead = async (index, lead) => {
     const candidate = { name: lead.name, qlooId: lead.qlooId,
       originalQlooOrder: lead.originalOrder ?? null, status: "identity_unverified",
-      ...(leadFit ? { productFitHint: fitOf(lead) } : {}) };
+      ...(leadFit ? { productFitHint: fitOf(lead) } : {}),
+      ...(memoryTiers.has(lead.qlooId) ? { memoryTier: memoryTiers.get(lead.qlooId).tier } : {}) };
     candidates[index] = candidate;
     for (let next = index; next < index + identityConcurrency; next += 1) startVerification(next);
     const { identity: verifiedPartner, trace: identityTrace } = await verifications.get(index);
@@ -646,6 +660,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       candidate.productSearchPlanning = result.productSearchPlanning ?? "not_run";
       candidate.productSelectionPlanning = result.productSelectionPlanning ?? "not_run";
       candidate.stopReason = result.stopReason ?? null;
+      if (result.memory) candidate.memory = result.memory;
       const hasOpportunity = Object.values(result.opportunities).some((groups) => groups.length);
       const rateLimited = result.coverageIssues?.includes("catalog_rate_limited") ||
         result.stopReason === "catalog_rate_limited";

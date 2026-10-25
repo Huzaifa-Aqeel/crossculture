@@ -13,12 +13,8 @@ import { planAnchorProductSearch, planPartnerProductSearch, proposeCommerceMecha
   evaluateCommerceMechanism, screenPartnerAssortment } from "./commerce-mechanism.mjs";
 import { catalogClient, discoverVerifiedStorefront } from "./shopify-catalog.mjs";
 import { selectedProductPage } from "./commerce-product-page.mjs";
-
-// A partner's screen decision for one chosen product and objective is reused
-// for six hours so reruns give the same answer. It stores only a boolean
-// decision keyed by IDs, never Catalog content.
-const screenDecisions = new Map();
-const SCREEN_TTL_MS = 6 * 60 * 60 * 1000;
+import { taxonomyCategory, screenKeyFor, recallScreenDecision,
+  opportunityKeyFor } from "./research-memory.mjs";
 
 // Shared, transient pair research for native discovery and direct comparison.
 // The caller supplies only independently verified brand identities and Qloo evidence.
@@ -32,7 +28,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   proposeMechanism = proposeCommerceMechanism,
   verifyMechanism = verifyCommerceMechanismRubric,
   readSelectedProductPage = selectedProductPage, onEvaluation = null,
-  screenPartner = screenPartnerAssortment,
+  screenPartner = screenPartnerAssortment, recallScreen = recallScreenDecision,
   now = () => Date.now() } = {}) {
   if (!["product_bundle", "cross_sell"].includes(objective)) throw new Error("Commerce objective required.");
   if (!seed?.id || !partner?.id || seed.id === partner.id ||
@@ -212,6 +208,12 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     }
   }
   if (discoveryBasis !== "user_specified" && !broadPartner.length && wearerExcluded > 0) return wearerMismatch();
+  // What this research teaches later runs: the app's own decisions, keyed by
+  // public taxonomy categories and IDs, never Catalog content.
+  let screenMemory = null;
+  const pairOutcomes = [];
+  const memory = () => ({ heroCategory: taxonomyCategory(heroDetail.product),
+    partnerShopId: partnerStore.shopId, screen: screenMemory, pairs: pairOutcomes });
   // Discovered partners: stop now if the observed assortment shows nothing that
   // could add value to the chosen product. A failed screen never drops a partner;
   // a user-specified partner is never screened.
@@ -221,14 +223,18 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
       occasion: userConstraints.occasion ?? "", preferences: userConstraints.softPreferences ?? [],
       seedDescriptionTrusted: seedScope.domain !== "global",
       partnerDescriptionTrusted: partnerScope.domain !== "global" }).catch(() => null);
+    // A screen decision for the same product, objective and partner store is
+    // reused for six hours (from any run) so reruns give the same answer.
     const cacheable = screenPartner === screenPartnerAssortment;
-    const screenKey = [objective, heroDetail.product.id, heroDetail.variant.id, partnerStore.shopId,
-      userConstraints.occasion ?? "", (userConstraints.softPreferences ?? []).join("|")].join("#");
-    const remembered = cacheable ? screenDecisions.get(screenKey) : null;
-    let screen = remembered && remembered.expiresAt > Date.now() ? remembered.screen : await runScreen(broadPartner);
+    const screenKey = screenKeyFor({ objective, productId: heroDetail.product.id,
+      variantId: heroDetail.variant.id, shopId: partnerStore.shopId,
+      occasion: userConstraints.occasion ?? "", preferences: userConstraints.softPreferences ?? [] });
+    const remembered = cacheable ? await recallScreen(screenKey).catch(() => null) : null;
+    const reused = typeof remembered === "boolean";
+    let screen = reused ? { addsValue: remembered } : await runScreen(broadPartner);
     // Before dropping a partner, look at one more catalog page: one sample can
     // miss the department that fits (furniture first, dinnerware later).
-    if (screen?.addsValue === false && !remembered && broadPartnerPagination.hasNextPage &&
+    if (screen?.addsValue === false && !reused && broadPartnerPagination.hasNextPage &&
         broadPartnerPagination.cursor && catalog.callsUsed() < maxCatalogCalls - 16) {
       try {
         const next = await searchScopePage(partnerScope, "products", { cursor: broadPartnerPagination.cursor });
@@ -241,14 +247,13 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         }
       } catch { /* keep the first decision */ }
     }
-    if (cacheable && typeof screen?.addsValue === "boolean" && !remembered) {
-      if (screenDecisions.size >= 500) screenDecisions.delete(screenDecisions.keys().next().value);
-      screenDecisions.set(screenKey, { screen, expiresAt: Date.now() + SCREEN_TTL_MS });
+    if (cacheable && typeof screen?.addsValue === "boolean") {
+      screenMemory = { key: screenKey, addsValue: screen.addsValue, reused };
     }
     if (screen?.addsValue === false) {
       return { opportunities: { supported: [], needs_verification: [], unsupported: [] },
         coverage: "partner_no_product_value", coverageIssues: [], stopReason: null,
-        observedCandidateCount: broadPartner.length, callsUsed: catalog.callsUsed() };
+        observedCandidateCount: broadPartner.length, callsUsed: catalog.callsUsed(), memory: memory() };
     }
   }
   let retrievalPlan = { queries: [], observedProductIds: [] };
@@ -789,6 +794,9 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         sellerId: seedStore.shopId, storefrontDomain: seedScope.domain },
       partner: { productId: pair.partnerProduct.id, variantId: pair.partnerVariant.id,
         sellerId: partnerStore.shopId, storefrontDomain: partnerScope.domain } } };
+    pairOutcomes.push({ opportunityKey: opportunityKeyFor(objective, assessedItem.references),
+      partnerCategory: taxonomyCategory(partnerDetail.product), status: assessment.status,
+      mechanismState: assessment.productMechanism.gate.state, reasonCodes: assessment.reasonCodes });
     let evaluationEvent = null;
     if (onEvaluation) {
       const verified = verifiedMechanismFacts(mechanismProposal, evidenceSeedProduct,
@@ -869,5 +877,5 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         : assessed.length >= assessmentLimit && assessed.length < found.length
           ? "assessment_capacity_reached" : coverageIssues.has("search_novelty_exhausted")
             ? "search_novelty_exhausted" : "query_plan_exhausted",
-    productSearchPlanning, productSelectionPlanning, callsUsed: catalog.callsUsed() };
+    productSearchPlanning, productSelectionPlanning, callsUsed: catalog.callsUsed(), memory: memory() };
 }

@@ -810,6 +810,16 @@ const specifiedNotScreened = await researchCommercePair({ ...pairInput, discover
   { ...researchDeps, productQueries: null,
     screenPartner: async () => { throw new Error("A user-chosen partner is never screened"); } });
 assert.notEqual(specifiedNotScreened.coverage, "partner_no_product_value");
+// Research memory: a recent screen decision (from any run) is reused without
+// a model call, and each assessed pair is reported only by hashed key and verdict.
+const rememberedOut = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  recallScreen: async () => false });
+assert.equal(rememberedOut.coverage, "partner_no_product_value");
+assert.equal(rememberedOut.memory.screen.reused, true);
+assert.equal(qualified.memory.pairs.length, qualified.assessedCount);
+assert.ok(qualified.memory.pairs.every((pair) => /^[0-9a-f]{64}$/.test(pair.opportunityKey) &&
+  Object.keys(pair).every((key) => ["opportunityKey", "partnerCategory", "status",
+    "mechanismState", "reasonCodes"].includes(key))), "No product text enters research memory");
 // Who a product is for comes from the merchant's own labels (real Everlane data:
 // "/products/mens-linen-ls-shirt-white-blue" in "Men's Clothing").
 assert.equal(productWearer({ title: "The Classic Shirt in Linen | White / Blue",

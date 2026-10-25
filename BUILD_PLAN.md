@@ -1,5 +1,42 @@
 # CrossCulture build plan — Brand × Brand commerce
 
+## Adaptive learning — decided design (25 October, supersedes the earlier feedback-first plan)
+
+**Outcome:** the app gets measurably better at finding good Brand × Brand opportunities with every run. Learning changes only *what is researched first, what is skipped and how the research budget is spent*. Evidence gates, assessment status and the `brand-commerce-v1.1` displayed ranking are unchanged; every opportunity is still verified live. The hosted database started empty on 25 October, so the first learning source must not depend on users.
+
+**User decisions (25 October):** (1) research memory before feedback controls; the cross-user learned policy is parked until there is real traffic. (2) Research memory is shared across users, keyed by partner store and public Shopify taxonomy category only. (3) The user adjudicates the review queue for loop 2.
+
+### Loop 1 — research memory (no users needed)
+
+- Each run records the app's own decisions per researched partner in server-only tables: partner Qloo ID and verified shop ID, objective, market, the starting product's Shopify taxonomy category, outcome (`identity_unverified` with a lasting reason, `no_product_value`, `researched`, `incomplete`), the catalog screen decision, assessed/recommendable/Supported counts, Catalog calls, and one row per assessed pair (hashed opportunity key, partner product taxonomy category, status, mechanism gate, reason codes, model).
+- **Never stored:** user ID, starting brand, product titles/descriptions/collections, prices, availability, images or any Catalog payload. Taxonomy category IDs come from Shopify's public Standard Product Taxonomy (`categories[].value` on storefront products). Field audit under Architecture §10: these are non-prohibited decision metadata, not a product index.
+- **Uses (1a, built first):** (i) partner order — partners with Supported pairs for a similar starting category (shared taxonomy prefix) go first; partners researched twice for a similar category with nothing recommendable go last; Qloo order and the description triage still order the rest; at most two proven partners run before an unexplored one. (ii) Lasting identity failures (site name absent, no Shopify store, no official site found) are skipped for 7 days unless a verified website exists; network, timeout and HTTP 403/5xx failures are never remembered. (iii) Catalog screen decisions are reused for 6 hours from Postgres, replacing the in-process map that Lambda loses. Memory is reused only for partners already present in the current user's own Qloo results and never adds a partner. Rows older than 180 days are purged.
+- **1b (next):** learned search directions — partner product categories and mechanism roles that produced Supported pairs for a similar starting category become early search plans; consistently empty directions move last. Still verified live.
+- **Measure:** Supported pairs per 100 Catalog calls, calls to first Supported pair, partners researched with no result, repeat-verdict agreement. Computed from run records; compare runs before and after memory on the same US seeds.
+
+### Loop 2 — judgment calibration from real cases
+
+- Detect verdict flips for the same opportunity key across runs, plus a sample of Supported results, into a developer-only review queue. The user adjudicates good/bad with a short note.
+- Adjudicated cases join `eval:mechanism` (dev and holdout) and become retrieved examples in the pair judgment by nearest category pair. A new example set or prompt ships only when the evaluation does not regress. Only human-adjudicated labels are used; the model's own verdicts never become labels.
+
+### Loop 3 — user signals (personal)
+
+- Interested and Pass with an optional reason on each opportunity card; proposal written/edited/downloaded is the strongest positive signal. Pass "Products don't fit" → personal negative for that category pair and a loop 2 review candidate; "Already working with them" or "Not relevant" → project-scoped partner exclusion; "Cultural connection unclear" → review candidate.
+- The worker must actually read the run's preference snapshot: today `feedback_snapshot_json` and `excludedPartnerEntityIds` are stored at run creation but never used by research. Replace the fire-and-forget save after proposal creation with an awaited action.
+
+### Loop 4 — cross-user learned policy (parked)
+
+Consent, exposure logging, a scheduled aggregate learner and a randomized exploration slot wait until there are enough independent users. A fine-tuned model, collaborative filtering and click-based ranking remain out of scope; a change to displayed ranking requires a new scorer-policy decision.
+
+## Lambda research dispatch (25 October)
+
+- **Confirmed deployment decision:** Vercel hosts the Next.js frontend. AWS hosts separate API and research Lambda functions. Supabase `analysis_runs` remains the only application job queue; there is no SQS queue or Supabase webhook in the final path.
+- The API inserts a queued run and commits it, then calls the worker Lambda with `InvocationType=Event` using the AWS SDK. The API's execution role needs `lambda:InvokeFunction` for only that worker function. The worker's `src/research-lambda.mjs` handler claims one ready row through the existing `FOR UPDATE SKIP LOCKED` lease logic and writes the result. An EventBridge Scheduler `rate(1 minute)` invocation of the same handler recovers missed invokes, due retries and expired leases. Duplicate invokes are harmless because the event is a wake hint and Postgres decides which row is claimed.
+- `RESEARCH_WORKER_FUNCTION_NAME` configures dispatch on the API Lambda. The API returns the queued run even if the async invoke fails after commit; the scheduled recovery handles it. Local development without that variable still runs the in-process worker and a 60-second recovery scan. The API Lambda must not run the local timer. Before deployment, package the HTTP API with the Lambda Web Adapter (or another HTTP adapter), set worker timeout and memory from measured live runs, configure the scheduled trigger and verify the API-to-worker IAM permission, then run an end-to-end signed-in research check.
+- **Worker concurrency:** the deployment tries to reserve two concurrent executions for the research Lambda, allowing two jobs to run in parallel while capping provider and database load. AWS requires at least 10 unreserved account executions; this account currently has a total quota of 10, so reservation cannot be applied. The worker uses shared concurrency and Postgres `FOR UPDATE SKIP LOCKED` still lets distinct runs proceed concurrently when capacity is available. Request an account concurrency quota of at least 12 before applying the two-execution reservation. The worker setup command checks the quota and reports when it must use shared concurrency.
+- **AWS deployment checkpoint:** the API exposes a `serverless-http` Lambda handler and the published Qloo MCP harness is a package dependency, so both Lambdas use one 39.5 MiB ZIP built with `npm run aws:package`. The three IAM roles, worker and API Lambdas, public API Function URL, and one-minute Scheduler target are deployed in `us-east-1`. The API URL health check returned 200. The Vercel proxy still returns 503 because `CROSSCULTURE_API_URL` has not been configured there; set it to the deployed Function URL without a trailing slash, redeploy, then run a signed-in hosted research check. The hosted web profile at `https://culture-circle.vercel.app/ucp-agent-profile.json` is verified and configured for Lambda.
+- Migration `202610250001_research_wake_webhook.sql` was briefly applied to hosted Supabase while an always-on Node worker was planned. Forward migration `202610250002_remove_research_wake_webhook.sql` drops its trigger and function without changing run rows. No webhook URL or secret is needed in Vault.
+
 ## Brand country, where to launch and guided flow (24 October)
 
 - **Brand country.** The user enters the brand and its country first. The country sets the project market (stored on `projects.market`), currency and Catalog market, and adds one country-domain guess after `brandname.com`. If the brand cannot be confirmed in that country, the user sees an honest limitation and can enter the official website.

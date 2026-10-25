@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import Link from "next/link";
 import { Header } from "@/components/header";
 import { GOALS, marketName } from "@/lib/markets";
 import "../../research/research.css";
@@ -46,8 +45,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
 
   return <><Header /><main className="shell rs-page">
     {loading ? <p className="rs-quiet">Opening project…</p> : !project ? <div className="rs-card"><h2>Project unavailable</h2>
-      <p className="rs-error" role="alert">{error}</p><p style={{ marginTop: 14 }}><Link className="rs-link" href="/account">Back to workspace</Link></p></div> : <>
-      <div className="rs-head"><div><Link href="/account" className="rs-quiet" style={{ display: "inline-block", marginBottom: 14 }}>← Workspace</Link>
+      <p className="rs-error" role="alert">{error}</p></div> : <>
+      <div className="rs-head"><div>
         <h1>{project.name}</h1>
         <div className="rs-meta"><span>{project.seedName}</span><span>{marketName(project.market ?? "US")}</span>
           <span>{GOALS[project.objective]?.label ?? "Partnership"}</span></div></div>

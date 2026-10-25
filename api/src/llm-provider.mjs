@@ -17,6 +17,11 @@ export function openAiConfig({ allowFallback = false } = {}) {
   return base && key && model ? { endpoint: `${base.replace(/\/$/, "")}/chat/completions`, key, model } : null;
 }
 
+// The primary model's name, recorded with research verdicts for later review.
+export function configuredModelName() {
+  return useBedrock() ? process.env.BEDROCK_MODEL_ID || DEFAULT_BEDROCK_MODEL : openAiConfig()?.model ?? null;
+}
+
 export function isBedrockThrottle(error) {
   return ["ThrottlingException", "ServiceQuotaExceededException", "TooManyRequestsException"]
     .includes(error?.name) || error?.$metadata?.httpStatusCode === 429;

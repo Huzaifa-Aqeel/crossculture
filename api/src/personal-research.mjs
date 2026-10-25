@@ -82,7 +82,12 @@ export async function startPersonalRun(userId, input) {
       // The chosen product's display title is only a partner-filter hint; the
       // exact product and variant are re-read from the store during research.
       ...(typeof requestedHero.title === "string" && requestedHero.title.trim()
-        ? { title: requestedHero.title.trim().slice(0, 160) } : {}) } } : {}),
+        ? { title: requestedHero.title.trim().slice(0, 160) } : {}),
+      // The product's public taxonomy category only orders research by earlier
+      // results for similar products; research reads the product itself.
+      ...(typeof requestedHero.categoryId === "string" &&
+        /^[a-z]{2}(?:-\d+){0,8}$/.test(requestedHero.categoryId)
+        ? { categoryId: requestedHero.categoryId } : {}) } } : {}),
   } : null;
   const client = await db().connect();
   try {

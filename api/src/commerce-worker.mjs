@@ -4,6 +4,8 @@ import { persistSelectedBrand } from "./catalog.mjs";
 import { durableCommerceDecision } from "./brand-commerce.mjs";
 import { researchNativeCommerce } from "./commerce-native.mjs";
 import { researchContextCommerce } from "./commerce-context.mjs";
+import { memoryRowsFromRun, opportunityKeyFor, recordResearchMemory } from "./research-memory.mjs";
+import { configuredModelName } from "./llm-provider.mjs";
 
 let pool;
 const db = () => pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -24,7 +26,7 @@ function groupedItems(result) {
 
 export async function processCommerceRun(run, workerId, { research = researchNativeCommerce,
   researchContext = researchContextCommerce,
-  persistBrand = persistSelectedBrand } = {}) {
+  persistBrand = persistSelectedBrand, recordMemory = recordResearchMemory } = {}) {
   const seed = await db().query(`select e.id,e.identity_status as "identityStatus",
     e.facts_json->>'commerceIdentitySourceUrl' as "identitySourceUrl",
     e.facts_json->>'commerceStorefrontProofUrl' as "storefrontProofUrl",
@@ -107,9 +109,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
       const partnerEntity = await persistBrand({ qloo: { id: item.partnerId,
         name: item.partnerName, website: item.partnerWebsite,
         description: item.partnerDescription ?? null }, identityStatus: "verified" });
-      const opportunityKey = digest([run.objective, item.seedProductId, item.seedVariantId,
-        item.references?.seed?.sellerId, item.partnerProductId, item.partnerVariantId,
-        item.references?.partner?.sellerId]);
+      const opportunityKey = opportunityKeyFor(run.objective, item.references);
       const match = await connection.query(`insert into public.matches
         (user_id,analysis_run_id,brand_entity_id,partner_entity_id,opportunity_key)
         values ($1,$2,$3,$4,$5)
@@ -157,7 +157,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
           ? { seedIdentityDiagnostics: result.seedIdentityDiagnostics } : {}),
         stopReason: result.stopReason, discoveryReturnedCount: result.discoveryReturnedCount,
         catalogCallsUsed: result.catalogCallsUsed,
-        candidates: result.candidates, decisions,
+        candidates: result.candidates?.map(({ memory, ...candidate }) => candidate), decisions,
         message: result.coverage === "no_partner_product_fit"
           ? "None of the culturally related brands sell products that add value to this product for your goal."
           : result.stopReason === "catalog_rate_limited"
@@ -167,7 +167,13 @@ export async function processCommerceRun(run, workerId, { research = researchNat
           : decisions.length ? "Product opportunities assessed. Refresh offers before use."
             : "No verified product opportunity was found within this research budget." })]);
     await connection.query("commit");
-    return true;
   } catch (error) { await connection.query("rollback"); throw error; }
   finally { connection.release(); }
+  // Research memory is a later-run hint; failing to record it never fails the run.
+  if (!contextSeed) {
+    await recordMemory(memoryRowsFromRun({ objective: run.objective,
+      market: request.market, candidates: result.candidates, model: configuredModelName() }))
+      .catch((error) => console.error("Research memory not recorded:", error.message));
+  }
+  return true;
 }

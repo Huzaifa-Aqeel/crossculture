@@ -20,7 +20,8 @@ const { data: created, error: createError } = await admin.auth.admin.createUser(
 assert.ifError(createError);
 const server = spawn(process.execPath, ["src/server.mjs"], {
   cwd: new URL("../", import.meta.url).pathname,
-  env: { ...process.env, API_HOST: "127.0.0.1", API_PORT: "8799", SUPABASE_URL: vars.API_URL, SUPABASE_ANON_KEY: vars.ANON_KEY, DATABASE_URL: vars.DB_URL },
+  env: { ...process.env, API_HOST: "127.0.0.1", API_PORT: "8799", SUPABASE_URL: vars.API_URL,
+    SUPABASE_ANON_KEY: vars.ANON_KEY, DATABASE_URL: vars.DB_URL, RESEARCH_WORKER_FUNCTION_NAME: "" },
   stdio: "ignore",
 });
 const base = "http://127.0.0.1:8799";
@@ -34,6 +35,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.ok(ready, "API did not start");
+  assert.equal((await fetch(`${base}/internal/research/wake`, { method: "POST" })).status, 404);
   const anonymous = await fetch(`${base}/me`);
   assert.equal(anonymous.status, 401);
   assert.equal((await fetch(`${base}/youtube/runs`)).status, 404);

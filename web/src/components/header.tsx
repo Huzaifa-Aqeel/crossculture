@@ -28,9 +28,12 @@ export function Header() {
   return (
     <header className="site-header shell">
       <Link href="/" className="brand" aria-label="CrossCulture home"><span className="brand-mark"><i /><i /></span><span>CrossCulture<span className="brand-period">.</span></span></Link>
-      {signedIn === null ? <span className="header-cta" aria-hidden style={{ visibility: "hidden" }}>Sign in</span>
-        : signedIn ? <button type="button" className="header-cta" onClick={signOut}>Sign out</button>
-          : <Link href="/auth" className="header-cta">Sign in <ArrowUpRight size={16} /></Link>}
+      <nav className="header-actions" aria-label="Account navigation">
+        <Link href="/account" className="header-workspace">Workspace</Link>
+        {signedIn === null ? <span className="header-cta" aria-hidden style={{ visibility: "hidden" }}>Sign in</span>
+          : signedIn ? <button type="button" className="header-cta" onClick={signOut}>Sign out</button>
+            : <Link href="/auth" className="header-cta">Sign in <ArrowUpRight size={16} /></Link>}
+      </nav>
     </header>
   );
 }

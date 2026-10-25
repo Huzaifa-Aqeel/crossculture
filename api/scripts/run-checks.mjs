@@ -6,7 +6,8 @@ import { spawn } from "node:child_process";
 const suites = {
   offline: ["check-brand-commerce", "check-commerce-reliability", "check-commerce-product-discovery",
     "check-commerce-product-discovery-adaptive", "check-commerce-context", "check-commerce-audience",
-    "check-commerce-mechanism-benchmark", "check-new-run-objectives", "check-web-research"],
+    "check-commerce-mechanism-benchmark", "check-new-run-objectives", "check-web-research",
+    "check-research-dispatch", "check-research-memory"],
   local: ["check-qloo-cache", "check-tavily-cache-budget", "check-commerce-run-local",
     "check-local-api-auth"],
 };

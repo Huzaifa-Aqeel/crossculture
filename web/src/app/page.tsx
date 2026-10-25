@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, MoveUpRight } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { Header } from "@/components/header";
 
 export default function Home() {
@@ -16,11 +16,6 @@ export default function Home() {
               <a className="button button-outline" href="#how-it-works">See how it works</a>
             </div>
           </div>
-          <div className="hero-aside">
-            <div className="aside-rule" />
-            <p>Good partnerships start with more than a shared category. They start with a reason people will care.</p>
-            <span>Explore the connection. Shape the idea. Make the introduction count.</span>
-          </div>
         </section>
 
         <section className="showcase-wrap">
@@ -29,7 +24,6 @@ export default function Home() {
               <div className="showcase-intro">
                 <h2>Make the connection visible.</h2>
                 <p>Look beyond obvious competitors and adjacent audiences. See what connects two worlds, where each partner adds value, and what the collaboration could become.</p>
-                <Link href="/account" className="text-link">Open the workspace <ArrowRight size={18} /></Link>
               </div>
               <div className="sample-card" aria-label="Illustrative collaboration preview">
                 <div className="sample-entities"><div className="sample-avatar">A</div><span className="sample-x">×</span><div className="sample-avatar sample-avatar-alt">B</div></div>
@@ -53,12 +47,8 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="shell final-cta">
-          <div><h2>Find common ground.<br />Create something new.</h2></div>
-          <Link className="button button-light" href="/account">Explore partnerships <MoveUpRight size={19} /></Link>
-        </section>
       </main>
-      <footer className="site-footer shell"><span>CrossCulture © 2026</span><span>Better partnerships begin with better questions.</span></footer>
+      <footer className="site-footer shell"><span>CrossCulture © 2026</span></footer>
     </>
   );
 }
