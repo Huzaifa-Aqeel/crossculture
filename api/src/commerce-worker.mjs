@@ -5,7 +5,6 @@ import { durableCommerceDecision } from "./brand-commerce.mjs";
 import { researchNativeCommerce } from "./commerce-native.mjs";
 import { researchContextCommerce } from "./commerce-context.mjs";
 import { memoryRowsFromRun, opportunityKeyFor, recordResearchMemory } from "./research-memory.mjs";
-import { configuredModelName } from "./llm-provider.mjs";
 
 let pool;
 const db = () => pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -172,7 +171,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
   // Research memory is a later-run hint; failing to record it never fails the run.
   if (!contextSeed) {
     await recordMemory(memoryRowsFromRun({ objective: run.objective,
-      market: request.market, candidates: result.candidates, model: configuredModelName() }))
+      market: request.market, candidates: result.candidates }))
       .catch((error) => console.error("Research memory not recorded:", error.message));
   }
   return true;

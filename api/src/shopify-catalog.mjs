@@ -77,8 +77,9 @@ export function catalogEndpoint(domain) {
 
 // A short code for a failed public fetch. It is developer diagnostics only and
 // never contains response content.
+// EBUSY appeared from DNS lookups inside Lambda (25 Oct) and cleared on later runs.
 export const TRANSIENT_FETCH_FAILURES = new Set(["network_econnreset", "network_eai_again",
-  "network_epipe", "network_econnaborted", "network_etimedout"]);
+  "network_epipe", "network_econnaborted", "network_etimedout", "network_ebusy"]);
 
 export function fetchFailureCode(error) {
   if (error?.name === "TimeoutError" || error?.name === "AbortError") return "timeout";

@@ -9,7 +9,8 @@ import "../research.css";
 type Candidate = { id: string; name: string; description: string | null; website: string | null };
 type Resolution = { id: string; qloo: { status: string; candidates: Candidate[] } };
 type Brand = { id: string; name: string; website?: string | null };
-type Product = { productId: string; variantId: string; title: string; url?: string | null; categoryId?: string | null };
+type Product = { productId: string; variantId: string; title: string; url?: string | null; categoryId?: string | null;
+  sized?: boolean };
 
 const productCoverage: Record<string, string> = {
   selected_seed_product_unverified: "That product could not be confirmed. Try its product page link.",
@@ -201,6 +202,9 @@ export default function NewResearchPage() {
     router.push(`/projects/${runProjectId}?run=${payload.runId}`);
   }
 
+  // A two-brand Bundle never contains an item sold in fit sizes, so those are not offered.
+  const shownProducts = (products ?? []).filter((item) => !(objective === "product_bundle" && item.sized));
+
   function goTo(index: number) { setError(""); setStep(index); }
   const partnerValid = mode === "discovery" || Boolean(partner);
 
@@ -283,8 +287,8 @@ export default function NewResearchPage() {
           placeholder="e.g. Sauté Pan" /></label>
         <button className="rs-button-quiet" type="submit" disabled={busy || productQuery.trim().length < 3}>
           {busy && !products ? "Searching…" : "Search store"}</button></div></form>
-      {products && products.length > 0 && <div className="rs-options" role="radiogroup" aria-label="Your products">
-        {products.map((item) => <label className="rs-option" key={item.productId}>
+      {shownProducts.length > 0 && <div className="rs-options" role="radiogroup" aria-label="Your products">
+        {shownProducts.map((item) => <label className="rs-option" key={item.productId}>
           <input type="radio" name="product" checked={productChoice === item.productId}
             onChange={() => setProductChoice(item.productId)} /><span><strong>{item.title}</strong></span>
           {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View</a>}</label>)}</div>}

@@ -1,5 +1,5 @@
 import { observedProductType, productMechanism, verifiedMechanismFacts,
-  mechanismFactSourceKinds } from "./commerce-products.mjs";
+  mechanismFactSourceKinds, productDescriptionText } from "./commerce-products.mjs";
 
 const QLOO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Qloo's brand-attribute tags: what a brand stands for and who it serves
@@ -127,10 +127,8 @@ export function validateCommerceEvidence(raw) {
       .map((tag) => [plainIdentity(tag.name), tag])).values()];
     if (shared.length) {
       const productText = ` ${plainIdentity([seedDetail?.product?.title, partnerDetail?.product?.title,
-        ...(raw.sourceAuthority?.seedDescription ? [typeof seedDetail?.product?.description === "string"
-          ? seedDetail.product.description : seedDetail?.product?.description?.plain] : []),
-        ...(raw.sourceAuthority?.partnerDescription ? [typeof partnerDetail?.product?.description === "string"
-          ? partnerDetail.product.description : partnerDetail?.product?.description?.plain] : [])]
+        ...(raw.sourceAuthority?.seedDescription ? [productDescriptionText(seedDetail?.product)] : []),
+        ...(raw.sourceAuthority?.partnerDescription ? [productDescriptionText(partnerDetail?.product)] : [])]
         .filter((value) => typeof value === "string").join(" "))} `;
       const corroborated = shared.find((tag) => productText.includes(` ${plainIdentity(tag.name)} `));
       culturalExplanation = corroborated ? "specific_theme" : "broad_theme";
@@ -249,8 +247,7 @@ export function validateCommerceEvidence(raw) {
       selectedItemSpecific && raw.rubricVerification?.distinctConcreteJointValue === true) ||
     (occasion.length >= 4 && (mechanism.occasion?.toLowerCase() === occasion ||
       raw.rubricVerification?.servesStatedOccasion === true)));
-  const descriptionText = (product) => typeof product?.description === "string"
-    ? product.description : product?.description?.plain;
+  const descriptionText = productDescriptionText;
   const sourceText = [seedDetail?.product?.title, partnerDetail?.product?.title,
     ...(raw.sourceAuthority?.seedDescription !== false ? [descriptionText(seedDetail?.product)] : []),
     ...(raw.sourceAuthority?.partnerDescription !== false ? [descriptionText(partnerDetail?.product)] : [])]

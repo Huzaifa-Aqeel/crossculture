@@ -1,3 +1,4 @@
+import { taxonomyCategory, categoryName } from "./product-taxonomy.mjs";
 // Catalog content stays transient. These helpers generate bounded retrieval
 // hypotheses and validate a proposed mechanism against selected product detail.
 const GENERIC = /\b(?:lifestyle|design|perfect|amazing|customers|audience|synergy|together|complementary)\b/i;
@@ -11,14 +12,25 @@ const normalize = (value) => String(value ?? "").toLowerCase().replace(/<[^>]*>/
   .replace(/&(?:amp|nbsp);/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
 const bounded = (value, max = 160) => String(value ?? "").trim().replace(/\s+/g, " ").slice(0, max).trim();
 
+// What kind of product this is. Storefront Catalog products carry a Shopify
+// taxonomy category ("Shoulder Bags"), never a product type; the older fields
+// cover other Catalog shapes.
+export function productTypeName(product) {
+  return categoryName(taxonomyCategory(product)) ?? product?.product_type ?? product?.type ??
+    product?.category?.name ?? null;
+}
+
 function description(product) {
   const field = product?.description;
   return bounded(typeof field === "string" ? field : field?.plain ?? field?.html ?? "", 1200)
     .replace(/<[^>]*>/g, " ").replace(/&(?:amp|nbsp);/g, " ");
 }
+// A product's description as plain text, whatever shape the Catalog sent
+// (storefront products send only `description.html`).
+export const productDescriptionText = description;
 
 export function observedProductType(product) {
-  const declared = bounded(product?.product_type ?? product?.type ?? product?.category?.name, 70);
+  const declared = bounded(productTypeName(product), 70);
   if (declared) return declared.toLowerCase();
   const title = bounded(product?.title, 100).split(/\s+[-–—|:]\s+/)[0];
   return title.split(/\s+/).slice(0, 3).join(" ").toLowerCase() || null;
@@ -41,7 +53,9 @@ function wearerIn(text) {
   const women = WOMEN_WORDS.test(value);
   return men && women ? "unisex" : men ? "men" : women ? "women" : null;
 }
-export function productWearer(product) {
+// Who the merchant labels a product for: "men", "women", "unisex" (labelled
+// unisex, or listed for both), or null when the merchant does not say.
+export function productWearerLabel(product) {
   let handle = typeof product?.handle === "string" ? product.handle : "";
   if (!handle) {
     try { handle = new URL(product?.url).pathname.split("/").filter(Boolean).pop() ?? ""; }
@@ -49,11 +63,34 @@ export function productWearer(product) {
   }
   const direct = wearerIn([product?.title, handle, product?.product_type ?? product?.type]
     .filter((value) => typeof value === "string").join(" | "));
-  if (direct) return direct === "unisex" ? null : direct;
+  if (direct) return direct;
   const labels = new Set([...(product?.tags ?? []).filter((tag) => typeof tag === "string"),
     ...(product?.collections ?? []).map((item) => `${item?.title ?? ""} ${item?.handle ?? ""}`)]
     .map(wearerIn).filter(Boolean));
-  return labels.size === 1 && !labels.has("unisex") ? [...labels][0] : null;
+  return labels.size > 1 ? "unisex" : [...labels][0] ?? null;
+}
+export function productWearer(product) {
+  const label = productWearerLabel(product);
+  return label === "unisex" ? null : label;
+}
+// Shopify categories a person wears or carries, where who it is for matters:
+// clothing, clothing accessories, handbags, wallets and cases (and their
+// accessories), jewelry and shoes.
+const WORN_CATEGORIES = ["aa-1", "aa-2", "aa-4", "aa-5", "aa-6", "aa-8"];
+export function wornProduct(product) {
+  const id = taxonomyCategory(product);
+  return Boolean(id && WORN_CATEGORIES.some((root) => id === root || id.startsWith(`${root}-`)));
+}
+// A worn item sold in two or more fit sizes ("Size", "Product Size": S, M, L;
+// 00, 2, 4). One-size items and size options outside worn categories (a pan's
+// diameter, a candle's volume) do not count. A two-brand Bundle never contains one.
+const SIZE_OPTION = /\b(?:size|waist|inseam)\b/i;
+const ONE_SIZE = /^(?:os|o\/s|one[\s-]?size)$/i;
+export function fitSized(product) {
+  return wornProduct(product) && (product?.options ?? []).some((option) =>
+    SIZE_OPTION.test(String(option?.name ?? "")) && (option.values ?? [])
+      .map((value) => String(value?.label ?? value?.name ?? value ?? "").trim())
+      .filter((value) => value && !ONE_SIZE.test(value)).length >= 2);
 }
 // A brand described only for women (or only for men), e.g. "a women's fashion label".
 export function brandWearer(description) {
@@ -84,7 +121,7 @@ export function observedProductQueries(products, limit = 3) {
   const queries = [];
   const seen = new Set();
   const queryFor = (product) => {
-    const category = bounded(product?.product_type ?? product?.type ?? product?.category?.name, 60);
+    const category = bounded(productTypeName(product), 60);
     const title = bounded(product?.title, 100).split(/\s+[-–—|:]\s+/)[0]
       .replace(/\b(?:the|a|an)\b/gi, " ").trim();
     return category && !/^(?:product|products|other|miscellaneous)$/i.test(category)
@@ -214,8 +251,7 @@ export function searchResultMatchesQuery(product, query) {
   const terms = normalize(query).split(" ").filter((word) =>
     word.length >= 3 && !QUERY_STOP.has(word) && word !== "products");
   if (!terms.length) return false;
-  const source = normalize([product?.title, product?.product_type ?? product?.type,
-    product?.category?.name]
+  const source = normalize([product?.title, productTypeName(product)]
     .filter(Boolean).join(" "));
   const words = new Set(source.split(" ").filter(Boolean));
   const singular = (word) => word.length > 3 && word.endsWith("s") ? word.slice(0, -1) : word;

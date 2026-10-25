@@ -780,6 +780,54 @@ const researchDeps = { discoverStorefront: async (url) => ({
     callsUsed: () => 6,
   }) };
 const qualified = await researchCommercePair(pairInput, researchDeps);
+// Pairs the same judge rejected recently are skipped without new model calls;
+// each new verdict records which judge (model and prompts) produced it.
+assert.match(qualified.memory.pairs[0].judge, /#[0-9a-f]{12}$/);
+let recallInput = null;
+const remembered = await researchCommercePair(pairInput, { ...researchDeps,
+  recallRejections: async (keys, judge) => { recallInput = { keys, judge }; return new Set(keys); },
+  proposeMechanism: async () => { throw new Error("A remembered rejection is not judged again"); } });
+assert.equal(recallInput.judge, qualified.memory.pairs[0].judge);
+assert.ok(remembered.pairsSkippedFromMemory > 0);
+assert.equal(remembered.assessedCount, 0);
+// Storefront products send only description.html; a stated preference found
+// there counts (it was silently missed when only description.plain was read).
+const htmlMat = { ...mat, description: { html: "<p>Made from <em>organic cotton</em> loops.</p>" } };
+const htmlPreference = await researchCommercePair({ ...pairInput,
+  userConstraints: { ...chosenTowel, softPreferences: ["organic cotton"] } }, { ...researchDeps,
+  createCatalog: () => ({ ...researchDeps.createCatalog(),
+    search: async (domain) => domain.startsWith("seed") ? [towel] : [htmlMat],
+    detail: async (domain) => productWithOffer(domain.startsWith("seed") ? towel : htmlMat) }) });
+assert.equal(htmlPreference.opportunities.supported[0].best.assessment.rankingFeatures
+  .verifiedMatchedPreferencesCount, 1);
+// One partner stops early: after three Supported pairs, or after eight
+// assessed pairs with nothing worth showing.
+const manyMats = Array.from({ length: 12 }, (_, index) => ({ ...mat, id: `gid://shopify/Product/mat${index}`,
+  title: `Bath mat ${index}`, variants: [{ id: `gid://shopify/ProductVariant/mat${index}` }] }));
+const manyCatalog = () => ({ ...researchDeps.createCatalog(),
+  search: async (domain) => domain.startsWith("seed") ? [towel] : manyMats,
+  detail: async (domain, id) => productWithOffer(domain.startsWith("seed") ? towel
+    : manyMats.find((item) => item.id === id) ?? manyMats[0]), callsUsed: () => 6 });
+const enough = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: manyCatalog, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }) });
+assert.equal(enough.stopReason, "enough_opportunities_found");
+assert.equal(enough.assessedCount, 4, "Pairs are assessed two at a time; stops after the batch reaching three");
+const noFit = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: manyCatalog, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }),
+  verifyMechanism: async () => ({ ...bathRubric, jointUseCoherent: false, incrementalBenefit: false,
+    reason: "unrelated_products" }) });
+assert.equal(noFit.stopReason, "no_fit_in_sample");
+assert.equal(noFit.assessedCount, 8);
+// One partner's store timing out skips that partner; the starting store
+// timing out still stops research.
+const timingOut = (side) => () => ({ ...researchDeps.createCatalog(),
+  tools: async (domain) => { if (domain.startsWith(side)) throw Object.assign(new Error("timeout"), { name: "TimeoutError" });
+    return new Set(["search_catalog", "lookup_catalog"]); } });
+const partnerDown = await researchCommercePair(pairInput, { ...researchDeps, createCatalog: timingOut("partner") });
+assert.equal(partnerDown.coverage, "partner_catalog_unavailable");
+assert.equal(partnerDown.stopReason, null);
+await assert.rejects(researchCommercePair(pairInput, { ...researchDeps, createCatalog: timingOut("seed") }),
+  (error) => error.code === "catalog_unavailable");
 // A discovered partner whose catalog sample adds no value stops before deep search.
 let screenedSample = null;
 const screenedOut = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
@@ -819,7 +867,7 @@ assert.equal(rememberedOut.memory.screen.reused, true);
 assert.equal(qualified.memory.pairs.length, qualified.assessedCount);
 assert.ok(qualified.memory.pairs.every((pair) => /^[0-9a-f]{64}$/.test(pair.opportunityKey) &&
   Object.keys(pair).every((key) => ["opportunityKey", "partnerCategory", "status",
-    "mechanismState", "reasonCodes"].includes(key))), "No product text enters research memory");
+    "mechanismState", "reasonCodes", "judge"].includes(key))), "No product text enters research memory");
 // Who a product is for comes from the merchant's own labels (real Everlane data:
 // "/products/mens-linen-ls-shirt-white-blue" in "Men's Clothing").
 assert.equal(productWearer({ title: "The Classic Shirt in Linen | White / Blue",
@@ -861,6 +909,96 @@ const chosenWomenBrand = await researchCommercePair({ ...pairInput, discoveryBas
 { ...researchDeps, createCatalog: wearerCatalog([bathRobe]) });
 assert.notDeepEqual(chosenWomenBrand.coverageIssues, ["partner_wearer_mismatch"],
   "A partner the user chose is not dropped by its brand description");
+// Live case (25 Oct): Cuyana's Qloo description and products ("Mini Paloma Bag")
+// never say who they are for; its homepage does.
+const storeSaysWomen = await verifyFirstPartyCommerceBusiness(directIdentity, {
+  fetchPage: async () => ({ ok: true, contentType: "text/html",
+    text: async () => `<html><title>Cuyana | Women's Premium Essentials</title><meta name="description"
+      content="Timeless apparel and accessories for the modern woman."></html>` }),
+  discoverStorefront: async () => ({ officialHost: "www.cuyana.com", shopId: "gid://shopify/Shop/7",
+    domain: "checkout.cuyana.com", proofUrl: "https://checkout.cuyana.com/.well-known/ucp" }) });
+assert.equal(storeSaysWomen.storeWearer, "women");
+assert.equal(titleOnly.storeWearer, null, "A homepage with no wearer wording sets none");
+const paloma = { ...mat, id: "gid://shopify/Product/paloma", title: "Mini Paloma Bag",
+  variants: [{ id: "gid://shopify/ProductVariant/paloma" }] };
+const womenStore = await researchCommercePair({ ...pairInput, partner: { ...pairInput.partner,
+  description: "Premium handbags, leather goods, and versatile clothing.", storeWearer: "women" } },
+{ ...researchDeps, productQueries: null, createCatalog: wearerCatalog([paloma]), screenPartner: neverScreened });
+assert.deepEqual(womenStore.coverageIssues, ["partner_wearer_mismatch"],
+  "A men's product does not reach a store that says it sells for women");
+const mixedSignals = await researchCommercePair({ ...pairInput, partner: { ...pairInput.partner,
+  description: "A men's outfitter.", storeWearer: "women" } },
+{ ...researchDeps, productQueries: null, createCatalog: wearerCatalog([paloma]),
+  screenPartner: async () => ({ addsValue: false, exampleTitles: [] }) });
+assert.notDeepEqual(mixedSignals.coverageIssues, ["partner_wearer_mismatch"],
+  "Conflicting brand signals leave the wearer unknown");
+// Wearer rule (25 Oct): for a men's product, a worn partner item with no
+// confirmed wearer is dropped; unisex, same-wearer and non-worn items stay.
+const worn = (id, title, category) => ({ ...mat, id: `gid://shopify/Product/${id}`, title, collections: [],
+  categories: [{ value: `gid://shopify/TaxonomyCategory/${category}`, taxonomy: "shopify" }],
+  variants: [{ id: `gid://shopify/ProductVariant/${id}` }] });
+const unlabelledBag = worn("bag", "Mini Paloma Bag", "aa-5-4-19");
+const unisexTote = worn("tote", "Unisex Canvas Tote", "aa-5-4-10");
+const mensBelt = worn("belt", "Men's Owen Belt", "aa-2-6");
+let wornSample = null;
+await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: wearerCatalog([unlabelledBag, unisexTote, mensBelt, bathRobe]),
+  screenPartner: async ({ partnerProducts }) => { wornSample = partnerProducts.map((item) => item.id);
+    return { addsValue: false, exampleTitles: [] }; } });
+assert.deepEqual(wornSample, [unisexTote.id, mensBelt.id, bathRobe.id]);
+const onlyUnconfirmed = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: wearerCatalog([unlabelledBag]), screenPartner: neverScreened });
+assert.deepEqual(onlyUnconfirmed.coverageIssues, ["partner_wearer_mismatch"]);
+let noWearerSample = null;
+await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: () => ({ ...researchDeps.createCatalog(),
+    search: async (domain) => domain.startsWith("seed") ? [towel] : [unlabelledBag],
+    detail: async (domain) => productWithOffer(domain.startsWith("seed") ? towel : unlabelledBag) }),
+  screenPartner: async ({ partnerProducts }) => { noWearerSample = partnerProducts.map((item) => item.id);
+    return { addsValue: false, exampleTitles: [] }; } });
+assert.deepEqual(noWearerSample, [unlabelledBag.id], "A starting product with no stated wearer is unaffected");
+// A two-brand Bundle never contains a fit-sized item (25 Oct, user decision).
+const sizeOptions = [{ name: "Size", values: [{ label: "S" }, { label: "M" }, { label: "L" }] }];
+const sizedSock = { ...worn("sock", "Wool Socks", "aa-1-18"), options: sizeOptions };
+const sizedCatalog = (seedItem, partnerItems) => () => ({ ...researchDeps.createCatalog(),
+  search: async (domain) => domain.startsWith("seed") ? [seedItem] : partnerItems,
+  detail: async (domain, id) => productWithOffer(domain.startsWith("seed") ? seedItem
+    : partnerItems.find((item) => item.id === id) ?? partnerItems[0]) });
+let bundleSample = null;
+await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: sizedCatalog(towel, [sizedSock, bathRobe]),
+  screenPartner: async ({ partnerProducts }) => { bundleSample = partnerProducts.map((item) => item.id);
+    return { addsValue: false, exampleTitles: [] }; } });
+assert.deepEqual(bundleSample, [bathRobe.id], "Sized partner items never enter a Bundle");
+// An unlabelled starting product takes its brand's wearer (Qloo description
+// and homepage): from a women-only brand, a men's partner item is dropped.
+let brandWearerSample = null;
+await researchCommercePair({ ...pairInput, seed: { ...pairInput.seed, storeWearer: "women" } }, {
+  ...researchDeps, productQueries: null, createCatalog: sizedCatalog(towel, [mensBelt, unisexTote, bathRobe]),
+  screenPartner: async ({ partnerProducts }) => { brandWearerSample = partnerProducts.map((item) => item.id);
+    return { addsValue: false, exampleTitles: [] }; } });
+assert.deepEqual(brandWearerSample, [unisexTote.id, bathRobe.id]);
+// Cross-Sell skips a partner item in a category the starting store sells: the
+// starting store's own "Belts" search shows belts, so the partner's belt goes.
+const seedBelt = worn("seed-belt", "Leather Belt", "aa-2-6");
+const seedSearches = [];
+const rangeCatalog = () => ({ ...sizedCatalog(towel, [unisexBelt, bathRobe])(),
+  search: async (domain, query) => { if (domain.startsWith("seed")) { seedSearches.push(query); return [seedBelt]; }
+    return [unisexBelt, bathRobe]; } });
+const unisexBelt = worn("ubelt", "Unisex Belt", "aa-2-6");
+const seedRange = new Map();
+const ownRange = await researchCommercePair({ ...pairInput, objective: "cross_sell", seedRange }, {
+  ...researchDeps, productQueries: null, createCatalog: rangeCatalog,
+  screenPartner: async () => ({ addsValue: true, exampleTitles: [] }) });
+assert.deepEqual(seedSearches, ["Belts"]);
+assert.equal(ownRange.pairsSkippedOwnRange > 0, true);
+assert.equal(seedRange.get("aa-2-6"), true, "The answer is shared with later partners");
+assert.ok(ownRange.memory.pairs.every((pair) => pair.partnerCategory !== "aa-2-6"));
+seedSearches.length = 0;
+const bundleRange = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: rangeCatalog, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }) });
+assert.equal(seedSearches.length, 0, "Bundles do not check the starting store's range");
+assert.equal(bundleRange.pairsSkippedOwnRange, 0);
 assert.equal(qualified.opportunities.supported.length, 1);
 const evidenceRetryEvents = [];
 const targetedEvidence = await researchCommercePair(pairInput, { ...researchDeps,

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import pg from "pg";
+import { taxonomyCategory, similarCategory } from "./product-taxonomy.mjs";
 
 // Shared research memory. Earlier runs record the app's own decisions about a
 // partner store: a lasting identity failure, whether its catalog added value to
@@ -8,12 +9,13 @@ import pg from "pg";
 // taxonomy IDs. Memory only orders and skips research for partners already in
 // the user's own Qloo results; every opportunity is still verified live.
 
+export { taxonomyCategory, similarCategory };
 export const MEMORY_VERSION = "research-memory-v1";
-const TAXONOMY_ID = /^gid:\/\/shopify\/TaxonomyCategory\/([a-z]{2}(?:-\d+){0,8})$/;
 const MEMORY_DAYS = 90;
 const IDENTITY_FAILURE_MS = 7 * 24 * 60 * 60 * 1000;
 const SCREEN_HOURS = 6;
 const RETENTION_DAYS = 180;
+const REJECTION_DAYS = 7;
 // Identity failures that repeat on every attempt. Anything else in a trace
 // (network errors, timeouts, HTTP 403/429/5xx, an unavailable search) can
 // clear, so a failure containing one is never remembered.
@@ -30,24 +32,6 @@ let pool;
 const database = () => pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL,
   max: 2, idleTimeoutMillis: 10_000 });
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-
-// The Shopify taxonomy category a merchant assigned, e.g. "aa-1-13-7" (shirts).
-export function taxonomyCategory(product) {
-  for (const category of product?.categories ?? []) {
-    const id = String(category?.value ?? "").match(TAXONOMY_ID)?.[1];
-    if (id) return id;
-  }
-  return null;
-}
-
-// Two categories are similar when they share their first three levels
-// ("aa-1-13", clothing tops), or all levels of a shorter one.
-export function similarCategory(left, right) {
-  if (!left || !right) return false;
-  const a = left.split("-"); const b = right.split("-");
-  const depth = Math.min(3, a.length, b.length);
-  return a.slice(0, depth).join("-") === b.slice(0, depth).join("-");
-}
 
 // Same key as the saved match, so a pair's verdicts can be compared across runs.
 export function opportunityKeyFor(objective, references) {
@@ -119,7 +103,7 @@ export function orderLeadsWithMemory(leads, tiers) {
 }
 
 // Rows to record from a finished run's partner candidates.
-export function memoryRowsFromRun({ objective, market, candidates, model = null }) {
+export function memoryRowsFromRun({ objective, market, candidates }) {
   const rows = [];
   for (const candidate of candidates ?? []) {
     if (!candidate?.qlooId) continue;
@@ -133,7 +117,7 @@ export function memoryRowsFromRun({ objective, market, candidates, model = null 
       screenKey: screen?.key ?? null, screenAddsValue: screen?.addsValue ?? null,
       assessedCount: candidate.assessedCount ?? 0, recommendableCount: candidate.recommendableCount ?? 0,
       supportedCount: candidate.memory?.pairs?.filter((pair) => pair.status === "supported").length ?? 0,
-      catalogCalls: candidate.catalogCallsUsed ?? 0, pairs: candidate.memory?.pairs ?? [], model };
+      catalogCalls: candidate.catalogCallsUsed ?? 0, pairs: candidate.memory?.pairs ?? [] };
     if (candidate.status === "identity_unverified") {
       const reason = lastingIdentityFailure(candidate.identityDiagnostics);
       if (reason) rows.push({ ...base, outcome: "identity_unverified", identityReason: reason, pairs: [] });
@@ -173,6 +157,22 @@ export async function recallScreenDecision(key) {
   return typeof result.rows[0]?.addsValue === "boolean" ? result.rows[0].addsValue : null;
 }
 
+// Exact pairs the same judge (model and prompts) rejected within the last
+// week: the product mechanism was judged and not supported. Such a pair is not
+// judged again until the verdict expires. Pairs whose mechanism was supported
+// are always re-assessed, since live offers and stock change.
+export async function recallJudgedRejections(opportunityKeys, judge) {
+  if (!process.env.DATABASE_URL || !opportunityKeys?.length || !judge) return new Set();
+  const result = await database().query(`select distinct on (p.opportunity_key)
+      p.opportunity_key as key, p.mechanism_state as state
+    from private.pair_research_outcomes p
+    join private.partner_research_outcomes o on o.id=p.partner_outcome_id
+    where p.opportunity_key=any($1::text[]) and p.model=$2
+      and o.observed_at>now()-make_interval(days=>$3)
+    order by p.opportunity_key, o.observed_at desc`, [opportunityKeys, judge, REJECTION_DAYS]);
+  return new Set(result.rows.filter((row) => row.state !== "supported").map((row) => row.key));
+}
+
 export async function recordResearchMemory(rows) {
   if (!process.env.DATABASE_URL || !rows?.length) return 0;
   const connection = await database().connect();
@@ -192,7 +192,7 @@ export async function recordResearchMemory(rows) {
           (partner_outcome_id,opportunity_key,partner_category,status,mechanism_state,reason_codes,model)
           values ($1,$2,$3,$4,$5,$6::text[],$7)`, [partner.rows[0].id, pair.opportunityKey,
           pair.partnerCategory, pair.status, pair.mechanismState,
-          (pair.reasonCodes ?? []).slice(0, 12), row.model]);
+          (pair.reasonCodes ?? []).slice(0, 12), pair.judge ?? null]);
       }
     }
     await connection.query(`delete from private.partner_research_outcomes

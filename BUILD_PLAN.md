@@ -10,7 +10,7 @@
 
 - Each run records the app's own decisions per researched partner in server-only tables: partner Qloo ID and verified shop ID, objective, market, the starting product's Shopify taxonomy category, outcome (`identity_unverified` with a lasting reason, `no_product_value`, `researched`, `incomplete`), the catalog screen decision, assessed/recommendable/Supported counts, Catalog calls, and one row per assessed pair (hashed opportunity key, partner product taxonomy category, status, mechanism gate, reason codes, model).
 - **Never stored:** user ID, starting brand, product titles/descriptions/collections, prices, availability, images or any Catalog payload. Taxonomy category IDs come from Shopify's public Standard Product Taxonomy (`categories[].value` on storefront products). Field audit under Architecture §10: these are non-prohibited decision metadata, not a product index.
-- **Uses (1a, built first):** (i) partner order — partners with Supported pairs for a similar starting category (shared taxonomy prefix) go first; partners researched twice for a similar category with nothing recommendable go last; Qloo order and the description triage still order the rest; at most two proven partners run before an unexplored one. (ii) Lasting identity failures (site name absent, no Shopify store, no official site found) are skipped for 7 days unless a verified website exists; network, timeout and HTTP 403/5xx failures are never remembered. (iii) Catalog screen decisions are reused for 6 hours from Postgres, replacing the in-process map that Lambda loses. Memory is reused only for partners already present in the current user's own Qloo results and never adds a partner. Rows older than 180 days are purged.
+- **Uses (1a, built first):** (i) partner order — partners with Supported pairs for a similar starting category (shared taxonomy prefix) go first; partners researched twice for a similar category with nothing recommendable go last; Qloo order and the description triage still order the rest; at most two proven partners run before an unexplored one. (ii) Lasting identity failures (site name absent, no Shopify store, no official site found) are skipped for 7 days unless a verified website exists; network, timeout and HTTP 403/5xx failures are never remembered. (iii) Catalog screen decisions are reused for 6 hours from Postgres, replacing the in-process map that Lambda loses. (iv) An exact pair the same judge (model plus judgment prompts and rules, versioned automatically) rejected within 7 days is not judged again; supported mechanisms are always re-assessed. Memory is reused only for partners already present in the current user's own Qloo results and never adds a partner. Rows older than 180 days are purged.
 - **1b (next):** learned search directions — partner product categories and mechanism roles that produced Supported pairs for a similar starting category become early search plans; consistently empty directions move last. Still verified live.
 - **Measure:** Supported pairs per 100 Catalog calls, calls to first Supported pair, partners researched with no result, repeat-verdict agreement. Computed from run records; compare runs before and after memory on the same US seeds.
 
@@ -27,6 +27,14 @@
 ### Loop 4 — cross-user learned policy (parked)
 
 Consent, exposure logging, a scheduled aggregate learner and a randomized exploration slot wait until there are enough independent users. A fine-tuned model, collaborative filtering and click-based ranking remain out of scope; a change to displayed ranking requires a new scorer-policy decision.
+
+## Research breadth (25 October)
+
+Each partner stops after 3 Supported pairs, or after 8 assessed pairs with nothing worth showing, so the run budget reaches more partners. A partner's own allowance, store failure or early stop never ends the run.
+
+## Apparel wearer rule (25 October, user decision)
+
+Doubtful apparel pairs are dropped, not shown, and a Bundle never contains a fit-sized item (sized products are not offered for Bundle): see Scoring Engine "Wearer" and "Fit sizes in a Bundle" (amended 25 Oct).
 
 ## Lambda research dispatch (25 October)
 

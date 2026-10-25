@@ -122,4 +122,35 @@ await researchNativeCommerce({ ownerUserId: "owner",
   objective: "product_bundle" }, deps(async () => { throw new Error("database unavailable"); }));
 assert.deepEqual(researched, ["Brand 0", "Brand 1", "Brand 2"], "Unavailable memory keeps the normal order");
 
+// Live case (25 Oct): one partner using its whole allowance stopped the run
+// after 54 of 160 calls. The run continues until its own budget is spent.
+researched = [];
+const fullAllowance = await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,
+  objective: "cross_sell", maxCatalogCalls: 160 }, { ...deps(async () => []),
+  researchPair: async (input) => { researched.push(input.partner.name);
+    return { coverage: "partial_assortment", callsUsed: input.maxCatalogCalls, stopReason: "catalog_budget_reached",
+      opportunities: { supported: [], needs_verification: [], unsupported: [] } }; } });
+assert.equal(researched.length, 3, "Each partner gets its own allowance");
+assert.notEqual(fullAllowance.stopReason, "catalog_budget_reached");
+researched = [];
+const spent = await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,
+  objective: "cross_sell", maxCatalogCalls: 40 }, { ...deps(async () => []),
+  researchPair: async (input) => { researched.push(input.partner.name);
+    return { coverage: "partial_assortment", callsUsed: input.maxCatalogCalls,
+      opportunities: { supported: [], needs_verification: [], unsupported: [] } }; } });
+assert.equal(spent.stopReason, "catalog_budget_reached", "The run still stops when its own budget is spent");
+assert.equal(researched.length, 2, "Two allowances of 20 spend a 40-call run");
+
+// The starting brand's homepage wearer is read once and passed to pair research.
+let seedSeen = null;
+await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,
+  objective: "cross_sell" }, { ...deps(async () => []), readSeedWearer: async () => "women",
+  researchPair: async (input) => { seedSeen = input.seed;
+    return { coverage: "no_catalog_results", callsUsed: 0,
+      opportunities: { supported: [], needs_verification: [], unsupported: [] } }; } });
+assert.equal(seedSeen.storeWearer, "women");
+
 console.log("Research memory checks passed.");

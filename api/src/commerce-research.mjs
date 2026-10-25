@@ -7,19 +7,21 @@ import { chooseProductCombinations, productMechanism, verifiedMechanismFacts,
   commerceRoleKey, prioritizeUnexploredRole,
   searchResultMatchesQuery, isCommerceMerchandise,
   prioritizeObservedPartnerProducts,
-  prioritizePartnerResearchProducts, productWearer, brandWearer, wearerConflict } from "./commerce-products.mjs";
+  prioritizePartnerResearchProducts, brandWearer, wearerConflict,
+  productTypeName, productWearerLabel, wornProduct, fitSized } from "./commerce-products.mjs";
 import { planAnchorProductSearch, planPartnerProductSearch, proposeCommerceMechanism,
   verifyCommerceMechanismRubric, selectPartnerProductHypotheses,
-  evaluateCommerceMechanism, screenPartnerAssortment } from "./commerce-mechanism.mjs";
+  evaluateCommerceMechanism, screenPartnerAssortment, pairJudgeVersion } from "./commerce-mechanism.mjs";
 import { catalogClient, discoverVerifiedStorefront } from "./shopify-catalog.mjs";
 import { selectedProductPage } from "./commerce-product-page.mjs";
+import { categoryName, sameRange } from "./product-taxonomy.mjs";
 import { taxonomyCategory, screenKeyFor, recallScreenDecision,
-  opportunityKeyFor } from "./research-memory.mjs";
+  opportunityKeyFor, recallJudgedRejections } from "./research-memory.mjs";
 
 // Shared, transient pair research for native discovery and direct comparison.
 // The caller supplies only independently verified brand identities and Qloo evidence.
 export async function researchCommercePair({ seed, partner, objective, cultureEvidence = null,
-  discoveryBasis, market = "US", userConstraints = {}, maxCatalogCalls = 28,
+  discoveryBasis, market = "US", userConstraints = {}, maxCatalogCalls = 28, seedRange = null,
   maxResearchMs = Number(process.env.COMMERCE_PARTNER_RESEARCH_MS) || 120_000 }, {
   createCatalog = () => catalogClient({ maxCalls: maxCatalogCalls }), discoverStorefront = discoverVerifiedStorefront,
   productQueries = null, planAnchorSearch = planAnchorProductSearch,
@@ -29,6 +31,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   verifyMechanism = verifyCommerceMechanismRubric,
   readSelectedProductPage = selectedProductPage, onEvaluation = null,
   screenPartner = screenPartnerAssortment, recallScreen = recallScreenDecision,
+  recallRejections = recallJudgedRejections,
   now = () => Date.now() } = {}) {
   if (!["product_bundle", "cross_sell"].includes(objective)) throw new Error("Commerce objective required.");
   if (!seed?.id || !partner?.id || seed.id === partner.id ||
@@ -77,7 +80,18 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     return canResearch(globalTools) ? { domain: "global", tools: globalTools,
       shopId: store.shopId } : null;
   }
-  const [seedScope, partnerScope] = await Promise.all([scope(seedStore), scope(partnerStore)]);
+  // One partner's store being slow or down skips that partner. The starting
+  // store or the shared Global Catalog failing still stops the run.
+  const [seedScope, partnerScope] = await Promise.all([scope(seedStore),
+    scope(partnerStore).catch((error) => {
+      if (error?.code === "catalog_unavailable") return "unavailable";
+      throw error;
+    })]);
+  if (partnerScope === "unavailable") {
+    return { opportunities: { supported: [], needs_verification: [], unsupported: [] },
+      coverage: "partner_catalog_unavailable", coverageIssues: ["partner_catalog_unavailable"],
+      stopReason: null, callsUsed: catalog.callsUsed() };
+  }
   if (!seedScope || !partnerScope) {
     return { opportunities: { supported: [], needs_verification: [], unsupported: [] },
       coverage: "catalog_capability_unavailable", callsUsed: catalog.callsUsed() };
@@ -86,7 +100,23 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   // shirt gains nothing from a women's top. A partner product with no wearer
   // label takes its brand's, when the brand is described only for one.
   let heroWearer = null;
-  const partnerBrandWearer = brandWearer(partner.description);
+  // A brand's wearer comes from its Qloo description and its own homepage;
+  // two different answers leave it unknown.
+  const agreedWearer = (brand) => {
+    const wearers = new Set([brandWearer(brand?.description), brand?.storeWearer].filter(Boolean));
+    return wearers.size === 1 ? [...wearers][0] : null;
+  };
+  const partnerBrandWearer = agreedWearer(partner);
+  // For a men's or women's starting product, a partner product for the other
+  // wearer is removed, and so is a worn one (clothing, accessories, handbags,
+  // jewelry, shoes) whose wearer is unconfirmed. A unisex label counts as
+  // confirmed, and a product's own label outranks its brand's.
+  const wearerMismatchFor = (product) => {
+    if (!heroWearer) return false;
+    const label = productWearerLabel(product);
+    const wearer = label === "unisex" ? null : label ?? partnerBrandWearer;
+    return wearerConflict(heroWearer, wearer) || (wornProduct(product) && label !== "unisex" && !wearer);
+  };
   let wearerExcluded = 0;
   const searchScopePage = async (chosen, query, options = {}) => {
     const input = { market, shops: chosen.domain === "global" ? [chosen.shopId] : [], ...options };
@@ -98,8 +128,9 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
       ...product, variants: (product.variants ?? []).filter((variant) =>
         variant.seller?.id === chosen.shopId) })).filter((product) => product.variants.length)
       : page.products;
-    const kept = chosen === partnerScope && heroWearer ? products.filter((product) =>
-      !wearerConflict(heroWearer, productWearer(product) ?? partnerBrandWearer)) : products;
+    // A two-brand Bundle never contains a fit-sized item.
+    const kept = chosen === partnerScope ? products.filter((product) => !wearerMismatchFor(product) &&
+      !(objective === "product_bundle" && fitSized(product))) : products;
     wearerExcluded += products.length - kept.length;
     return { products: kept, pagination: page.pagination ?? { cursor: null, hasNextPage: false } };
   };
@@ -116,10 +147,11 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   let searchPagesFetched = 0;
   let exactDetailFailures = 0;
   const assortmentFacets = (products) => new Set((products ?? []).flatMap((item) => {
-    const type = item.product_type ?? item.type ?? item.category?.name;
+    const type = productTypeName(item);
+    const category = taxonomyCategory(item);
     return [
       ...(typeof type === "string" && type.trim() ? [`type:${type.toLowerCase().trim()}`] : []),
-      ...(item.category?.id ? [`category:${item.category.id}`] : []),
+      ...(category ? [`category:${category}`] : []),
       ...(item.collections ?? []).map((collection) =>
         `collection:${String(collection.title ?? "").toLowerCase().trim()}`),
     ].filter((value) => !value.endsWith(":"));
@@ -146,7 +178,9 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         stopReason: limited || unavailable ? coverage : null, callsUsed: catalog.callsUsed() };
     }
   }
-  heroWearer = productWearer(heroDetail.product);
+  // The starting product's own label wins (unisex: no wearer); else its brand's.
+  const heroLabel = productWearerLabel(heroDetail.product);
+  heroWearer = heroLabel === "unisex" ? null : heroLabel ?? agreedWearer(seed);
   const wearerMismatch = () => ({ opportunities: { supported: [], needs_verification: [], unsupported: [] },
     coverage: "partner_no_product_value", coverageIssues: ["partner_wearer_mismatch"], stopReason: null,
     callsUsed: catalog.callsUsed() });
@@ -311,9 +345,8 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     }
   }
   const taxonomyIds = partnerScope.domain === "global" ? [...new Set(broadPartner
-    .map((product) => product.category?.id)
-    .filter((id) => typeof id === "string" &&
-      id.startsWith("gid://shopify/TaxonomyCategory/")))].slice(0, 3) : [];
+    .map((product) => taxonomyCategory(product)).filter(Boolean)
+    .map((id) => `gid://shopify/TaxonomyCategory/${id}`))].slice(0, 3) : [];
   const plans = productQueries?.map((query) => typeof query === "string"
     ? { seedQuery: query, partnerQuery: query } : query) ??
     [...(useBroadPass && broadPartner.length
@@ -490,10 +523,9 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
           }
         }
         if (partnerScope.domain === "global") {
-          const observedCategories = [...new Set(newlyObserved.map((item) => item.category?.id))]
-            .filter((id) => typeof id === "string" &&
-              id.startsWith("gid://shopify/TaxonomyCategory/") &&
-              !broadFacetKeys.has(`category:${id}`)).slice(0, 3);
+          const observedCategories = [...new Set(newlyObserved.map((item) => taxonomyCategory(item)))]
+            .filter((id) => id && !broadFacetKeys.has(`category:${id}`)).slice(0, 3)
+            .map((id) => `gid://shopify/TaxonomyCategory/${id}`);
           for (const id of observedCategories) {
             const key = `products|${id}`;
             const pendingIndex = plans.findIndex((plan, index) => index > planIndex &&
@@ -653,6 +685,42 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     found = chooseProductCombinations([{ ...heroDetail.product, variants: [heroDetail.variant] }],
       ordered, objective, candidateLimit);
   }
+  // Exact pairs the same judge rejected in the last week are not judged again;
+  // the verdict would be the same and costs several model calls.
+  const keyOf = (pair) => opportunityKeyFor(objective, {
+    seed: { productId: pair.seedProduct.id, variantId: pair.seedVariant.id, sellerId: seedStore.shopId },
+    partner: { productId: pair.partnerProduct.id, variantId: pair.partnerVariant.id, sellerId: partnerStore.shopId } });
+  const rejected = await recallRejections(found.map(keyOf), pairJudgeVersion()).catch(() => new Set());
+  const pairsSkippedFromMemory = found.filter((pair) => rejected.has(keyOf(pair))).length;
+  found = found.filter((pair) => !rejected.has(keyOf(pair)));
+  // Cross-Sell: a partner item in a category the starting brand already sells
+  // competes with its own range. Search the starting store once per partner
+  // category name ("Belts"); a result in a similar category drops those pairs.
+  // Answers are shared across a run's partners through seedRange.
+  let pairsSkippedOwnRange = 0;
+  if (objective === "cross_sell" && found.length) {
+    const heroCategory = taxonomyCategory(heroDetail.product);
+    const ownRange = new Set();
+    for (const category of [...new Set(found.map((pair) => taxonomyCategory(pair.partnerProduct))
+      .filter(Boolean))].slice(0, 4)) {
+      if (sameRange(category, heroCategory)) { ownRange.add(category); continue; }
+      let sells = seedRange?.get(category);
+      if (sells === undefined) {
+        if (!categoryName(category) || catalog.callsUsed() >= maxCatalogCalls - 12 || timeLimitReached()) continue;
+        try {
+          sells = (await searchScope(seedScope, categoryName(category))).some((item) =>
+            sameRange(taxonomyCategory(item), category));
+          seedRange?.set(category, sells);
+        } catch (error) {
+          if (["catalog_rate_limited", "catalog_budget_exhausted"].includes(error?.code)) break;
+          continue;
+        }
+      }
+      if (sells) ownRange.add(category);
+    }
+    pairsSkippedOwnRange = found.filter((pair) => ownRange.has(taxonomyCategory(pair.partnerProduct))).length;
+    found = found.filter((pair) => !ownRange.has(taxonomyCategory(pair.partnerProduct)));
+  }
   const assessed = [];
   // Use actual remaining calls rather than assuming every assessment will use
   // three Catalog calls. Inspect each selected distinct product while capacity
@@ -690,7 +758,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
       return null;
     }
     // The full product page can show a wearer the search result did not.
-    if (wearerConflict(heroWearer, productWearer(partnerDetail.product) ?? partnerBrandWearer)) {
+    if (wearerMismatchFor(partnerDetail.product)) {
       coverageIssues.add("partner_product_wearer_mismatch");
       return null;
     }
@@ -796,7 +864,10 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         sellerId: partnerStore.shopId, storefrontDomain: partnerScope.domain } } };
     pairOutcomes.push({ opportunityKey: opportunityKeyFor(objective, assessedItem.references),
       partnerCategory: taxonomyCategory(partnerDetail.product), status: assessment.status,
-      mechanismState: assessment.productMechanism.gate.state, reasonCodes: assessment.reasonCodes });
+      mechanismState: assessment.productMechanism.gate.state, reasonCodes: assessment.reasonCodes,
+      // Only a completed judgment can be reused later.
+      judge: evaluation.proposal && !evaluation.issues.includes("mechanism_rubric_unavailable")
+        ? pairJudgeVersion() : null });
     let evaluationEvent = null;
     if (onEvaluation) {
       const verified = verifiedMechanismFacts(mechanismProposal, evidenceSeedProduct,
@@ -831,6 +902,17 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     }
     return { item: assessedItem, evaluationEvent };
   };
+  // A pair worth showing has a source-grounded joint benefit.
+  const groundedBenefit = (item) => item.assessment.status === "supported" ||
+    (item.assessment.status === "needs_verification" &&
+      item.assessment.productMechanism.attributeEvidence.state === "supported" &&
+      item.assessment.productMechanism.jointUseCoherence.state === "supported" &&
+      item.assessment.productMechanism.incrementalValue.state === "supported");
+  // Stop one partner early so the run's budget reaches more partners: enough
+  // Supported pairs found, or a fair sample assessed with nothing worth showing.
+  const ENOUGH_SUPPORTED = 3;
+  const NO_FIT_SAMPLE = 8;
+  let partnerStop = null;
   for (let cursor = 0; cursor < found.length;) {
     if (timeLimitReached()) { coverageIssues.add("research_time_limit_reached"); break; }
     if (assessed.length >= assessmentLimit || catalog.callsUsed() >= maxCatalogCalls - 2) {
@@ -849,19 +931,17 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
       assessed.push(outcome.item);
     }
     if (coverageIssues.has("catalog_rate_limited") || coverageIssues.has("catalog_budget_reached")) break;
+    const grounded = assessed.filter(groundedBenefit);
+    if (grounded.filter((item) => item.assessment.status === "supported").length >= ENOUGH_SUPPORTED) {
+      partnerStop = "enough_opportunities_found"; break;
+    }
+    if (assessed.length >= NO_FIT_SAMPLE && !grounded.length) { partnerStop = "no_fit_in_sample"; break; }
   }
   // Discovery recommends only pairs with a source-grounded joint benefit.
   // Keep weaker/contradictory assessments in the developer evaluation trace;
   // direct comparison still returns its requested pair's honest verdict.
-  const recommendable = discoveryBasis === "qloo_native_brand"
-    ? assessed.filter((item) => item.assessment.status === "supported" ||
-        (item.assessment.status === "needs_verification" &&
-          item.assessment.productMechanism.attributeEvidence.state === "supported" &&
-          item.assessment.productMechanism.jointUseCoherence.state === "supported" &&
-          item.assessment.productMechanism.incrementalValue.state === "supported"))
-    : assessed;
-  return { opportunities: rankCommerceOpportunities(recommendable, { objective,
-    statedOccasion: userConstraints.occasion }),
+  const recommendable = discoveryBasis === "qloo_native_brand" ? assessed.filter(groundedBenefit) : assessed;
+  return { opportunities: rankCommerceOpportunities(recommendable),
     coverage: inspected.length ? "partial_assortment" : coverageIssues.has("catalog_rate_limited")
       ? "catalog_rate_limited" : "no_catalog_results",
     discoveryBasis, inspectedQueries: inspected, coverageIssues: [...coverageIssues],
@@ -870,11 +950,11 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     observedCandidateCount: seenSearchProducts.size,
     eligibleCandidateCount, screenedCandidateCount, screeningBatchCount,
     exploredRoleCount: exploredRoles.size,
-    searchPagesFetched, exactDetailFailures,
+    searchPagesFetched, exactDetailFailures, pairsSkippedFromMemory, pairsSkippedOwnRange,
     stopReason: coverageIssues.has("catalog_rate_limited") ? "catalog_rate_limited"
       : coverageIssues.has("research_time_limit_reached") ? "research_time_limit_reached"
       : coverageIssues.has("catalog_budget_reached") ? "catalog_budget_reached"
-        : assessed.length >= assessmentLimit && assessed.length < found.length
+        : partnerStop ? partnerStop : assessed.length >= assessmentLimit && assessed.length < found.length
           ? "assessment_capacity_reached" : coverageIssues.has("search_novelty_exhausted")
             ? "search_novelty_exhausted" : "query_plan_exhausted",
     productSearchPlanning, productSelectionPlanning, callsUsed: catalog.callsUsed(), memory: memory() };

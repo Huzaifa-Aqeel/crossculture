@@ -4,6 +4,7 @@ import { researchCommercePair } from "./commerce-research.mjs";
 import { triageCommerceLeads } from "./commerce-mechanism.mjs";
 import { verifiedWebsitesForQlooIds } from "./catalog.mjs";
 import { recallPartnerMemory, partnerMemoryTiers, orderLeadsWithMemory } from "./research-memory.mjs";
+import { brandWearer } from "./commerce-products.mjs";
 import { rankCommerceOpportunities } from "./brand-commerce.mjs";
 import { investigateDirectCommerceCulture } from "./commerce-culture.mjs";
 import { discoverVerifiedStorefront, secureCatalogFetch, fetchFailureCode,
@@ -175,6 +176,30 @@ export async function fetchBusinessHomepage(origin, { fetchPage = secureCatalogF
 // site's own exact name metadata and a UCP shop document on that host (or its
 // verified alternate). A redirect only changes which host must pass both
 // checks. Any missing link falls back to inspected web research.
+// The homepage's site names, title, and who the store says it sells for
+// ("Cuyana | Women's Premium Essentials"); products often carry no wearer label.
+export function homepageFacts(html) {
+  const metas = [...html.matchAll(/<meta\b[^>]{0,1000}>/gi)].map(([tag]) =>
+    Object.fromEntries([...tag.matchAll(/\b(property|name|content)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)]
+      .map(([, key, double, single]) => [key.toLowerCase(), double ?? single])));
+  const metaValues = (names) => metas.filter((attributes) =>
+    names.includes(String(attributes.property ?? attributes.name ?? "").toLowerCase()))
+    .map((attributes) => decodeHtmlText(attributes.content));
+  // The brand may lead or end the page title ("Custom Haircare | Prose").
+  const title = decodeHtmlText(html.match(/<title\b[^>]*>([^<]{1,250})<\/title>/i)?.[1] ?? "");
+  return { title, siteNames: metaValues(["og:site_name", "application-name"]),
+    storeWearer: brandWearer([title, ...metaValues(["description", "og:description"])].join(" ")) };
+}
+
+// Who a verified brand's homepage says it sells for, or null.
+export async function readStoreWearer(website, { fetchPage = secureCatalogFetch, signal = null } = {}) {
+  let origin;
+  try { origin = new URL(website).origin; } catch { return null; }
+  const page = await fetchBusinessHomepage(origin, { fetchPage, signal });
+  if (!page || !String(page.response.contentType ?? "").toLowerCase().includes("text/html")) return null;
+  return homepageFacts(await page.response.text()).storeWearer;
+}
+
 export async function verifyFirstPartyCommerceBusiness(candidate, {
   fetchPage = secureCatalogFetch, discoverStorefront = discoverVerifiedStorefront,
   signal = null, trace = null,
@@ -202,16 +227,7 @@ export async function verifyFirstPartyCommerceBusiness(candidate, {
     if (!String(response.contentType ?? "").toLowerCase().includes("text/html")) {
       trace?.push({ step: "homepage", host, reason: "not_html" }); return null;
     }
-    const html = await response.text();
-    const siteNames = [...html.matchAll(/<meta\b[^>]{0,1000}>/gi)].flatMap(([tag]) => {
-      const attributes = Object.fromEntries([...tag.matchAll(/\b(property|name|content)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi)]
-        .map(([, key, double, single]) => [key.toLowerCase(), double ?? single]));
-      return ["og:site_name", "application-name"].includes(
-        String(attributes.property ?? attributes.name ?? "").toLowerCase())
-        ? [decodeHtmlText(attributes.content)] : [];
-    });
-    // The brand may lead or end the page title ("Custom Haircare | Prose").
-    const title = decodeHtmlText(html.match(/<title\b[^>]*>([^<]{1,250})<\/title>/i)?.[1] ?? "");
+    const { siteNames, title, storeWearer } = homepageFacts(await response.text());
     const titleSegments = title.split(/\s*[|–—:]\s*|\s+-\s+/).map((item) => item.trim()).filter(Boolean);
     if (![...siteNames, ...titleSegments].some((siteName) => siteNameMatchesBrand(siteName, name))) {
       trace?.push({ step: "site_name", host, reason: "site_name_mismatch" }); return null;
@@ -228,7 +244,7 @@ export async function verifyFirstPartyCommerceBusiness(candidate, {
       officialWebsite: origin, identityStatus: "verified",
       productHints: String(candidate.description ?? "").slice(0, 600),
       identitySourceUrl: `${origin}/`, storefrontProofUrl: store.proofUrl,
-      shopId: store.shopId };
+      shopId: store.shopId, storeWearer };
   } catch (error) {
     trace?.push({ step: "identity", host: host ?? null, reason: fetchFailureCode(error) });
     return null;
@@ -440,8 +456,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   discoverStorefront = discoverVerifiedStorefront,
   investigateDirect = investigateDirectCommerceCulture,
   triageLeads = triageCommerceLeads, knownWebsites = verifiedWebsitesForQlooIds,
-  recallPartners = recallPartnerMemory,
-  maxCandidates = 6, now = () => Date.now() } = {}) {
+  recallPartners = recallPartnerMemory, readSeedWearer = null, now = () => Date.now() } = {}) {
   if (!QLOO_UUID.test(seedQlooId ?? "") || !["product_bundle", "cross_sell"].includes(objective)) {
     throw new Error("Verified native brand and commerce objective required.");
   }
@@ -491,6 +506,14 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       seedIdentityDiagnostics,
       candidates: [], opportunities: { supported: [], needs_verification: [], unsupported: [] } };
   }
+  // Who the starting brand sells for, from its homepage, when its identity proof
+  // did not already read it. Offline fixtures (a substitute verifier) skip this.
+  const seedWearerReader = readSeedWearer ?? (verifyBusiness === verifyCommerceBusiness ? readStoreWearer : null);
+  if (verifiedSeed.storeWearer === undefined && seedWearerReader) {
+    const storeWearer = await seedWearerReader(verifiedSeed.officialWebsite ?? seed.officialWebsite,
+      { signal: AbortSignal.timeout(Math.max(1, Math.min(8000, remainingResearchMs()))) }).catch(() => null);
+    verifiedSeed = { ...verifiedSeed, storeWearer };
+  }
   let discovery = null;
   let leads;
   if (specifiedPartner) {
@@ -531,6 +554,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   // against its real catalog sample inside pair research; partners with no
   // value stop there, before deep search. Time and budget still bound the run.
   const excludedTrace = [];
+  // Categories the starting store sells, shared by all partners in this run.
+  const seedRange = new Map();
   const rank = { likely: 0, possible: 1, unlikely: 2 };
   const hintOrder = [...leads].sort((a, b) =>
     rank[fitOf(a)] - rank[fitOf(b)] || (a.originalOrder ?? 0) - (b.originalOrder ?? 0));
@@ -634,7 +659,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
         result = await researchPair({ seed: verifiedSeed,
           partner: { ...verifiedPartner, description: verifiedPartner.description ?? lead.description },
           objective, discoveryBasis: specifiedPartner ? "user_specified" : "qloo_native_brand",
-          cultureEvidence, market, userConstraints,
+          cultureEvidence, market, userConstraints, seedRange,
           maxCatalogCalls: candidateBudget, maxResearchMs: partnerTime });
       } finally { reservedCalls -= candidateBudget; }
       // A storefront or capability failure can return before making any
@@ -657,6 +682,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       candidate.exploredRoleCount = result.exploredRoleCount ?? 0;
       candidate.searchPagesFetched = result.searchPagesFetched ?? 0;
       candidate.exactDetailFailures = result.exactDetailFailures ?? 0;
+      candidate.pairsSkippedFromMemory = result.pairsSkippedFromMemory ?? 0;
+      candidate.pairsSkippedOwnRange = result.pairsSkippedOwnRange ?? 0;
       candidate.productSearchPlanning = result.productSearchPlanning ?? "not_run";
       candidate.productSelectionPlanning = result.productSelectionPlanning ?? "not_run";
       candidate.stopReason = result.stopReason ?? null;
@@ -681,15 +708,14 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       }
       if (rateLimited) { stop("catalog_rate_limited"); return; }
       if (remainingResearchMs() <= 0) { stop("research_time_limit_reached"); return; }
-      if (["catalog_unavailable", "catalog_budget_reached"].includes(result.stopReason)) {
-        stop(result.stopReason); return;
-      }
+      // A partner using up its own allowance is not the run's budget: the
+      // queue below stops when the run's calls are actually spent.
+      if (result.stopReason === "catalog_unavailable") { stop(result.stopReason); return; }
     } catch (error) {
       candidate.status = error?.code === "catalog_rate_limited" ? "catalog_rate_limited"
         : error?.code === "catalog_budget_exhausted" ? "catalog_budget_reached"
           : error?.code === "catalog_unavailable" ? "catalog_unavailable" : "commerce_unavailable";
-      if (["catalog_rate_limited", "catalog_budget_reached", "catalog_unavailable"]
-        .includes(candidate.status)) {
+      if (["catalog_rate_limited", "catalog_unavailable"].includes(candidate.status)) {
         stop(candidate.status); return;
       }
     }
@@ -698,7 +724,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   const partnerWorker = async () => {
     while (!stopped && nextLead < selectedLeads.length) {
       if (remainingResearchMs() <= 0) { stop("research_time_limit_reached"); return; }
-      if (catalogCallsUsed + reservedCalls >= maxCatalogCalls) {
+      // Stop before another identity check once too few calls remain for a partner.
+      if (maxCatalogCalls - catalogCallsUsed - reservedCalls < 8) {
         if (!reservedCalls) stop("catalog_budget_reached");
         return;
       }
