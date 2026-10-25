@@ -29,7 +29,7 @@ export function culturalSummary(assessment, seedName, partnerName) {
     tastes.length ? `Their audiences share a taste for ${listText(tastes)}.` : ""].filter(Boolean).join(" ");
 }
 
-export function commerceProposal({ seedName, partnerName, objective, concept, assessment = {},
+export function commerceProposal({ seedName, partnerName, objective, assessment = {},
   offers = {}, launchAreas = [], sourceUrls = [] }) {
   const seed = name(seedName); const partner = name(partnerName);
   const goal = objective === "product_bundle" ? "Product bundle" : "Cross-sell";
@@ -42,20 +42,20 @@ export function commerceProposal({ seedName, partnerName, objective, concept, as
   const why = [sentence(mechanism.customerReason), sentence(mechanism.boundedRationale)].filter(Boolean).join(" ");
   const culture = culturalSummary(assessment, seed, partner);
   const areas = launchAreas.map((item) => name(item)).filter(Boolean).slice(0, 4);
-  const toAgree = [...new Set([sentence(concept?.validation), ...(assessment.dealUnknowns ?? []).map(sentence),
+  const roles = mechanism.roles ?? {};
+  const toAgree = [...new Set([...(assessment.dealUnknowns ?? []).map(sentence),
     "Launch timing, promotion and how customers will buy both products."].filter(Boolean))];
   const links = [...new Set(sourceUrls.map(httpsUrl).filter(Boolean))].slice(0, 6);
   const products = [product(offers.seed, seed), product(offers.partner, partner)].filter(Boolean);
   const sections = [
     `# ${seed} × ${partner}\n\n${goal} proposal`,
-    concept?.title ? `## The idea\n\n**${name(concept.title)}**${concept.format ? ` — ${name(concept.format)}` : ""}\n\n${sentence(concept.summary)}` : "",
     products.length ? `## The products\n\n${products.join("\n")}` : "",
     why ? `## Why it fits\n\n${why}` : "",
     culture ? `## Cultural fit\n\n${culture}` : "",
     areas.length ? `## Where audiences overlap\n\n${listText(areas)}: the cities where both brands' audiences are strongest, a good place to start targeted ads, local creators or a pop-up.` : "",
-    concept?.roles?.seed || concept?.roles?.partner ? `## What each brand brings\n\n${[
-      concept.roles.seed ? `- **${seed}:** ${sentence(concept.roles.seed)}` : "",
-      concept.roles.partner ? `- **${partner}:** ${sentence(concept.roles.partner)}` : ""].filter(Boolean).join("\n")}` : "",
+    roles.seedRole || roles.partnerRole ? `## What each brand brings\n\n${[
+      roles.seedRole ? `- **${seed}:** ${sentence(roles.seedRole)}` : "",
+      roles.partnerRole ? `- **${partner}:** ${sentence(roles.partnerRole)}` : ""].filter(Boolean).join("\n")}` : "",
     `## To agree together\n\n${toAgree.map((item) => `- ${item}`).join("\n")}`,
     links.length ? `## Sources\n\n${links.map((url) => `- ${url}`).join("\n")}` : "",
   ];

@@ -61,16 +61,11 @@ try {
   const current = run.matches.find((match) => match.score?.status === "supported" &&
     match.currentOffers?.seed?.status === "current" &&
     match.currentOffers?.partner?.status === "current");
-  let concepts = 0; let proposalSaved = false;
+  let proposalSaved = false;
   if (current) {
-    const prepared = await commerceProposalAction(userId, current.id);
-    concepts = prepared.concepts?.length ?? 0;
-    if (concepts === 3) {
-      const brief = await commerceProposalAction(userId, current.id,
-        { conceptId: prepared.concepts[0].id });
-      proposalSaved = Boolean(brief.id && (await getPersonalRun(userId, started.runId))
-        .matches.find((match) => match.id === current.id)?.briefId === brief.id);
-    }
+    const brief = await commerceProposalAction(userId, current.id);
+    proposalSaved = Boolean(brief.id && (await getPersonalRun(userId, started.runId))
+      .matches.find((match) => match.id === current.id)?.briefId === brief.id);
   }
   const stored = await db.query(`select evidence_json
     from public.assessment_snapshots a join public.matches m on m.id=a.match_id
@@ -98,13 +93,13 @@ try {
       partner: { status: match.currentOffers?.partner?.status,
         message: match.currentOffers?.partner?.message ?? null } })),
     currentOfferPair: anyCurrentPair, supportedCurrentOfferPair: Boolean(current),
-    concepts, proposalSaved,
+    proposalSaved,
     savedAssessments: stored.rows.length, catalogProductArraySaved }));
   const proposalExpected = Boolean(current);
   const requireSupported = process.env.COMMERCE_REQUIRE_SUPPORTED === "1";
   if (!run.matches.length || !anyCurrentPair || catalogProductArraySaved ||
       (requireSupported && !current) ||
-      (proposalExpected && (!current || concepts !== 3 || !proposalSaved)) ||
+      (proposalExpected && (!current || !proposalSaved)) ||
       (!proposalExpected && !statuses.some((status) =>
         ["needs_verification", "unsupported"].includes(status)))) process.exitCode = 2;
 } catch (error) {

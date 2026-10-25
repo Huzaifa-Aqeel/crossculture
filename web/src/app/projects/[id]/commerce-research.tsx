@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import type { Dispatch, SetStateAction } from "react";
+import { useRouter } from "next/navigation";
 
 type Offer = { status: string; title?: string; url?: string | null;
   price?: { amountMinor: number; currencyCode: string } | null; available?: boolean | null;
@@ -20,8 +21,7 @@ type Match = { id: string; partnerEntityId: string; partnerName: string; partner
   evidence?: { commerce?: { identitySourceRefs?: string[]; culturalSourceRefs?: string[];
     externalFindings?: { kind: string; url: string; publishedAt?: string | null }[] } };
   currentOffers?: { seed: Offer; partner: Offer };
-  conceptOptions?: { id: string; title: string; format: string; summary: string }[];
-  briefId?: string | null; briefMarkdown?: string | null; briefRevision?: number | null };
+  briefId?: string | null };
 type Run = { id: string; kind: string; status: string; stage: string; seedName: string;
   errorCode?: string | null; createdAt?: string;
   result?: { message?: string; coverage?: string; stopReason?: string }; matches: Match[] };
@@ -105,80 +105,18 @@ const sentenceCase = (text: string) => {
   return value ? `${value[0].toUpperCase()}${value.slice(1)}${/[.!?]$/.test(value) ? "" : "."}` : "";
 };
 
-// Renders the small Markdown subset proposals use: headings, lists, bold and links.
-function inline(text: string, key: string) {
-  return text.split(/(\*\*[^*]+\*\*|https:\/\/[^\s)]+)/g).filter(Boolean).map((part, index) =>
-    part.startsWith("**") && part.endsWith("**") ? <strong key={`${key}-${index}`}>{part.slice(2, -2)}</strong>
-      : part.startsWith("https://") ? <a key={`${key}-${index}`} href={part} target="_blank" rel="noopener noreferrer">{part.replace(/^https:\/\/(www\.)?/, "")}</a>
-        : part);
-}
-function ProposalView({ text }: { text: string }) {
-  const blocks: ReactNode[] = [];
-  let list: string[] = [];
-  const flush = () => { if (list.length) blocks.push(<ul key={`l${blocks.length}`}>{list.map((item, index) =>
-    <li key={index}>{inline(item, `li${blocks.length}-${index}`)}</li>)}</ul>); list = []; };
-  for (const raw of text.split("\n")) {
-    const lineText = raw.trim();
-    if (/^[-*] /.test(lineText)) { list.push(lineText.slice(2)); continue; }
-    flush();
-    if (!lineText) continue;
-    if (lineText.startsWith("## ")) blocks.push(<h4 key={blocks.length}>{lineText.slice(3)}</h4>);
-    else if (lineText.startsWith("# ")) blocks.push(<h3 key={blocks.length}>{lineText.slice(2)}</h3>);
-    else blocks.push(<p key={blocks.length}>{inline(lineText, `p${blocks.length}`)}</p>);
-  }
-  flush();
-  return <div className="rs-proposal-view">{blocks}</div>;
-}
+type Action = "check";
 
-// The proposal is the user's draft: read it formatted, edit any part, then save, copy or download.
-function ProposalStudio({ match, saving, onChange, onSave, onClose }: { match: Match; saving: boolean;
-  onChange: (text: string) => void; onSave: () => void; onClose: () => void }) {
-  const [text, setText] = useState(match.briefMarkdown ?? "");
-  const [editing, setEditing] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const unsaved = text !== (match.briefMarkdown ?? "");
-  return <div className="rs-studio">
-    <div className="rs-studio-head"><strong>Proposal</strong>
-      <div className="rs-studio-tools">
-        <button className="rs-link" type="button" onClick={() => setEditing((value) => !value)}>{editing ? "Preview" : "Edit"}</button>
-        <button className="rs-link" type="button" onClick={() => { void navigator.clipboard?.writeText(text).then(() => {
-          setCopied(true); window.setTimeout(() => setCopied(false), 1500); }); }}>{copied ? "Copied" : "Copy"}</button>
-        <button className="rs-link" type="button" onClick={() => {
-          const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
-          const link = document.createElement("a"); link.href = url;
-          link.download = `${match.partnerName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-proposal.md`; link.click();
-          window.setTimeout(() => URL.revokeObjectURL(url), 1000); }}>Download</button>
-        <button className="rs-link" type="button" onClick={onClose}>Close</button></div></div>
-    {editing ? <textarea aria-label={`Proposal for ${match.partnerName}`} value={text} autoFocus
-      onChange={(event) => { setText(event.target.value); onChange(event.target.value); }} />
-      : <ProposalView text={text} />}
-    <div className="rs-studio-foot">
-      <span className="rs-quiet">{editing ? "Edit, add or remove anything. Headings start with ##, list items with -." : "This is your draft. Change anything before sharing it."}</span>
-      <button className="rs-button-quiet" type="button" disabled={saving || !unsaved} onClick={onSave}>
-        {saving ? "Saving…" : unsaved ? "Save changes" : "Saved"}</button></div>
-  </div>;
-}
-
-type Action = "check" | "concepts" | "proposal" | "saveBrief";
-const PENDING_LABEL: Record<Action, string> = { check: "Checking current details…", concepts: "Preparing concepts…",
-  proposal: "Writing proposal…", saveBrief: "Saving…" };
-
-function Opportunity({ match, others, run, pending, launch, onShow, onCheck, onConcepts, onBrief, onSaveBrief }: {
-  match: Match; others: Match[]; run: Run; pending: Record<string, Action>; launch?: Launch;
-  onShow: (match: Match) => void; onCheck: (match: Match) => void;
-  onConcepts: (match: Match, conceptId?: string) => void; onBrief: (match: Match, text: string) => void;
-  onSaveBrief: (match: Match) => void }) {
+function Opportunity({ projectId, match, others, run, pending, launch, onShow, onCheck }: {
+  projectId: string; match: Match; others: Match[]; run: Run; pending: Record<string, Action>; launch?: Launch;
+  onShow: (match: Match) => void; onCheck: (match: Match) => void }) {
+  const router = useRouter();
   // One partner card can hold several product combinations; the user picks which one to view.
   const combinations = [match, ...others];
   const [shownId, setShownId] = useState(match.id);
   const shown = combinations.find((item) => item.id === shownId) ?? match;
   const score = shown.score;
   const action = pending[shown.id];
-  // The studio opens when a proposal is written and can be closed and reopened;
-  // once opened it stays mounted so unsaved edits survive closing it.
-  const [studio, setStudio] = useState<Record<string, boolean>>({});
-  // Only the concept the user picked shows progress; the others stay as they are.
-  const [writingConcept, setWritingConcept] = useState<string | null>(null);
   const [label, pill] = STATUS[score.status] ?? STATUS.needs_verification;
   const issues = challenges(score);
   const commerce = shown.evidence?.commerce;
@@ -186,7 +124,7 @@ function Opportunity({ match, others, run, pending, launch, onShow, onCheck, onC
   useEffect(() => { onShow(shown); }, [shown, onShow]);
   const changed = score.currentOfferReview === "changed_since_assessment";
   const checkFailed = score.currentOfferReview === "refresh_unavailable";
-  const canDevelop = score.status === "supported" && !changed;
+  const canPropose = score.status === "supported" && !changed;
   return <article className="rs-opportunity">
     <div className="rs-opp-head"><div><h3>{shown.partnerName}</h3>
       {aboutLine(shown.partnerDescription) && <p className="rs-opp-about">{aboutLine(shown.partnerDescription)}</p>}</div>
@@ -198,7 +136,7 @@ function Opportunity({ match, others, run, pending, launch, onShow, onCheck, onC
       <ProductTile label={shown.partnerName} offer={shown.currentOffers?.partner} checking={action === "check"}
         fallback={score.productMechanism?.roles?.partnerRole || "Partner product"} />
     </div>
-    {changed && <p className="rs-note-warn">A product or price changed since this was reviewed, so it can&apos;t be developed further. Start a new search for an up-to-date result.</p>}
+    {changed && <p className="rs-note-warn">A product or price changed since this was reviewed, so a proposal can&apos;t be created from it. Start a new search for an up-to-date result.</p>}
     {checkFailed && action !== "check" && <p className="rs-note-warn">Current product details couldn&apos;t be loaded.{" "}
       <button className="rs-link" type="button" onClick={() => onCheck(shown)}>Try again</button></p>}
     <dl className="rs-facts">
@@ -212,26 +150,10 @@ function Opportunity({ match, others, run, pending, launch, onShow, onCheck, onC
       {issues.length ? <div className="rs-fact"><dt>Potential challenges</dt><dd><ul>{issues.map((item) => <li key={item}>{item}</li>)}</ul></dd></div> : null}
     </dl>
 
-    {shown.briefId ? <>
-      {studio[shown.id] !== undefined && <div hidden={!studio[shown.id]}><ProposalStudio key={shown.id} match={shown}
-        saving={action === "saveBrief"} onChange={(text) => onBrief(shown, text)} onSave={() => onSaveBrief(shown)}
-        onClose={() => setStudio((current) => ({ ...current, [shown.id]: false }))} /></div>}
-      {!studio[shown.id] && <div className="rs-proposal-closed"><div><strong>Proposal ready</strong>
-        <span className="rs-quiet">Your draft for {shown.partnerName} is saved.</span></div>
-        <button className="rs-button-quiet" type="button"
-          onClick={() => setStudio((current) => ({ ...current, [shown.id]: true }))}>Open proposal</button></div>}</>
-      : shown.conceptOptions?.length ? <div className="rs-concepts">
-        <p className="rs-quiet">Pick a concept to turn into a proposal you can edit and send.</p>
-        {shown.conceptOptions.map((concept) => <div className="rs-concept" key={concept.id}>
-          <strong>{concept.title}</strong><em>{concept.format}</em><p>{concept.summary}</p>
-          <button className="rs-button-quiet" type="button" disabled={!canDevelop || (action === "proposal" && writingConcept === concept.id)}
-            onClick={() => { if (action) return; setWritingConcept(concept.id);
-              setStudio((current) => ({ ...current, [shown.id]: true })); onConcepts(shown, concept.id); }}>
-            {action === "proposal" && writingConcept === concept.id ? PENDING_LABEL.proposal : "Write proposal"}</button></div>)}</div> : null}
-
-    {!shown.briefId && !shown.conceptOptions?.length && score.status === "supported" && <div className="rs-opp-actions">
-      <button className="rs-button" type="button" disabled={Boolean(action) || !canDevelop}
-        onClick={() => onConcepts(shown)}>{action === "concepts" ? PENDING_LABEL.concepts : "Develop concepts"}</button></div>}
+    {(shown.briefId || canPropose) && <div className="rs-opp-actions">
+      <button className="rs-button" type="button"
+        onClick={() => router.push(`/projects/${projectId}/proposal/${shown.id}?run=${run.id}`)}>
+        {shown.briefId ? "Open proposal" : "Create proposal"}</button></div>}
 
     {others.length > 0 && <div className="rs-combos"><span className="rs-quiet">Other combinations with {shown.partnerName}</span>
       <div className="rs-combo-list">{combinations.filter((item) => item.id !== shown.id).map((item) =>
@@ -262,6 +184,8 @@ const launchCache = new Map<string, Launch>();
 const checkedAt = new Map<string, number>();
 const isFresh = (at?: number) => at !== undefined && Date.now() - at < PAGE_CACHE_MS;
 const isRunning = (status: string) => ["queued", "running"].includes(status);
+// A proposal written elsewhere changes a run; its cached copy is then dropped.
+export function forgetCachedRun(id: string) { runCache.delete(id); }
 
 function updateMatch(setRun: Dispatch<SetStateAction<Run | null>>, id: string, patch: Partial<Match>) {
   setRun((current) => current ? { ...current, matches: current.matches.map((item) =>
@@ -275,7 +199,6 @@ export function CommerceResearch({ projectId }: { projectId: string }) {
   const [loadingRun, setLoadingRun] = useState(false);
   const [error, setError] = useState("");
   const [launch, setLaunch] = useState<Record<string, Launch>>({});
-  const drafts = useRef<Record<string, string>>({});
   const launchRequested = useRef(new Set<string>());
 
   const loadRuns = useCallback(async () => {
@@ -358,31 +281,6 @@ export function CommerceResearch({ projectId }: { projectId: string }) {
     queueMicrotask(() => { void check(match); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // Concepts need current product details; they are loaded first when missing.
-  const concepts = (match: Match, conceptId?: string) => act(match, conceptId ? "proposal" : "concepts", async () => {
-    const ready = match.score.currentOfferReview === "current" ? match : await fetchCurrent(match);
-    if (ready.score.status !== "supported" || ready.score.currentOfferReview !== "current")
-      throw new Error("Current product details couldn't be confirmed, so concepts can't be prepared yet.");
-    const response = await fetch(`/api/personal/matches/${match.id}/proposal`, { method: "POST",
-      headers: { "content-type": "application/json" }, body: JSON.stringify(conceptId ? { conceptId } : {}) });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message ?? "Concepts could not be prepared.");
-    // Developing concepts is the sign of interest: the opportunity is kept
-    // (and its partner reviewed against public sources) without a Save step.
-    if (!match.savedAt) void fetch("/api/personal/feedback", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ runId: run!.id, matchId: match.id, action: "save" }) }).catch(() => {});
-    await loadRun(run!.id, true);
-  });
-  const saveBrief = (match: Match) => act(match, "saveBrief", async () => {
-    if (!match.briefId || !match.briefRevision) return;
-    const response = await fetch(`/api/personal/briefs/${match.briefId}`, { method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ revision: match.briefRevision, markdown: drafts.current[match.id] ?? match.briefMarkdown }) });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.message ?? "The proposal could not be saved.");
-    updateMatch(setRun, match.id, { briefRevision: payload.brief.revision, briefMarkdown: payload.brief.markdown });
-  });
-
   const working = run && ["queued", "running"].includes(run.status);
   const groups = (["supported", "needs_verification"] as const).map((status) => {
     const byPartner = new Map<string, Match[]>();
@@ -416,9 +314,8 @@ export function CommerceResearch({ projectId }: { projectId: string }) {
         <p className="rs-quiet">This review covered a sample of each store. Other combinations may exist.</p>}
       {groups.map((group) => group.partners.length ? <div key={group.status}>
         <h4 className="rs-section-title">{group.status === "supported" ? "Recommended" : "Worth checking"}</h4>
-        {group.partners.map((matches) => <Opportunity key={matches[0].id} match={matches[0]} others={matches.slice(1)} run={run}
-          pending={pending} launch={launch[`${run.id}:${matches[0].partnerEntityId}`] ?? launchCache.get(`${run.id}:${matches[0].partnerEntityId}`)} onShow={show} onCheck={check}
-          onConcepts={concepts} onBrief={(match, text) => { drafts.current[match.id] = text; }} onSaveBrief={saveBrief} />)}
+        {group.partners.map((matches) => <Opportunity key={matches[0].id} projectId={projectId} match={matches[0]} others={matches.slice(1)} run={run}
+          pending={pending} launch={launch[`${run.id}:${matches[0].partnerEntityId}`] ?? launchCache.get(`${run.id}:${matches[0].partnerEntityId}`)} onShow={show} onCheck={check} />)}
       </div> : null)}
     </>}
     {error && <p className="rs-error" role="alert">{error}</p>}

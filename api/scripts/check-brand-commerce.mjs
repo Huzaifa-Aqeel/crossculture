@@ -18,10 +18,9 @@ import { researchNativeCommerce, selectNativeCommerceLeads,
   reuseRecentCommerceConfirmation } from "../src/commerce-native.mjs";
 import { investigateDirectCommerceCulture } from "../src/commerce-culture.mjs";
 import { publicIpAddress } from "../src/shopify-catalog.mjs";
-import { normalizeCommerceConcepts, developCommerceConcepts, checkedConceptFallback,
-  verifyCommerceConcepts } from "../src/commerce-concepts.mjs";
 import { currentCommerceAssessment, refreshCommerceOffers } from "../src/commerce-offer-refresh.mjs";
 import { vetCommerceShortlist } from "../src/commerce-vetting.mjs";
+import { commerceProposal } from "../src/proposal-template.mjs";
 import { isDomain } from "../src/web-research.mjs";
 import { normalizeQlooBrands } from "../src/brand-resolution.mjs";
 import { productSearchInput } from "../src/commerce-preview.mjs";
@@ -394,6 +393,15 @@ assert.throws(() => assessCommerceOpportunity({ identity: "supported",
   culturalRelationship: "native_recommendation_verified", objectiveSuitability: "matches_explicit_focus" }),
 /Server-validated commerce evidence required/);
 assert.equal(assessFixture().status, "supported");
+// Proposals are written straight from the verified opportunity (no concept step).
+const directProposal = commerceProposal({ seedName: "First brand", partnerName: "Second brand",
+  objective: "product_bundle", assessment: assessFixture(),
+  offers: { seed: { title: "Bath towel" }, partner: { title: "Bath mat",
+    price: { amountMinor: 4400, currencyCode: "USD" }, url: "https://second.example.com/products/mat" } } });
+assert.doesNotMatch(directProposal, /## The idea/);
+assert.match(directProposal, /## The products\n\n- \*\*Bath towel\*\* from First brand/);
+assert.match(directProposal, /## What each brand brings\n\n- \*\*First brand:\*\* Towel\./);
+assert.match(directProposal, /## To agree together\n\n- /);
 // The judgment's short customer reason is kept for display; it never changes the verdict.
 const withReason = assessFixture({ rubricVerification: { ...bathRubric, customerReason: "drying off after a bath" } });
 assert.equal(withReason.productMechanism.customerReason, "drying off after a bath");
@@ -1357,68 +1365,6 @@ assert.equal(publicIpAddress("10.1.2.3"), false);
 assert.equal(publicIpAddress("::1"), false);
 assert.equal(publicIpAddress("8.8.8.8"), true);
 
-const normalizedConcepts = normalizeCommerceConcepts({ concepts: ["Gift set", "Product guide", "Seasonal display"]
-  .map((format, index) => ({ title: `${format} idea`, format,
-    summary: `Pair the selected towel and mat in a concrete bath setting ${index + 1}.`,
-    roles: { seed: "Towel", partner: "Mat" }, validation: "Check it.",
-    evidenceRefs: ["invented_web_source", "made_up_qloo_id"] })) }, {
-  seedName: "First brand", partnerName: "Second brand", assessment: assessFixture(),
-  currentOffers: { seed: { title: "Bath towel" }, partner: { title: "Bath mat" } },
-});
-assert.deepEqual(normalizedConcepts.concepts[0].evidenceRefs, ["seed_product", "partner_product"]);
-assert.match(normalizedConcepts.concepts[0].roles.seed, /Bath towel/);
-assert.match(normalizedConcepts.concepts[0].roles.seed, /as towel/);
-assert.match(normalizedConcepts.concepts[0].roles.partner, /as bath mat/);
-const coBrandConcepts = normalizeCommerceConcepts({ concepts: normalizedConcepts.concepts }, {
-  seedName: "First brand", partnerName: "Second brand",
-  assessment: { ...assessFixture(), reviewFlags: ["selected_offer_explicit_third_party_cobrand"] },
-  currentOffers: { seed: { title: "Bath towel" }, partner: { title: "Bath mat" } },
-});
-assert.match(coBrandConcepts.concepts[0].validation, /named co-brand/);
-assert.equal(await verifyCommerceConcepts(normalizedConcepts.concepts, { productReason: "Towel and mat" },
-  { classify: async () => JSON.stringify({ concepts: Array.from({ length: 3 }, () => ({
-    productGrounded: true, unsupportedClaim: "none", practicalFormat: true })) }) }), true);
-assert.equal(await verifyCommerceConcepts(normalizedConcepts.concepts, { productReason: "Towel and mat" },
-  { classify: async () => JSON.stringify({ concepts: [
-    { productGrounded: true, unsupportedClaim: "keeps both products dry", practicalFormat: true },
-    ...Array.from({ length: 2 }, () => ({ productGrounded: true,
-      unsupportedClaim: "none", practicalFormat: true }))] }) }), false);
-const unsupportedConcepts = normalizedConcepts.concepts.map((item) => ({ ...item }));
-unsupportedConcepts[0].summary = "The pairing was validated by a native recommendation for joint use.";
-assert.equal(await verifyCommerceConcepts(unsupportedConcepts,
-  { objective: "product_bundle" }, { classify: async () => { throw new Error("Should reject first"); } }), false);
-unsupportedConcepts[0].summary = "Pair the towel and mat, grounded in native cultural recommendation.";
-assert.equal(await verifyCommerceConcepts(unsupportedConcepts,
-  { objective: "product_bundle" }, { classify: async () => { throw new Error("Should reject first"); } }), false);
-unsupportedConcepts[0].summary = "Real users show how to use the selected towel and mat.";
-assert.equal(await verifyCommerceConcepts(unsupportedConcepts,
-  { objective: "product_bundle" }, { classify: async () => { throw new Error("Should reject first"); } }), false);
-unsupportedConcepts[0].summary = "Customers who viewed the towel also explored the mat, based on observed behavioral patterns.";
-assert.equal(await verifyCommerceConcepts(unsupportedConcepts,
-  { objective: "product_bundle" }, { classify: async () => { throw new Error("Should reject first"); } }), false);
-unsupportedConcepts[0].summary = "Discuss the selected towel and mat as a bundled offer.";
-assert.equal(await verifyCommerceConcepts(unsupportedConcepts,
-  { objective: "cross_sell" }, { classify: async () => { throw new Error("Should reject first"); } }), false);
-await assert.rejects(developCommerceConcepts({ seedName: "First brand", partnerName: "Second brand",
-  objective: "product_bundle", assessment: assessFixture({ rubricVerification: null }),
-  currentOffers: { seed: { status: "current" }, partner: { status: "current" } } }),
-/Current selected products must be verified/);
-assert.match(normalizedConcepts.concepts[0].validation, /bundle rights/);
-const fallbackConcepts = checkedConceptFallback({ seedName: "First brand",
-  partnerName: "Second brand", objective: "cross_sell", assessment: assessFixture(),
-  currentOffers: { seed: { title: "Bath towel" }, partner: { title: "Bath mat" } } });
-assert.equal(fallbackConcepts.concepts.length, 3);
-assert.ok(fallbackConcepts.concepts.every((item) => item.summary.includes("Bath towel") &&
-  item.summary.includes("Bath mat") && /rights/.test(item.validation)));
-const longFormat = normalizeCommerceConcepts({ concepts: ["A", "B", "C"].map((letter) => ({
-  title: `${letter} selected product concept`, format: letter.repeat(75),
-  summary: `A concrete combination of Bath towel and Bath mat for ${letter} use.`,
-  validation: "Confirm interest, rights, and fulfillment.",
-  evidenceRefs: ["seed_product", "partner_product"] })) }, {
-  seedName: "First brand", partnerName: "Second brand", assessment: assessFixture(),
-  currentOffers: { seed: { title: "Bath towel" }, partner: { title: "Bath mat" } },
-});
-assert.equal(longFormat.concepts[2].format.length, 70);
 
 const seedId = "11111111-1111-4111-8111-111111111111";
 const variedLeads = Array.from({ length: 10 }, (_, index) => ({ originalOrder: index + 1,

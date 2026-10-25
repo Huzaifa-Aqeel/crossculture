@@ -200,15 +200,10 @@ export async function getPersonalRun(userId, runId) {
     a.id as "assessmentId",a.evidence_json as evidence,
     a.score_json as score,a.scoring_version as "scoringVersion",a.version as "assessmentVersion",
     a.validity_status as "evidenceStatus",
-    c.id as "conceptId",coalesce(c.edited_json,c.draft_json) as concept,
-    coalesce((select jsonb_agg(jsonb_build_object('id',co.id,'title',co.title,'format',co.format,
-      'summary',co.draft_json->>'summary') order by co.version)
-      from public.concepts co where co.match_id=m.id and co.user_id=$2), '[]'::jsonb) as "conceptOptions",
     b.id as "briefId",b.content_markdown as "briefMarkdown",b.revision as "briefRevision",
     b.validity_status as "briefStatus"
     from public.matches m join catalog.entities e on e.id=m.partner_entity_id
     left join lateral (select * from public.assessment_snapshots where match_id=m.id and user_id=$2 order by version desc limit 1) a on true
-    left join lateral (select * from public.concepts where match_id=m.id and user_id=$2 order by version desc limit 1) c on true
     left join lateral (select * from public.briefs where match_id=m.id and user_id=$2 order by updated_at desc limit 1) b on true
     where m.analysis_run_id=$1 and m.user_id=$2 order by m.created_at`, [runId, userId]);
   const commerceRanks = new Map((run.rows[0].result?.decisions ?? [])
@@ -411,7 +406,7 @@ export async function updatePersonalBrief(userId, briefId, input) {
   bad("This brief changed since you opened it. Reload before saving.", 409);
 }
 
-// Proposal drafts are user-triggered only; scoring never creates concepts or briefs.
+// Proposal drafts are user-triggered only; scoring never creates them.
 export async function createPersonalProposal(userId, matchId, input = {}) {
   if (!uuid(matchId)) bad("Partnership not found.", 404);
   const commerce = await db().query(`select r.objective from public.matches m

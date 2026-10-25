@@ -123,12 +123,6 @@
 .rs-details-body{display:grid;gap:10px;margin-top:12px;font-size:13px;color:#4b4f49;line-height:1.55}
 .rs-details-body p{margin:0}
 .rs-details-body a{text-decoration:underline;margin-right:10px}
-.rs-concepts{display:grid;gap:10px;margin-top:18px}
-.rs-concept{border:1px solid #e3e6df;border-radius:10px;padding:16px;display:grid;gap:6px}
-.rs-concept strong{font-size:15px}
-.rs-concept em{font-style:normal;font-size:12px;color:#6d756b}
-.rs-concept p{margin:0;font-size:13px;color:#4b4f49;line-height:1.55}
-.rs-concept .rs-button-quiet{justify-self:start;margin-top:6px}
 .rs-more-combos{margin-top:12px}
 .rs-empty{padding:26px;border:1px dashed #cfd3ca;border-radius:12px;color:var(--muted);font-size:14px;line-height:1.55;text-align:center;background:#fbfbf9}
 .rs-projects{display:grid;gap:10px;margin-top:16px}
@@ -169,9 +163,6 @@
 .rs-proposal-view ul{margin:0 0 10px;padding-left:20px}
 .rs-proposal-view li{margin-bottom:4px}
 .rs-proposal-view a{text-decoration:underline;text-decoration-color:#c3c9bf;text-underline-offset:3px;overflow-wrap:anywhere}
-.rs-proposal-closed{margin-top:20px;display:flex;justify-content:space-between;align-items:center;gap:14px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:#fbfbf9;flex-wrap:wrap}
-.rs-proposal-closed>div{display:grid;gap:2px}
-.rs-proposal-closed strong{font-size:14px}
 .rs-pill-draft{background:#eef0ec;color:#575c55}
 .rs-project-side{display:grid;justify-items:end;gap:6px;flex:none}
 .rs-project-side .rs-pill{font-size:11px}

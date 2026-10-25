@@ -6,7 +6,7 @@ const QLOO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Metro areas where both brands' audiences are strongest within one country.
 // Qloo returns ranked map cells; each is named after the nearest metro, and a
 // metro shared by both lists is a suggested launch area. This is explanation
-// and concept material only: it never changes a verdict or the ranking.
+// and proposal material only: it never changes a verdict or the ranking.
 export async function sharedLaunchAreas(ownerUserId, seedQlooId, partnerQlooId, market = "US",
   { wherePopular = personalQlooWherePopular, limit = 4 } = {}) {
   const country = MARKETS[market];

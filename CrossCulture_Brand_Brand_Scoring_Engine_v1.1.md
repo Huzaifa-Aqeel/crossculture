@@ -53,7 +53,7 @@ A rejected *claim* does not automatically invalidate a different legitimate clai
 | **Shopify Global Catalog MCP** | Products, individual **seller offers**, selected variants, appropriate price/availability/market filters. | Seller = manufacturer/brand owner, partnership consent, merged checkout. |
 | **Official brand sites / verified merchant records** | Corroborated business identity, official domain and associated storefront. | Exhaustive commercial registry or product fit. |
 | **Tavily / official public sources** | Selective identity research and external verification; documented historical collaborations, dated signals and material review flags. | A search result alone does not prove identity, absence of risk or controversy, contractual authorization or future impact. |
-| **Qwen** | Proposed falsifiable mechanisms, extracted source-linked attributes, explanations and concepts. | Authoritative facts, raw affinity values, final verdict, invented certainty or confidence scores. |
+| **Qwen** | Proposed falsifiable mechanisms, extracted source-linked attributes and explanations. | Authoritative facts, raw affinity values, final verdict, invented certainty or confidence scores. |
 
 Each material claim is an independently validated observation with stable `claimId`, precise subject, source/operation reference, observed time, basis (`qloo_result`, `merchant_authored`, `shopify_inferred`, `official_corroboration`, `llm_hypothesis`), and its applicable seller, variant, country and currency context. An LLM hypothesis **cannot** serve as factual corroboration for itself.
 
@@ -608,7 +608,7 @@ Each test below assumes **real evidence in a fixture packet** where stated; bran
 3. Implement **cultural relationship + cultural explanation** independently, including native-without-tag and focused-query-only cases.
 4. Implement three product-mechanism checks, objective-specific proof rules and hard-vs-default market semantics.
 5. Implement deterministic status policy, lexicographic supported ranking, grouping/deduplication, stable tie-breakers and bounded worker research.
-6. Wire evidence explanations into UI; maintain distinct Supported / Needs Verification / Unsupported states and research-lead labeling. Generate three grounded concepts **after partner selection** using the existing Proposal Studio.
+6. Wire evidence explanations into UI; maintain distinct Supported / Needs Verification / Unsupported states and research-lead labeling. After partner selection, draft the proposal directly from verified facts in the Proposal Studio (concept step removed 25 Oct).
 7. Verify no Shopify policy violations or SSRF; run all fixtures applicable to enabled paths, including disabled-branch rejection checks, plus Brand × Brand end-to-end tests; then perform the human quality evaluation. Run the context and fallback fixtures before enabling those optional paths.
 
 **Definition of done:** For every shown opportunity, a reviewer can tell **which verified companies/merchants and selected products**, **what Qloo actually established**, **why the products work together for this user's objective**, **which facts remain unverified**, **what still requires a deal**, **why this result ranks above another**, and **what was observed versus inferred**. If a mandatory element is missing, call it Needs Verification/research lead instead of inventing certainty.

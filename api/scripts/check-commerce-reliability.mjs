@@ -449,7 +449,7 @@ assert.equal(quotesShareActivity("dinner service", { title: "Sauté Pan", descri
 "An activity the pages never name cannot link two items");
 
 // Prompt templates must not carry example answers: the model copied them verbatim.
-for (const file of ["commerce-mechanism.mjs", "commerce-concepts.mjs", "commerce-context.mjs"]) {
+for (const file of ["commerce-mechanism.mjs", "commerce-context.mjs"]) {
   const source = await readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
   assert.doesNotMatch(source, /"[A-Za-z]+":\s*(?:true|false)\b/, `${file} has a prompt template with a fixed boolean answer`);
 }

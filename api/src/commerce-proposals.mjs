@@ -1,15 +1,15 @@
 import pg from "pg";
 import { refreshCommerceOffers, currentCommerceAssessment } from "./commerce-offer-refresh.mjs";
-import { developCommerceConcepts } from "./commerce-concepts.mjs";
 import { commerceProposal } from "./proposal-template.mjs";
 import { sharedLaunchAreas } from "./commerce-launch.mjs";
 
 let pool;
 const db = () => pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 
-export async function commerceProposalAction(userId, matchId, { conceptId = null } = {},
-  { develop = developCommerceConcepts, refresh = refreshCommerceOffers,
-    launchAreas = sharedLaunchAreas } = {}) {
+// Writes a proposal straight from a verified opportunity, or returns the one
+// already written. The selected offers are re-checked first.
+export async function commerceProposalAction(userId, matchId, _input = {},
+  { refresh = refreshCommerceOffers, launchAreas = sharedLaunchAreas } = {}) {
   const found = await db().query(`select m.id,r.objective,r.match_type,
     r.constraints_json->'commerceRequirements' as requirements,
     seed.canonical_name as "seedName",partner.canonical_name as "partnerName",
@@ -35,12 +35,11 @@ export async function commerceProposalAction(userId, matchId, { conceptId = null
       row.evidenceStatus !== "valid") {
     throw Object.assign(new Error("Commerce opportunity not found."), { statusCode: 404 });
   }
+  const names = { seedName: row.seedName, partnerName: row.partnerName, objective: row.objective };
   const existingBrief = await db().query(`select id,content_markdown as markdown,revision
     from public.briefs where match_id=$1 and user_id=$2 order by updated_at desc limit 1`,
   [matchId, userId]);
-  if (existingBrief.rows[0]) return { ...existingBrief.rows[0], reused: true };
-  const existingConcepts = await db().query(`select id,title,format,draft_json as draft
-    from public.concepts where match_id=$1 and user_id=$2 order by version`, [matchId, userId]);
+  if (existingBrief.rows[0]) return { ...existingBrief.rows[0], ...names, reused: true };
   const currentOffers = await refresh(row.evidence?.commerce?.references,
     { market: row.evidence?.commerce?.market ?? "US", requirements: row.requirements ?? {},
       officialSites: { seed: row.seedWebsite, partner: row.partnerWebsite } });
@@ -52,47 +51,17 @@ export async function commerceProposalAction(userId, matchId, { conceptId = null
     throw Object.assign(new Error("Selected product offers need a fresh review before a proposal."),
       { statusCode: 409 });
   }
-  if (conceptId) {
-    const selected = existingConcepts.rows.find((item) => item.id === conceptId);
-    if (!selected) throw Object.assign(new Error("Choose one of these concepts."), { statusCode: 400 });
-    const sourceUrls = [
-      ...(row.evidence?.commerce?.identitySourceRefs ?? []),
-      ...(row.evidence?.commerce?.culturalSourceRefs ?? []),
-      ...(row.evidence?.commerce?.externalSourceRefs ?? []),
-      ...(selected.draft.datedAngleSourceUrl ? [selected.draft.datedAngleSourceUrl] : []),
-    ];
-    const launch = await launchAreas(userId, row.seedQlooId, row.partnerQlooId, row.market)
-      .catch(() => null);
-    const markdown = commerceProposal({ seedName: row.seedName, partnerName: row.partnerName,
-      objective: row.objective, concept: { ...selected.draft, title: selected.title, format: selected.format },
-      assessment: row.assessment, offers: currentOffers, launchAreas: launch?.areas ?? [], sourceUrls });
-    const saved = await db().query(`insert into public.briefs
-      (user_id,match_id,concept_id,assessment_id,content_markdown)
-      values ($1,$2,$3,$4,$5) returning id,content_markdown as markdown,revision`,
-    [userId, matchId, selected.id, row.assessmentId, markdown]);
-    return { ...saved.rows[0], reused: false };
-  }
-  if (existingConcepts.rows.length === 3) return { concepts: existingConcepts.rows, reused: true };
-  // Optional cultural context for concept ideas; never required to develop them.
   const launch = await launchAreas(userId, row.seedQlooId, row.partnerQlooId, row.market)
     .catch(() => null);
-  const concepts = await develop({ seedName: row.seedName, partnerName: row.partnerName,
-    objective: row.objective, assessment: row.assessment, currentOffers,
-    launchAreas: launch?.areas ?? [] });
-  const saved = [];
-  for (const [index, item] of concepts.entries()) {
-    const created = await db().query(`insert into public.concepts
-      (user_id,match_id,base_assessment_id,version,title,format,draft_json)
-      values ($1,$2,$3,$4,$5,$6,$7::jsonb)
-      on conflict (match_id,version) do nothing returning id,title,format,draft_json as draft`,
-    [userId, matchId, row.assessmentId, index + 1, item.title, item.format,
-      JSON.stringify(item)]);
-    if (created.rows[0]) saved.push(created.rows[0]);
-  }
-  if (saved.length !== 3) {
-    const current = await db().query(`select id,title,format,draft_json as draft
-      from public.concepts where match_id=$1 and user_id=$2 order by version`, [matchId, userId]);
-    return { concepts: current.rows, reused: true };
-  }
-  return { concepts: saved, reused: false };
+  const markdown = commerceProposal({ seedName: row.seedName, partnerName: row.partnerName,
+    objective: row.objective, assessment: row.assessment, offers: currentOffers,
+    launchAreas: launch?.areas ?? [], sourceUrls: [
+      ...(row.evidence?.commerce?.identitySourceRefs ?? []),
+      ...(row.evidence?.commerce?.culturalSourceRefs ?? []),
+      ...(row.evidence?.commerce?.externalSourceRefs ?? [])] });
+  const saved = await db().query(`insert into public.briefs
+    (user_id,match_id,assessment_id,content_markdown)
+    values ($1,$2,$3,$4) returning id,content_markdown as markdown,revision`,
+  [userId, matchId, row.assessmentId, markdown]);
+  return { ...saved.rows[0], ...names, reused: false };
 }

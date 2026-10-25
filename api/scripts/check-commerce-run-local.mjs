@@ -237,33 +237,19 @@ try {
   const reviewed = (await getPersonalRun(users[0], started.runId)).matches.find((item) => item.id === matchId);
   assert.deepEqual(reviewed.evidence.commerce.externalFindings, [reviewFinding]);
   assert.equal(reviewed.savedScore.status, "supported", "The review never changes the saved verdict");
-  const concepts = await commerceProposalAction(users[0], matchId, {}, {
-    launchAreas: async () => ({ areas: [] }),
-    refresh: async () => ({ seed: { status: "current", title: "Bath towel", available: true,
-      marketCheck: { state: "supported" } },
-      partner: { status: "current", title: "Bathmat", available: true,
-        price: { amountMinor: 4400, currencyCode: "USD" },
-        marketCheck: { state: "supported" } } }),
-    develop: async () => ["Gift set", "Bath routine", "Housewarming"].map((format, index) => ({
-      title: format + " concept", format,
-      summary: "A proposed pairing of the bath towel and bathmat for a specific use.",
-      roles: { seed: "Supply the selected towel.", partner: "Supply the selected bathmat." },
-      validation: "Confirm interest, rights, fulfillment and current offer facts.",
-      evidenceRefs: ["seed_product", "partner_product"], index })),
-  });
-  assert.equal(concepts.concepts.length, 3);
-  await assert.rejects(commerceProposalAction(users[0], matchId,
-    { conceptId: concepts.concepts[1].id }), (error) => error.statusCode === 409);
-  const brief = await commerceProposalAction(users[0], matchId,
-    { conceptId: concepts.concepts[1].id }, { launchAreas: async () => ({ areas: ["Seattle area"] }),
-      refresh: async () => ({
-      seed: { status: "current", title: "Bath towel", available: true,
-        marketCheck: { state: "supported" } },
-      partner: { status: "current", title: "Bathmat", available: true,
-        price: { amountMinor: 4400, currencyCode: "USD" },
-        marketCheck: { state: "supported" } },
-    }) });
-  assert.match(brief.markdown, /## The idea/);
+  // A proposal is written straight from the verified opportunity.
+  const offersNow = async () => ({ seed: { status: "current", title: "Bath towel", available: true,
+    marketCheck: { state: "supported" } },
+    partner: { status: "current", title: "Bathmat", available: true,
+      price: { amountMinor: 4400, currencyCode: "USD" }, marketCheck: { state: "supported" } } });
+  const brief = await commerceProposalAction(users[0], matchId, {},
+    { launchAreas: async () => ({ areas: ["Seattle area"] }), refresh: offersNow });
+  assert.equal(brief.reused, false);
+  assert.ok(brief.partnerName && brief.seedName, "The proposal page can name both brands");
+  const reopened = await commerceProposalAction(users[0], matchId, {},
+    { refresh: async () => { throw new Error("An existing proposal is not rewritten"); } });
+  assert.equal(reopened.id, brief.id);
+  assert.equal(reopened.reused, true);
   assert.match(brief.markdown, /## The products\n\n- \*\*Bath towel\*\*/);
   assert.doesNotMatch(brief.markdown, /## Measurement plan/, "No empty template sections");
   assert.match(brief.markdown, /## Where audiences overlap\n\nSeattle area/);

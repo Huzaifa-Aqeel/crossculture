@@ -72,7 +72,7 @@ In **Primary — Find Partners**, Brand B is never required. In **Secondary — 
 | **Shopify Global Catalog MCP** | Searching **across merchants**, finding offers when a store endpoint is missing, or a separately labeled discovery fallback | Products, seller offers, variants and relevant market/price signals | Seller equals manufacturer, wholesale eligibility, a commercial agreement |
 | **Official brand websites** | Checking the real business and its official domain | First-party business evidence and documented ownership when available | Product-market fit or complete company registry |
 | **Verified merchant records** | Linking an official storefront to the business | Confirm the associated Shopify merchant/store and seller where available | Seller equals manufacturer or brand owner without further evidence |
-| **Qwen + structured validation** | Extracting specific product-cultural references, selecting research questions, proposing product mechanisms, writing concepts | Source-linked descriptions, structured findings and justified hypotheses | Independent proof of facts, Qloo affinities, automatic decision authority |
+| **Qwen + structured validation** | Extracting specific product-cultural references, selecting research questions, proposing product mechanisms | Source-linked descriptions, structured findings and justified hypotheses | Independent proof of facts, Qloo affinities, automatic decision authority |
 | **Tavily** | Selective identity research when needed; after product shortlisting; optionally after user selects partner | Sources for identity corroboration, documented collaborations, relevant public concerns and dated seasonal/cultural hooks | A search result alone does not prove identity, absence of controversy, contractual availability or predicted results |
 | **Commerce Assessment v1.1** | Once evidence for a proposed product opportunity is assembled | Transparent Supported / Needs Verification / Unsupported result | A probability of success or ROI forecast |
 | **Supabase** | Throughout | User runs, permitted evidence references, assessments, editable proposals and access control | Permission to retain prohibited Shopify catalog results |
@@ -197,12 +197,11 @@ Display the evaluated opportunities grouped by verified partner, with the actual
 
 ### Step 9 — After user selection, create the proposal
 
-Only after the user chooses a researched product partnership:
+Only after the user chooses a researched product partnership (**amended 25 Oct, user decision:** the separate three-concept step is removed):
 
-1. Optionally use Qloo cultural context and **dated Tavily evidence** to investigate a relevant seasonal or cultural angle.
-2. Qwen creates **three distinct, grounded concepts** involving the selected existing products. A separate constrained review checks each title, format and summary against the assessed product roles, current offer names and dated evidence before the draft is shown or saved; a creative draft cannot add new product or deal facts.
-3. The user chooses or edits a concept in the existing **Proposal Studio**.
-4. Save/reload/export the user-controlled proposal under the existing authentication and access rules.
+1. **Create proposal** re-checks both selected offers, then drafts the proposal directly from verified facts only: the products with links and prices, why it fits, cultural fit, where audiences overlap, what each brand brings (the assessed product roles), what to agree together and sources. Sections without evidence are left out; no model writes new product or deal facts.
+2. The proposal opens on its own page (the **Proposal Studio**) for reading, editing, copying, download and save; closing it returns to the research results.
+3. Save/reload/export the user-controlled proposal under the existing authentication and access rules.
 
 Do not invent a partner's consent, shared checkout, bundle discount, manufacturing agreement, retailer permission, campaign ROI or predicted sales.
 
@@ -315,7 +314,7 @@ A completed experience must demonstrate:
 3. **A specific objective-appropriate pairing**, with real offer facts and honest missingness.
 4. **A product-opportunity outcome** that correctly handles supported, unknown and contradicted evidence.
 5. **Selective Tavily identity research, external verification and shortlist findings**, without inventing brand-safety guarantees.
-6. **Three source-grounded concepts and a working saved/editable proposal**, while respecting Shopify's catalog rules.
+6. **A fact-grounded, saved and editable proposal** (no separate concept step, amended 25 Oct), while respecting Shopify's catalog rules.
 7. **No retired Brand × Brand or Brand × YouTube workflow or reports in the final app**.
 
 Also test the failure cases: ambiguous name, wrong seller/retailer, variant substitution, missing prices, currency mismatch, unverified US shipping, incomplete assortment, broad generic Qloo tags, Shopify direction-only leads, and partner without accessible products. For Qloo specifically: nonexistent/ambiguous brand ID; tag analysis unavailable but native recommendations still working; recommendations with no explainability; candidate-specific check absent/empty/changed-context; no named theme support; changed discovery ranks across queries; and an attractive Qloo candidate whose Shopify product pairing fails. **Verify that the worker continues to another Qloo candidate without inventing results.**

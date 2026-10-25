@@ -84,7 +84,7 @@ export function assessCommerceOpportunity(input) {
     researchLead: relationship === "direction_only", culturalRelationship: relationship,
     culturalExplanation: explanation, culturalTheme: explanation !== "no_named_theme"
       ? String(input.culturalTheme ?? "").slice(0, 120) || null : null,
-    // Display and concept context only; not ranking features (Scoring Engine 3.3).
+    // Display and proposal context only; not ranking features (Scoring Engine 3.3).
     culturalThemes: explanation !== "no_named_theme" ? unique((input.culturalThemes ?? [])
       .filter((value) => typeof value === "string")).slice(0, 3).map((value) => value.slice(0, 80)) : [],
     sharedAudienceTastes: unique((input.sharedAudienceTastes ?? []).filter((value) =>

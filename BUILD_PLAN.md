@@ -28,6 +28,10 @@
 
 Consent, exposure logging, a scheduled aggregate learner and a randomized exploration slot wait until there are enough independent users. A fine-tuned model, collaborative filtering and click-based ranking remain out of scope; a change to displayed ranking requires a new scorer-policy decision.
 
+## Proposal without concepts (25 October, user decision)
+
+"Develop concepts" is removed. A Supported card shows **Create proposal** (or **Open proposal**); it opens `/projects/[id]/proposal/[matchId]`, which writes the proposal from verified facts on first open and returns the saved one afterwards. Close returns to the same run. Migration `202610250004` makes `briefs.concept_id` optional; existing concept rows are untouched.
+
 ## Research breadth (25 October)
 
 Each partner stops after 3 Supported pairs, or after 8 assessed pairs with nothing worth showing, so the run budget reaches more partners. A partner's own allowance, store failure or early stop never ends the run.

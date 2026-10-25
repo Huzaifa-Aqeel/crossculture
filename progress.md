@@ -1,5 +1,12 @@
 # CrossCulture implementation checkpoint
 
+## 2026-10-25 — Concepts removed; proposal on its own page
+
+- User decision: remove "Develop concepts"; show only "Create proposal"; open the Proposal Studio as its own page and return to the results on close.
+- Built (API): `commerceProposalAction` writes the proposal directly (offer re-check, launch areas, verified-fact template; "What each brand brings" from the assessed product roles) and returns the saved one on later calls, now with seed/partner names and objective. Removed `commerce-concepts.mjs` (concept generation and review model calls), its live check and offline tests, and concept fields from the run response. Migration `202610250004_proposal_without_concept.sql` drops NOT NULL on `briefs.concept_id` (hosted dry run lists only this migration).
+- Built (web): cards show "Create proposal" or "Open proposal"; the new page `/projects/[id]/proposal/[matchId]?run=` writes or loads the proposal (one request per opportunity), keeps Edit/Copy/Download/Save, asks before discarding unsaved edits, and Close returns to the same run. Writing a proposal still records the save signal that triggers the partner's public-source review. Unused concept and closed-proposal CSS removed.
+- Tested: offline 12/12 (new direct-proposal template test); local suite script updated for the new flow but not run (local Supabase down); web TypeScript, ESLint and production build pass. Not yet checked in a browser. Needs the hosted migration push, Lambda redeploy and Vercel deploy, in that order.
+
 ## 2026-10-25 — Architecture review fixes (#1–#5)
 
 - **Description field (#4):** three evidence checks read `description.plain`, which storefront products never send; stated preferences matched only through model quotes, and cultural themes counted as specific only from titles. They now use the shared description reader (`productDescriptionText`).
@@ -17,6 +24,7 @@
 ## 2026-10-25 — Apparel wearer rule (user decision: drop doubtful pairs)
 
 - User decisions: delete the wrong Cuyana memory row (done on hosted Supabase: 1 partner row and its 19 pair rows; memory tables now empty); doubtful apparel pairs are dropped, never shown.
+- At the user's request, the hosted run `57603320` was deleted with its 4 matches, 4 assessments, 3 concepts and 1 feedback row (cascade); its Everlane Cross-Sell project was kept.
 - Built: for a starting product labelled men's or women's, a partner product a person wears or carries (taxonomy `aa-1` clothing, `aa-2` clothing accessories, `aa-4`/`aa-5` handbags, wallets, cases and their accessories, `aa-6` jewelry, `aa-8` shoes) is removed unless its wearer is confirmed the same or it is labelled unisex (listed for both counts as unisex). Wearer comes from the product's own labels, else the agreeing brand signals (Qloo description, homepage). Applied at search results and again on product detail. Recorded in Scoring Engine "Wearer (amended 25 Oct)". Other categories and starting products without a stated wearer are unaffected.
 - Check: all four Cuyana items from run `57603320` (two shoulder bags, belt, pouch) are now dropped for the men's shirt even without the homepage signal. Offline 12/12 with new tests (unlabelled bag dropped; unisex tote, men's belt and uncategorised item kept; all-unconfirmed partner ends as wearer mismatch; no-wearer starting product unaffected). Needs Lambda redeploy.
 
