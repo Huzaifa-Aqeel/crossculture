@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Header } from "@/components/header";
 import { browserSupabase } from "@/lib/supabase/client";
-import { GOALS, marketName } from "@/lib/markets";
 import "../research/research.css";
 
 type Project = { id: string; name: string; objective: string; seedName: string; market?: string; updatedAt: string;
@@ -64,9 +63,7 @@ export default function AccountPage() {
         // A draft continues where setup stopped: choosing the product.
         return <Link className="rs-project" key={project.id}
           href={draft ? `/research/new?project=${project.id}` : `/projects/${project.id}`}>
-          <div><strong>{project.name}</strong>
-            <div className="rs-meta" style={{ marginTop: 4 }}><span>{project.seedName}</span>
-              <span>{marketName(project.market ?? "US")}</span><span>{GOALS[project.objective]?.label ?? "Partnership"}</span></div></div>
+          <div><strong>{project.name}</strong></div>
           <div className="rs-project-side"><span className={`rs-pill ${pill}`}>{status}</span>
             <span>{draft ? "Continue setup" : new Date(project.updatedAt).toLocaleDateString()}</span></div></Link>;
       })}</div>

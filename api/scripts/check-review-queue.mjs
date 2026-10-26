@@ -1,22 +1,35 @@
 // Feedback effects, review sampling, reviewer access and queue merging.
 // Offline: no database or provider call.
 import assert from "node:assert/strict";
-import { feedbackEffects, reviewSamplesFromRun, isReviewer, mergeQueue } from "../src/review-queue.mjs";
-import { memoryRowsFromRun } from "../src/research-memory.mjs";
+import { feedbackEffects, reviewSamplesFromRun, isAdmin, mergeQueue } from "../src/review-queue.mjs";
+import { memoryRowsFromRun, productPairKeyFor } from "../src/research-memory.mjs";
 
 const key = (letter) => letter.repeat(64);
-// Latest feedback per opportunity: passed pairs are skipped everywhere; a
-// partner reason excludes the partner only in its own project.
+// Latest feedback per opportunity. Passed product pairs are skipped for any
+// brand and any variant; partner reasons and liked partners apply to the same
+// starting brand, in any project (a later search starts a new project).
+const ref = (seed, partner, variant = "v1") => ({ seed: { productId: seed, variantId: variant, sellerId: "s" },
+  partner: { productId: partner, variantId: variant, sellerId: "t" } });
+const event = (action, reasonCode, seedEntityId, references, partnerQlooId) =>
+  ({ action, reasonCode, seedEntityId, objective: "product_bundle", references, partnerQlooId });
 const effects = feedbackEffects([
-  { action: "reject", reasonCode: "products_dont_fit", projectId: "p1", opportunityKey: key("a"), partnerQlooId: "q1" },
-  { action: "reject", reasonCode: "already_working", projectId: "p1", opportunityKey: key("b"), partnerQlooId: "q2" },
-  { action: "reject", reasonCode: "not_right_for_brand", projectId: "p2", opportunityKey: key("c"), partnerQlooId: "q3" },
-  { action: "reject", reasonCode: null, projectId: "p1", opportunityKey: key("d"), partnerQlooId: "q4" },
-  { action: "save", reasonCode: null, projectId: "p1", opportunityKey: key("e"), partnerQlooId: "q5" },
-], "p1");
-assert.deepEqual(effects.rejectedOpportunityKeys, [key("a"), key("b"), key("c"), key("d")]);
-assert.deepEqual(effects.excludedPartnerQlooIds, ["q2"], "Partner reasons apply within the same project only");
-assert.deepEqual(feedbackEffects(null, "p1"), { rejectedOpportunityKeys: [], excludedPartnerQlooIds: [] });
+  event("reject", "products_dont_fit", "brandA", ref("blanket", "duffle"), "q1"),
+  event("reject", "already_working", "brandA", ref("blanket", "sling"), "q2"),
+  event("reject", "not_right_for_brand", "brandB", ref("pan", "bowl"), "q3"),
+  event("reject", null, "brandA", ref("blanket", "kit"), "q4"),
+  event("save", null, "brandA", ref("blanket", "mug"), "q5"),
+  event("save", null, "brandA", ref("blanket", "bottle"), "q2"),
+  event("save", null, "brandB", ref("pan", "board"), "q6"),
+  event("reject", "products_dont_fit", "brandA", null, "q7"),
+], "brandA");
+assert.deepEqual(effects.rejectedPairKeys, [ref("blanket", "duffle"), ref("blanket", "sling"), ref("pan", "bowl"),
+  ref("blanket", "kit")].map((references) => productPairKeyFor("product_bundle", references)));
+assert.ok(effects.rejectedPairKeys.includes(productPairKeyFor("product_bundle", ref("blanket", "duffle", "camel"))),
+  "Another colour of the same two products is still the same pair");
+assert.deepEqual(effects.excludedPartnerQlooIds, ["q2"], "Partner reasons apply to the same starting brand");
+assert.deepEqual(effects.preferredPartnerQlooIds, ["q5"], "Liked partners for this brand; an excluded partner is never preferred");
+assert.deepEqual(feedbackEffects(null, "brandA"),
+  { rejectedPairKeys: [], excludedPartnerQlooIds: [], preferredPartnerQlooIds: [] });
 
 // Review samples: judged, not recommended, not already shown; at most two;
 // identifiers only.
@@ -39,10 +52,10 @@ const rows = memoryRowsFromRun({ objective: "product_bundle", market: "US", cand
   status: "product_researched", memory: { ...candidates[0].memory, heroCategory: "hg-12-2-5" } }] });
 assert.ok(rows[0].pairs.every((item) => !("references" in item)));
 
-assert.equal(isReviewer("Owner@Example.com", "owner@example.com, other@example.com"), true);
-assert.equal(isReviewer("someone@example.com", "owner@example.com"), false);
-assert.equal(isReviewer("owner@example.com", ""), false);
-assert.equal(isReviewer(null, "owner@example.com"), false);
+assert.equal(isAdmin({ app_metadata: { role: "admin" } }), true);
+assert.equal(isAdmin({ app_metadata: {}, user_metadata: { role: "admin" } }), false,
+  "A role users can set on themselves (user_metadata) never grants access");
+assert.equal(isAdmin(null), false);
 
 // One item per pair and objective, the most interesting source first.
 const merged = mergeQueue([
@@ -53,4 +66,4 @@ const merged = mergeQueue([
 ]);
 assert.deepEqual(merged.map((item) => `${item.source}:${item.opportunityKey[0]}:${item.objective}`),
   ["user_flag:a:product_bundle", "rejected_sample:b:product_bundle", "supported_sample:b:cross_sell"]);
-console.log("Review queue checks passed: feedback effects, sampling, reviewer access and merging.");
+console.log("Review queue checks passed: feedback effects, sampling, admin access and merging.");

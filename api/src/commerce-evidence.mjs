@@ -28,38 +28,54 @@ export function sharedAudienceTastes(seedTags, partnerTags, limit = 3) {
     ? `${tag.name.toLowerCase()} music` : tag.name.toLowerCase();
   return [...new Set(clean(seedTags).filter((tag) => partnerIds.has(tag.id)).map(phrase))].slice(0, limit);
 }
-// Who both brands appeal to, for this product pair. A tag counts only when
-// Qloo gives it to both brands in separate requests (the products are never
-// sent to Qloo), it is not near-universal, and a topic word of it appears in
-// the selected products' own text: Rumpl and United by Blue share
-// "environmental advocates", and the duffle's page mentions the environment.
-// People tags (customer identity, segment, influencer appeal) read "appeal
-// to"; lifestyle tags read "associated with". Explanation only.
+// Who both brands appeal to: a brand-level claim, since Qloo describes brands,
+// not products. A tag counts when Qloo gives it to both brands in separate
+// requests, it is not near-universal, and it is core to both: in the top half
+// of each brand's list (Caraway and Arhaus share "toddlers", but 20th and
+// 28th of 30, so it is not shown). Tags are ordered by the weaker of the two
+// positions, so a tag must be strong for both brands; one the selected
+// products' own text mentions goes first, but product text never hides a tag.
+// People tags (customer identity, segment, influencer appeal) read "resonate
+// with"; lifestyle tags read "associated with". Explanation only.
 const PEOPLE_TAG = /^urn:tag:(?:customer_identity|customer_segment|influencer_appeal):qloo:/;
 const LIFESTYLE_TAG = /^urn:tag:lifestyle:qloo:/;
 const ROLE_WORDS = new Set(["advocates", "advocate", "enthusiasts", "enthusiast", "consumers", "consumer",
   "individuals", "people", "influencers", "influencer", "lovers", "seekers", "shoppers", "bloggers",
   "lifestyle", "living", "style", "conscious", "focused", "minded", "fans", "community"]);
+// A segment naming children ("Toddlers", "Infants") means their parents;
+// children are never presented as the audience.
+const CHILD_SEGMENT = /\b(?:toddlers?|infants?|bab(?:y|ies)|kids?|children|newborns?|teens?|teenagers?|tweens?)\b/i;
 const stems = (text) => new Set(plainIdentity(text).split(" ").filter((word) => word.length >= 4)
   .map((word) => word.slice(0, 5)));
-export function sharedAudienceAppeal(seedTags, partnerTags, productTexts, limit = 2) {
-  const usable = (tags) => (Array.isArray(tags) ? tags : []).filter((tag) => distinctive(tag) &&
-    (PEOPLE_TAG.test(tag?.id ?? "") || LIFESTYLE_TAG.test(tag?.id ?? "")) && plainIdentity(tag.name).length >= 4);
-  const partner = new Map(usable(partnerTags).map((tag) => [plainIdentity(tag.name), tag]));
+export function sharedAudienceAppeal(seedTags, partnerTags, productTexts = [], limit = 2) {
+  // Each brand's core tags, keyed by name, with their position in Qloo's order.
+  const core = (tags) => {
+    const list = Array.isArray(tags) ? tags : [];
+    const half = Math.ceil(list.length / 2);
+    const byName = new Map();
+    list.forEach((tag, index) => {
+      const name = plainIdentity(tag?.name);
+      if (index < half && distinctive(tag) && name.length >= 4 && !byName.has(name) &&
+          !CHILD_SEGMENT.test(String(tag?.name ?? "")) &&
+          (PEOPLE_TAG.test(tag?.id ?? "") || LIFESTYLE_TAG.test(tag?.id ?? ""))) {
+        byName.set(name, { tag, position: index + 1 });
+      }
+    });
+    return byName;
+  };
+  const seed = core(seedTags);
+  const partner = core(partnerTags);
   const products = stems(productTexts.filter((value) => typeof value === "string").join(" "));
-  const relevant = (name) => plainIdentity(name).split(" ").filter((word) => word.length >= 4 &&
-    !ROLE_WORDS.has(word)).some((word) => products.has(word.slice(0, 5)));
-  const shared = new Map();
-  for (const tag of usable(seedTags)) {
-    const key = plainIdentity(tag.name);
-    const other = partner.get(key);
-    if (!other || shared.has(key) || !relevant(tag.name)) continue;
-    shared.set(key, { name: key, people: PEOPLE_TAG.test(tag.id) || PEOPLE_TAG.test(other.id),
-      popularity: Math.max(tag.popularity, other.popularity) });
-  }
-  const ordered = [...shared.values()].sort((a, b) => a.popularity - b.popularity);
-  return { people: ordered.filter((tag) => tag.people).slice(0, limit).map((tag) => tag.name),
-    lifestyle: ordered.filter((tag) => !tag.people).slice(0, limit).map((tag) => tag.name) };
+  const mentioned = (name) => name.split(" ").filter((word) => word.length >= 4 && !ROLE_WORDS.has(word))
+    .some((word) => products.has(word.slice(0, 5)));
+  const shared = [...seed].filter(([name]) => partner.has(name)).map(([name, own]) => {
+    const other = partner.get(name);
+    // Qloo's own wording, lower-cased ("women's fashion"), for display.
+    return { name: String(own.tag.name).trim().toLowerCase(), people: PEOPLE_TAG.test(own.tag.id) || PEOPLE_TAG.test(other.tag.id),
+      weaker: Math.max(own.position, other.position), mentioned: mentioned(name) };
+  }).sort((a, b) => Number(b.mentioned) - Number(a.mentioned) || a.weaker - b.weaker);
+  return { people: shared.filter((tag) => tag.people).slice(0, limit).map((tag) => tag.name),
+    lifestyle: shared.filter((tag) => !tag.people).slice(0, limit).map((tag) => tag.name) };
 }
 const validated = new WeakSet();
 const host = (url) => { try { const parsed = new URL(url); return parsed.protocol === "https:" ? parsed.hostname : null; }

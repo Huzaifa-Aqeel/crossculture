@@ -1,5 +1,6 @@
 import pg from "pg";
 import { refreshCommerceOffers } from "./commerce-offer-refresh.mjs";
+import { productPairKeyFor } from "./research-memory.mjs";
 
 // Adaptive learning loops 2 and 3: what a user's opportunity feedback changes
 // in their later research, and the developer review queue that turns real
@@ -17,20 +18,27 @@ const SAMPLE_DAYS = 90;
 const SAMPLES_PER_RUN = 2;
 
 // From each opportunity's latest effective feedback (undone feedback already
-// removed): exact pairs the user passed on, everywhere, and partners passed on
-// for a partner reason within this project.
-export function feedbackEffects(latest, projectId) {
-  const rejectedOpportunityKeys = new Set();
+// removed): the product pairs the user passed on (any brand, any colour or
+// size), partners passed on for a partner reason, and partners the user
+// liked (good fit or a proposal), both for the same starting brand: a later
+// search for that brand starts a new project, so a project is too narrow.
+export function feedbackEffects(latest, seedEntityId) {
+  const rejectedPairKeys = new Set();
   const excludedPartnerQlooIds = new Set();
+  const preferredPartnerQlooIds = new Set();
   for (const event of latest ?? []) {
-    if (event?.action !== "reject") continue;
-    if (/^[0-9a-f]{64}$/.test(event.opportunityKey ?? "")) rejectedOpportunityKeys.add(event.opportunityKey);
-    if (event.projectId === projectId && PARTNER_REASONS.has(event.reasonCode) && event.partnerQlooId) {
-      excludedPartnerQlooIds.add(event.partnerQlooId);
-    }
+    const sameBrand = Boolean(seedEntityId) && event?.seedEntityId === seedEntityId && event.partnerQlooId;
+    if (event?.action === "reject") {
+      if (event.references?.seed?.productId && event.references?.partner?.productId) {
+        rejectedPairKeys.add(productPairKeyFor(event.objective, event.references));
+      }
+      if (sameBrand && PARTNER_REASONS.has(event.reasonCode)) excludedPartnerQlooIds.add(event.partnerQlooId);
+    } else if (event?.action === "save" && sameBrand) preferredPartnerQlooIds.add(event.partnerQlooId);
   }
-  return { rejectedOpportunityKeys: [...rejectedOpportunityKeys].slice(0, 500),
-    excludedPartnerQlooIds: [...excludedPartnerQlooIds].slice(0, 50) };
+  for (const id of excludedPartnerQlooIds) preferredPartnerQlooIds.delete(id);
+  return { rejectedPairKeys: [...rejectedPairKeys].slice(0, 1000),
+    excludedPartnerQlooIds: [...excludedPartnerQlooIds].slice(0, 100),
+    preferredPartnerQlooIds: [...preferredPartnerQlooIds].slice(0, 20) };
 }
 
 // A few judged pairs the research did not recommend, so the reviewer also sees
@@ -76,10 +84,10 @@ export async function recordReviewSamples(rows) {
   finally { connection.release(); }
 }
 
-// Reviewers are named by email in REVIEWER_EMAILS; everyone else gets "not found".
-export function isReviewer(email, configured = process.env.REVIEWER_EMAILS) {
-  const allowed = String(configured ?? "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
-  return Boolean(email) && allowed.includes(String(email).trim().toLowerCase());
+// Developer access is an admin role on the account: Supabase app_metadata,
+// which only the server or the Supabase dashboard can set, never the user.
+export function isAdmin(user) {
+  return user?.app_metadata?.role === "admin";
 }
 
 // Order of interest when one pair appears in several sources.

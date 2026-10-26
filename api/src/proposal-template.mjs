@@ -28,7 +28,7 @@ export function culturalSummary(assessment, seedName, partnerName) {
     : assessment?.culturalRelationship === "direct_pair_supported" ? `People who like ${partnerName} also tend to like ${seedName}.` : "";
   if (!affinity && !themes.length) return "";
   return [affinity, themes.length ? `Both brands are known for ${listText(themes)}.` : "",
-    people.length ? `Both brands appeal to ${listText(people)}.`
+    people.length ? `Both brands resonate with ${listText(people)}.`
       : lifestyle.length ? `Both brands are associated with ${listText(lifestyle)}.` : ""].filter(Boolean).join(" ");
 }
 

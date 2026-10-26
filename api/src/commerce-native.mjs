@@ -540,7 +540,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
     leads = leads.map((lead) => known.get(lead.qlooId)
       ? { ...lead, website: known.get(lead.qlooId), websiteSource: "verified_record" } : lead);
   }
-  // Partners the user passed on in this project (already working with them,
+  // Partners the user passed on for this brand (already working with them,
   // not right for the brand, not credible) are not researched again.
   const userExcluded = new Set(specifiedPartner ? [] : userFeedback?.excludedPartnerQlooIds ?? []);
   const excludedByUser = leads.filter((lead) => userExcluded.has(lead.qlooId));
@@ -583,7 +583,11 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       .catch(() => []), userConstraints.heroProduct?.categoryId ?? null);
   const remembered = specifiedPartner ? { ordered: leads, skipped: [] }
     : orderLeadsWithMemory(hintOrder, memoryTiers);
-  const selectedLeads = remembered.ordered;
+  // Partners this user liked for this brand are researched first (still
+  // verified live); the rest keep the memory and Qloo order.
+  const preferred = new Set(specifiedPartner ? [] : userFeedback?.preferredPartnerQlooIds ?? []);
+  const selectedLeads = [...remembered.ordered.filter((lead) => preferred.has(lead.qlooId)),
+    ...remembered.ordered.filter((lead) => !preferred.has(lead.qlooId))];
   for (const lead of excludedByUser) {
     excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
       status: "excluded_by_user" });
@@ -685,7 +689,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
           partner: { ...verifiedPartner, description: verifiedPartner.description ?? lead.description },
           objective, discoveryBasis: specifiedPartner ? "user_specified" : "qloo_native_brand",
           cultureEvidence, market, userConstraints, seedRange, runShared,
-          userRejectedKeys: userFeedback?.rejectedOpportunityKeys ?? [],
+          // A partner the user chose to compare is assessed in full.
+          userRejectedPairs: specifiedPartner ? [] : userFeedback?.rejectedPairKeys ?? [],
           maxCatalogCalls: candidateBudget, maxResearchMs: partnerTime });
       } finally { reservedCalls -= candidateBudget; }
       // A storefront or capability failure can return before making any

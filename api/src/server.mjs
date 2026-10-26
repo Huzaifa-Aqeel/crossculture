@@ -14,9 +14,9 @@ import { cachedBrandLookup, reserveBrandLookup, completeBrandLookup, openBrandLo
   purgeRequestState } from "./request-state.mjs";
 import { listProjects, getProject, createProject, updateProject, knownStartingBrand,
   ownsStartingBrand } from "./projects.mjs";
-import { reviewQueue, recordReviewLabel, isReviewer } from "./review-queue.mjs";
+import { reviewQueue, recordReviewLabel, isAdmin } from "./review-queue.mjs";
 import { startPersonalRun, listPersonalRuns, getPersonalRun, recordPersonalFeedback, updatePersonalFeedbackReason,
-  undoPersonalFeedback, updatePersonalBrief, createPersonalProposal, refreshPersonalMatch,
+  updatePersonalBrief, createPersonalProposal, refreshPersonalMatch,
   researchPersonalMatchAudience, researchPersonalMatchLaunchAreas,
   workOnePersonalRun } from "./personal-research.mjs";
 
@@ -64,8 +64,7 @@ export const httpServer = createServer(async (request, response) => {
     const user = await verifiedUser(request);
     if (!user) return send(response, 401, { message: "Sign in to access personal research." });
     if (request.method === "GET" && pathname === "/me") return send(response, 200, { id: user.id,
-      email: user.email, reviewer: isReviewer(user.email),
-      contextDiscoveryAvailable: process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED === "1" });
+      email: user.email, contextDiscoveryAvailable: process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED === "1" });
     if (pathname === "/personal/runs") {
       if (request.method === "POST") {
         const created = await startPersonalRun(user.id, await readJson(request));
@@ -88,9 +87,10 @@ export const httpServer = createServer(async (request, response) => {
       const feedback = await updatePersonalFeedbackReason(user.id, personalFeedbackRoute[1], await readJson(request));
       return send(response, feedback ? 200 : 404, feedback ? { feedback } : { message: "Feedback not found." });
     }
-    // Developer review queue: reviewers only; it does not exist for anyone else.
+    // Developer review queue (exceptions only): admin accounts only; it does
+    // not exist for anyone else. There is no review page in the app.
     if (pathname.startsWith("/personal/review/")) {
-      if (!isReviewer(user.email)) return send(response, 404, { message: "Not found." });
+      if (!isAdmin(user)) return send(response, 404, { message: "Not found." });
       if (pathname === "/personal/review/queue" && request.method === "GET") {
         return send(response, 200, { items: await reviewQueue() });
       }
@@ -98,10 +98,6 @@ export const httpServer = createServer(async (request, response) => {
         return send(response, 201, { label: await recordReviewLabel(user.id, await readJson(request)) });
       }
       return send(response, 404, { message: "Not found." });
-    }
-    if (personalFeedbackRoute && request.method === "DELETE") {
-      const undone = await undoPersonalFeedback(user.id, personalFeedbackRoute[1]);
-      return send(response, undone ? 200 : 404, undone ? { undone: true } : { message: "Feedback not found." });
     }
     if (personalBriefRoute && request.method === "PATCH") return send(response, 200,
       { brief: await updatePersonalBrief(user.id, personalBriefRoute[1], await readJson(request)) });

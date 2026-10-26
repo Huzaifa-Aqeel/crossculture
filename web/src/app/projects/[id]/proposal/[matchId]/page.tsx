@@ -105,7 +105,7 @@ export default function ProposalPage({ params }: { params: Promise<{ id: string;
       {error ? <p className="rs-error" role="alert">{error}</p> : <p className="rs-quiet">Writing proposal…</p>}
       {error && <p style={{ marginTop: 14 }}><button className="rs-button-quiet" type="button" onClick={close}>Back to results</button></p>}
     </div> : <div className="rs-studio">
-      <div className="rs-studio-head"><strong>{proposal.partnerName}</strong>
+      <div className="rs-studio-head">
         <div className="rs-studio-tools">
           <button className="rs-link" type="button" onClick={() => setEditing((value) => !value)}>{editing ? "Preview" : "Edit"}</button>
           <button className="rs-link" type="button" onClick={() => { void navigator.clipboard?.writeText(text).then(() => {

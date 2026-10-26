@@ -16,13 +16,13 @@ import { catalogClient, discoverVerifiedStorefront } from "./shopify-catalog.mjs
 import { selectedProductPage } from "./commerce-product-page.mjs";
 import { categoryName, sameRange } from "./product-taxonomy.mjs";
 import { taxonomyCategory, screenKeyFor, recallScreenDecision,
-  opportunityKeyFor, recallJudgedRejections } from "./research-memory.mjs";
+  opportunityKeyFor, productPairKeyFor, recallJudgedRejections } from "./research-memory.mjs";
 
 // Shared, transient pair research for native discovery and direct comparison.
 // The caller supplies only independently verified brand identities and Qloo evidence.
 export async function researchCommercePair({ seed, partner, objective, cultureEvidence = null,
   discoveryBasis, market = "US", userConstraints = {}, maxCatalogCalls = 28, seedRange = null,
-  runShared = null, userRejectedKeys = [],
+  runShared = null, userRejectedPairs = [],
   maxResearchMs = Number(process.env.COMMERCE_PARTNER_RESEARCH_MS) || 120_000 }, {
   createCatalog = () => catalogClient({ maxCalls: maxCatalogCalls }), discoverStorefront = discoverVerifiedStorefront,
   productQueries = null, planAnchorSearch = planAnchorProductSearch,
@@ -707,10 +707,14 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   const rejected = await recallRejections(found.map(keyOf), pairJudgeVersion()).catch(() => new Set());
   const pairsSkippedFromMemory = found.filter((pair) => rejected.has(keyOf(pair))).length;
   found = found.filter((pair) => !rejected.has(keyOf(pair)));
-  // An exact pair this user marked "Not a fit" is never shown to them again.
-  const passed = new Set(userRejectedKeys);
-  const pairsSkippedByUser = found.filter((pair) => passed.has(keyOf(pair))).length;
-  found = found.filter((pair) => !passed.has(keyOf(pair)));
+  // Two products this user marked "Not a fit" are not shown to them again,
+  // in any colour or size.
+  const passed = new Set(userRejectedPairs);
+  const productPairOf = (pair) => productPairKeyFor(objective, {
+    seed: { productId: pair.seedProduct.id, sellerId: seedStore.shopId },
+    partner: { productId: pair.partnerProduct.id, sellerId: partnerStore.shopId } });
+  const pairsSkippedByUser = found.filter((pair) => passed.has(productPairOf(pair))).length;
+  found = found.filter((pair) => !passed.has(productPairOf(pair)));
   // Cross-Sell: a partner item in a category the starting brand already sells
   // competes with its own range. Search the starting store once per partner
   // category name ("Belts"); a result in a similar category drops those pairs.

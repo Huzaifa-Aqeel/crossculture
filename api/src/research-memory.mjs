@@ -42,6 +42,13 @@ export function opportunityKeyFor(objective, references) {
     references?.partner?.sellerId]);
 }
 
+// The same two products whatever colour or size was selected: a user's "Not
+// a fit" is about the products, so it also covers their other variants.
+export function productPairKeyFor(objective, references) {
+  return digest(["product-pair", objective, references?.seed?.productId, references?.seed?.sellerId,
+    references?.partner?.productId, references?.partner?.sellerId]);
+}
+
 export function screenKeyFor({ objective, productId, variantId, shopId, occasion = "", preferences = [] }) {
   return digest([objective, productId, variantId, shopId, occasion, preferences.join("|")]);
 }

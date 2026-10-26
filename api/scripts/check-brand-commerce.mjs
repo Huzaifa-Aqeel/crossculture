@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { catalogClient, catalogEndpoint, discoverVerifiedStorefront, PROFILE_EXAMPLE,
   verifyCatalogOffer } from "../src/shopify-catalog.mjs";
+import { productPairKeyFor } from "../src/research-memory.mjs";
 import { assessCommerceOpportunity, durableCommerceDecision,
   rankCommerceOpportunities, customerText } from "../src/brand-commerce.mjs";
 import { validateCommerceEvidence, hasExplicitThirdPartyCoBrand } from "../src/commerce-evidence.mjs";
@@ -834,9 +835,12 @@ const remembered = await researchCommercePair(pairInput, { ...researchDeps,
 assert.equal(recallInput.judge, qualified.memory.pairs[0].judge);
 assert.ok(remembered.pairsSkippedFromMemory > 0);
 assert.equal(remembered.assessedCount, 0);
-// An exact pair this user marked "Not a fit" is not assessed or shown again.
-const passedKeys = qualified.memory.pairs.map((pair) => pair.opportunityKey);
-const userPassed = await researchCommercePair({ ...pairInput, userRejectedKeys: passedKeys }, { ...researchDeps,
+// Two products this user marked "Not a fit" are not assessed or shown again,
+// whichever colour or size is selected next time (the key ignores variants).
+const passedKeys = qualified.memory.pairs.map((pair) => productPairKeyFor(pairInput.objective, {
+  seed: { ...pair.references.seed, variantId: "another-colour" },
+  partner: { ...pair.references.partner, variantId: "another-size" } }));
+const userPassed = await researchCommercePair({ ...pairInput, userRejectedPairs: passedKeys }, { ...researchDeps,
   proposeMechanism: async () => { throw new Error("A pair the user passed on is not judged again"); } });
 assert.ok(userPassed.pairsSkippedByUser > 0);
 assert.equal(userPassed.assessedCount, 0);
@@ -1259,28 +1263,35 @@ const withTastes = assessFixture({ cultureEvidence: taggedCulture(tasteTags, tas
 assert.deepEqual(withTastes.sharedAudienceTastes, [],
   "Shared genres are not shown: across 11 brands they were near-universal even below the popularity cutoff");
 assert.doesNotMatch(culturalSummary(withTastes, "Seed", "Partner"), /share a taste/);
-// Who both brands appeal to (real Rumpl / United by Blue tags, 26 Oct): a
-// shared lifestyle or audience tag whose topic appears in the products' own
-// text; a shared tag unrelated to the products is not shown.
+// Who both brands resonate with (real Rumpl / United by Blue / Caraway / Arhaus
+// tags, 26 Oct): brand level. A tag both brands carry in the top half of their
+// lists, not near-universal; ordered by the weaker position, with one the
+// products mention first; children are never presented as the audience.
 const appealTag = (type, name, popularity) => ({ id: `urn:tag:${type}:qloo:${name.toLowerCase().replace(/[^a-z]+/g, "_")}`, name, popularity });
 const appealSeed = [appealTag("influencer_appeal", "Environmental Advocates", 0.9942),
   appealTag("lifestyle", "Environmental Stewardship", 0.9971), appealTag("customer_segment", "Toddlers", 0.9334),
-  appealTag("customer_segment", "Hikers", 0.975), appealTag("lifestyle", "Adventure", 0.9996)];
-const appealPartner = [appealTag("influencer_appeal", "Environmental Advocates", 0.9942),
-  appealTag("lifestyle", "Environmental Stewardship", 0.9971), appealTag("customer_segment", "Toddlers", 0.9334),
-  appealTag("lifestyle", "Adventure", 0.9996)];
+  appealTag("customer_segment", "Hikers", 0.975), appealTag("lifestyle", "Adventure", 0.9996),
+  appealTag("customer_identity", "Sustainability advocates", 0.9757)];
+const appealPartner = [appealTag("customer_identity", "Sustainability advocates", 0.9757),
+  appealTag("influencer_appeal", "Environmental Advocates", 0.9942), appealTag("customer_segment", "Toddlers", 0.9334),
+  appealTag("lifestyle", "Environmental Stewardship", 0.9971), appealTag("lifestyle", "Adventure", 0.9996),
+  appealTag("customer_segment", "Hikers", 0.975)];
 const appealed = assessFixture({ cultureEvidence: { ...taggedCulture([], []),
-  seedAudienceTags: appealSeed, partnerAudienceTags: appealPartner },
+  seedAudienceTags: appealSeed, partnerAudienceTags: appealPartner } });
+assert.deepEqual(appealed.sharedAudienceAppeal, { people: ["environmental advocates"], lifestyle: [] },
+"Brand level without product text; toddlers (children) and near-universal adventure are not shown; environmental stewardship, sustainability advocates and hikers are outside one brand's top half");
+assert.equal(appealed.status, "supported", "Audience appeal explains; it never changes the verdict");
+assert.match(culturalSummary(appealed, "Rumpl", "United by Blue"), /Both brands resonate with environmental advocates\./);
+const appealOrder = assessFixture({ cultureEvidence: { ...taggedCulture([], []),
+  seedAudienceTags: [appealTag("customer_segment", "Adventurers", 0.947), appealTag("customer_identity", "Outdoor Enthusiasts", 0.9665),
+    appealTag("customer_segment", "Campers", 0.9791), appealTag("customer_segment", "Travelers", 0.9784)],
+  partnerAudienceTags: [appealTag("customer_segment", "Adventurers", 0.947), appealTag("customer_identity", "Outdoor Enthusiasts", 0.9665),
+    appealTag("customer_segment", "Campers", 0.9791), appealTag("customer_segment", "Travelers", 0.9784)] },
   sourceAuthority: { seedDescription: true, partnerDescription: true },
   seedDetail: { ...fixtureEvidence.seedDetail, product: { ...fixtureEvidence.seedDetail.product,
-    description: { plain: "Cleans a pound of trash from the environment with every adventure." } } } });
-assert.deepEqual(appealed.sharedAudienceAppeal, { people: ["environmental advocates"],
-  lifestyle: ["environmental stewardship"] }, "Shared, distinctive and named by the products; toddlers, hikers and near-universal adventure are not");
-assert.equal(appealed.status, "supported", "Audience appeal explains; it never changes the verdict");
-assert.deepEqual(assessFixture({ cultureEvidence: { ...taggedCulture([], []),
-  seedAudienceTags: appealSeed, partnerAudienceTags: appealPartner } }).sharedAudienceAppeal,
-{ people: [], lifestyle: [] }, "Without a product word for the topic, nothing is claimed");
-assert.match(culturalSummary(appealed, "Rumpl", "United by Blue"), /Both brands appeal to environmental advocates\./);
+    description: { plain: "Made for outdoor recreation." } } } });
+assert.deepEqual(appealOrder.sharedAudienceAppeal.people, ["outdoor enthusiasts", "adventurers"],
+  "A tag the products mention goes first; product text orders, it never hides");
 // Brand-attribute tags from a real Everlane/Cuyana/Nisolo lookup name themes,
 // matched by descriptor across tag kinds; up to three are kept for display.
 const everlaneTags = [{ id: "urn:tag:lifestyle:qloo:conscious_consumerism", name: "Conscious Consumerism" },
@@ -1597,6 +1608,19 @@ const direct = await researchNativeCommerce({ ownerUserId: "owner",
     officialWebsite: "https://second.example.com" } }, nativeDeps);
 assert.equal(direct.opportunities.supported.length, 0);
 assert.equal(direct.opportunities.needs_verification.length, 1);
+// A partner the user chose to compare is assessed in full, even if they
+// passed on a pair with it during discovery; liked and excluded partners do
+// not reorder or remove a chosen partner either.
+let directPassed = null;
+await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { name: "Seed", officialWebsite: "https://seed.example.com" },
+  seedQlooId: seedId, objective: "product_bundle",
+  userFeedback: { rejectedPairKeys: ["a".repeat(64)], excludedPartnerQlooIds: [secondId], preferredPartnerQlooIds: [] },
+  specifiedPartner: { qlooId: secondId, name: "Second candidate",
+    officialWebsite: "https://second.example.com" } }, { ...nativeDeps,
+  researchPair: async (input) => { directPassed = input.userRejectedPairs;
+    return nativeDeps.researchPair(input); } });
+assert.deepEqual(directPassed, [], "Compare Two Brands ignores discovery passes");
 const exactTag = { id: "urn:tag:aesthetic_property:qloo:geometric_patterns",
   name: "Geometric Patterns" };
 const corroborated = await investigateDirectCommerceCulture("owner", {

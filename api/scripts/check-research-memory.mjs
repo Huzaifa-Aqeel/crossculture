@@ -139,13 +139,15 @@ await researchNativeCommerce({ ownerUserId: "owner",
 assert.equal(audienceCalls.filter((id) => id === seedQlooId).length, 1, "Starting brand audience tags once per run");
 assert.equal(cultureSeen.length, 3);
 assert.ok(cultureSeen.every((evidence) => evidence.seedAudienceTags.length === 1 && evidence.partnerAudienceTags.length === 1));
-// Partners the user passed on in this project are not researched again.
+// Partners the user passed on for this brand are not researched again;
+// partners they liked are researched first.
 researched = [];
 const withFeedback = await researchNativeCommerce({ ownerUserId: "owner",
   seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,
-  objective: "product_bundle", userFeedback: { excludedPartnerQlooIds: [ids[1]], rejectedOpportunityKeys: [] } },
+  objective: "product_bundle", userFeedback: { excludedPartnerQlooIds: [ids[1]], rejectedPairKeys: [],
+    preferredPartnerQlooIds: [ids[2]] } },
 deps(async () => []));
-assert.deepEqual(researched, ["Brand 0", "Brand 2"]);
+assert.deepEqual(researched, ["Brand 2", "Brand 0"], "Liked partner first; passed partner skipped");
 assert.ok(withFeedback.candidates.some((item) => item.qlooId === ids[1] && item.status === "excluded_by_user"));
 researched = [];
 await researchNativeCommerce({ ownerUserId: "owner",

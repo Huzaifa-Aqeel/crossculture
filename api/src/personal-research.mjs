@@ -137,18 +137,21 @@ export async function startPersonalRun(userId, input) {
     if (recent.rows[0].active) bad("A project preview is still running.", 409);
     if (recent.rows[0].total >= 30) bad("Today's project preview limit has been reached.", 429);
     const partnerId = input.mode === "direct_pair" ? input.partnerEntityId : null;
-    // Each opportunity's latest feedback decides what this run skips: exact
-    // pairs the user passed on, and partners passed on for a partner reason
-    // in this project.
-    const latest = await client.query(`select distinct on (f.match_id) f.action,f.reason_code as "reasonCode",
-        r.project_id as "projectId",m.opportunity_key as "opportunityKey",i.external_id as "partnerQlooId"
+    // Each opportunity's latest feedback (most recent 1,000) decides what this
+    // run skips or researches first; see feedbackEffects.
+    const latest = await client.query(`select * from (select distinct on (f.match_id) f.action,
+        f.reason_code as "reasonCode",f.created_at as "createdAt",r.seed_entity_id as "seedEntityId",
+        r.objective,a.evidence_json->'commerce'->'references' as references,i.external_id as "partnerQlooId"
       from public.feedback f
       join public.analysis_runs r on r.id=f.analysis_run_id and r.user_id=f.user_id
       join public.matches m on m.id=f.match_id and m.user_id=f.user_id
+      left join lateral (select evidence_json from public.assessment_snapshots where match_id=m.id
+        order by version desc limit 1) a on true
       left join catalog.entity_identifiers i on i.entity_id=m.partner_entity_id
         and i.provider='qloo' and i.status='confirmed'
       where f.user_id=$1 and f.undone_at is null and f.created_at>now()-interval '180 days'
-      order by f.match_id,f.created_at desc,f.id desc limit 1000`, [userId]);
+      order by f.match_id,f.created_at desc,f.id desc) latest
+      order by "createdAt" desc limit 1000`, [userId]);
     const constraints = { sample: false, researchMode, partnerType: "brand", mode: input.mode,
       excludedPartnerEntityIds, market, commerceRequirements };
     const plan = { version: 1, sampleOnly: false,
@@ -162,7 +165,7 @@ export async function startPersonalRun(userId, input) {
       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11) returning id`,
     [userId, input.projectId, project.rows[0].seed_entity_id, partnerId, input.mode,
       "brand_brand", project.rows[0].objective,
-      JSON.stringify(constraints), JSON.stringify(plan), JSON.stringify({ effects: feedbackEffects(latest.rows, input.projectId) }),
+      JSON.stringify(constraints), JSON.stringify(plan), JSON.stringify({ effects: feedbackEffects(latest.rows, project.rows[0].seed_entity_id) }),
       input.idempotencyKey]);
     await client.query("commit");
     return { runId: result.rows[0].id, reused: false };
@@ -373,6 +376,13 @@ export async function recordPersonalFeedback(userId, input, { vet = vetCommerceS
   let saved;
   try {
     await client.query("begin");
+    // A rating is final: one per match, no undo or second rating.
+    const owned = await client.query(`select id from public.matches where id=$1 and analysis_run_id=$2 and user_id=$3
+      for update`, [input.matchId, input.runId, userId]);
+    if (!owned.rows[0]) bad("Partnership not found.", 404);
+    const rated = await client.query(`select 1 from public.feedback where match_id=$1 and user_id=$2
+      and undone_at is null limit 1`, [input.matchId, userId]);
+    if (rated.rows[0]) bad("This match has already been rated.", 409);
     const result = await client.query(`insert into public.feedback(user_id,analysis_run_id,match_id,action,reason,reason_code)
       select $1,m.analysis_run_id,m.id,$4,$5,$6 from public.matches m
       where m.id=$2 and m.analysis_run_id=$3 and m.user_id=$1 returning id`,
@@ -394,35 +404,18 @@ function feedbackReason(value) {
   return value;
 }
 
-// "Not a fit" is recorded on the first click; the reason (and a note) may follow.
+// "Not a fit" is recorded on the first click; one reason (and a note) may follow.
 export async function updatePersonalFeedbackReason(userId, feedbackId, input) {
   if (!uuid(feedbackId)) return null;
   const reasonCode = feedbackReason(input?.reasonCode);
   const reason = typeof input?.note === "string" ? input.note.trim().slice(0, 160) || null : null;
+  // The reason is set once, like the rating.
   const result = await db().query(`update public.feedback set reason_code=$3,reason=$4
-    where id=$1 and user_id=$2 and action='reject' and undone_at is null
+    where id=$1 and user_id=$2 and action='reject' and undone_at is null and reason_code is null
     returning id,action,reason_code as "reasonCode"`, [feedbackId, userId, reasonCode, reason]);
   return result.rows[0] ?? null;
 }
 
-export async function undoPersonalFeedback(userId, feedbackId) {
-  if (!uuid(feedbackId)) return false;
-  const client = await db().connect();
-  try {
-    await client.query("begin");
-    const changed = await client.query(`update public.feedback set undone_at=now()
-      where id=$1 and user_id=$2 and undone_at is null returning match_id`, [feedbackId, userId]);
-    if (!changed.rows[0]) { await client.query("rollback"); return false; }
-    const matchId = changed.rows[0].match_id;
-    const effective = await client.query(`select action from public.feedback where match_id=$1 and user_id=$2
-      and undone_at is null order by created_at desc,id desc limit 1`, [matchId, userId]);
-    await client.query(`update public.matches set saved_at=$3,updated_at=now() where id=$1 and user_id=$2`,
-      [matchId, userId, effective.rows[0]?.action === "save" ? new Date() : null]);
-    await client.query("commit");
-    return true;
-  } catch (error) { await client.query("rollback"); throw error; }
-  finally { client.release(); }
-}
 
 export async function updatePersonalBrief(userId, briefId, input) {
   if (!uuid(briefId) || !Number.isInteger(input?.revision) || typeof input?.markdown !== "string") bad("Check the brief before saving.");
