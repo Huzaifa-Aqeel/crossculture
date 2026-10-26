@@ -8,6 +8,7 @@ import { commerceProposalAction } from "./commerce-proposals.mjs";
 import { validateNewRunObjective } from "./new-run-objectives.mjs";
 import { vetCommerceShortlist } from "./commerce-vetting.mjs";
 import { sharedLaunchAreas } from "./commerce-launch.mjs";
+import { feedbackEffects, FEEDBACK_REASONS } from "./review-queue.mjs";
 
 let pool;
 const uuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -136,11 +137,18 @@ export async function startPersonalRun(userId, input) {
     if (recent.rows[0].active) bad("A project preview is still running.", 409);
     if (recent.rows[0].total >= 30) bad("Today's project preview limit has been reached.", 429);
     const partnerId = input.mode === "direct_pair" ? input.partnerEntityId : null;
-    const previous = await client.query(`select f.id,f.action,m.partner_entity_id from public.feedback f
+    // Each opportunity's latest feedback decides what this run skips: exact
+    // pairs the user passed on, and partners passed on for a partner reason
+    // in this project.
+    const latest = await client.query(`select distinct on (f.match_id) f.action,f.reason_code as "reasonCode",
+        r.project_id as "projectId",m.opportunity_key as "opportunityKey",i.external_id as "partnerQlooId"
+      from public.feedback f
       join public.analysis_runs r on r.id=f.analysis_run_id and r.user_id=f.user_id
-      left join public.matches m on m.id=f.match_id and m.user_id=f.user_id
-      where f.user_id=$1 and r.project_id=$2 and f.undone_at is null
-      order by f.created_at desc limit 20`, [userId, input.projectId]);
+      join public.matches m on m.id=f.match_id and m.user_id=f.user_id
+      left join catalog.entity_identifiers i on i.entity_id=m.partner_entity_id
+        and i.provider='qloo' and i.status='confirmed'
+      where f.user_id=$1 and f.undone_at is null and f.created_at>now()-interval '180 days'
+      order by f.match_id,f.created_at desc,f.id desc limit 1000`, [userId]);
     const constraints = { sample: false, researchMode, partnerType: "brand", mode: input.mode,
       excludedPartnerEntityIds, market, commerceRequirements };
     const plan = { version: 1, sampleOnly: false,
@@ -154,7 +162,8 @@ export async function startPersonalRun(userId, input) {
       values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11) returning id`,
     [userId, input.projectId, project.rows[0].seed_entity_id, partnerId, input.mode,
       "brand_brand", project.rows[0].objective,
-      JSON.stringify(constraints), JSON.stringify(plan), JSON.stringify({ events: previous.rows }), input.idempotencyKey]);
+      JSON.stringify(constraints), JSON.stringify(plan), JSON.stringify({ effects: feedbackEffects(latest.rows, input.projectId) }),
+      input.idempotencyKey]);
     await client.query("commit");
     return { runId: result.rows[0].id, reused: false };
   } catch (error) { await client.query("rollback"); throw error; }
@@ -201,10 +210,13 @@ export async function getPersonalRun(userId, runId) {
     a.score_json as score,a.scoring_version as "scoringVersion",a.version as "assessmentVersion",
     a.validity_status as "evidenceStatus",
     b.id as "briefId",b.content_markdown as "briefMarkdown",b.revision as "briefRevision",
-    b.validity_status as "briefStatus"
+    b.validity_status as "briefStatus",
+    case when f.id is null then null else jsonb_build_object('id',f.id,'action',f.action,'reasonCode',f.reason_code) end as feedback
     from public.matches m join catalog.entities e on e.id=m.partner_entity_id
     left join lateral (select * from public.assessment_snapshots where match_id=m.id and user_id=$2 order by version desc limit 1) a on true
     left join lateral (select * from public.briefs where match_id=m.id and user_id=$2 order by updated_at desc limit 1) b on true
+    left join lateral (select * from public.feedback where match_id=m.id and user_id=$2 and undone_at is null
+      order by created_at desc,id desc limit 1) f on true
     where m.analysis_run_id=$1 and m.user_id=$2 order by m.created_at`, [runId, userId]);
   const commerceRanks = new Map((run.rows[0].result?.decisions ?? [])
     .map((decision) => [decision.matchId, decision.rank]));
@@ -355,23 +367,42 @@ export async function researchPersonalMatchLaunchAreas(userId, matchId,
 
 export async function recordPersonalFeedback(userId, input, { vet = vetCommerceShortlist } = {}) {
   if (!uuid(input?.runId) || !uuid(input?.matchId) || !["save", "reject"].includes(input.action)) bad("Choose Save or Pass for this partnership.");
-  const reason = typeof input.reason === "string" ? input.reason.trim().slice(0, 160) : null;
+  const reason = typeof input.reason === "string" ? input.reason.trim().slice(0, 160) || null : null;
+  const reasonCode = input.action === "reject" ? feedbackReason(input.reasonCode) : null;
   const client = await db().connect();
   let saved;
   try {
     await client.query("begin");
-    const result = await client.query(`insert into public.feedback(user_id,analysis_run_id,match_id,action,reason)
-      select $1,m.analysis_run_id,m.id,$4,$5 from public.matches m
-      where m.id=$2 and m.analysis_run_id=$3 and m.user_id=$1 returning id`, [userId, input.matchId, input.runId, input.action, reason]);
+    const result = await client.query(`insert into public.feedback(user_id,analysis_run_id,match_id,action,reason,reason_code)
+      select $1,m.analysis_run_id,m.id,$4,$5,$6 from public.matches m
+      where m.id=$2 and m.analysis_run_id=$3 and m.user_id=$1 returning id`,
+    [userId, input.matchId, input.runId, input.action, reason, reasonCode]);
     if (!result.rows[0]) bad("Partnership not found.", 404);
     await client.query(`update public.matches set saved_at=$3,updated_at=now() where id=$1 and user_id=$2`,
       [input.matchId, userId, input.action === "save" ? new Date() : null]);
     await client.query("commit");
-    saved = { id: result.rows[0].id, action: input.action };
+    saved = { id: result.rows[0].id, action: input.action, reasonCode };
   } catch (error) { await client.query("rollback"); throw error; }
   finally { client.release(); }
   if (input.action === "save") await vetSavedPartner(userId, input.matchId, vet).catch(() => {});
   return saved;
+}
+
+function feedbackReason(value) {
+  if (value == null || value === "") return null;
+  if (!FEEDBACK_REASONS.includes(value)) bad("Choose a reason from the list.");
+  return value;
+}
+
+// "Not a fit" is recorded on the first click; the reason (and a note) may follow.
+export async function updatePersonalFeedbackReason(userId, feedbackId, input) {
+  if (!uuid(feedbackId)) return null;
+  const reasonCode = feedbackReason(input?.reasonCode);
+  const reason = typeof input?.note === "string" ? input.note.trim().slice(0, 160) || null : null;
+  const result = await db().query(`update public.feedback set reason_code=$3,reason=$4
+    where id=$1 and user_id=$2 and action='reject' and undone_at is null
+    returning id,action,reason_code as "reasonCode"`, [feedbackId, userId, reasonCode, reason]);
+  return result.rows[0] ?? null;
 }
 
 export async function undoPersonalFeedback(userId, feedbackId) {

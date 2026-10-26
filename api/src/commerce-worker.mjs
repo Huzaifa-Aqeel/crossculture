@@ -5,6 +5,7 @@ import { durableCommerceDecision } from "./brand-commerce.mjs";
 import { researchNativeCommerce } from "./commerce-native.mjs";
 import { researchContextCommerce } from "./commerce-context.mjs";
 import { memoryRowsFromRun, opportunityKeyFor, recordResearchMemory } from "./research-memory.mjs";
+import { reviewSamplesFromRun, recordReviewSamples } from "./review-queue.mjs";
 
 let pool;
 const db = () => pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
@@ -25,7 +26,8 @@ function groupedItems(result) {
 
 export async function processCommerceRun(run, workerId, { research = researchNativeCommerce,
   researchContext = researchContextCommerce,
-  persistBrand = persistSelectedBrand, recordMemory = recordResearchMemory } = {}) {
+  persistBrand = persistSelectedBrand, recordMemory = recordResearchMemory,
+  recordSamples = recordReviewSamples } = {}) {
   const seed = await db().query(`select e.id,e.identity_status as "identityStatus",
     e.facts_json->>'commerceIdentitySourceUrl' as "identitySourceUrl",
     e.facts_json->>'commerceStorefrontProofUrl' as "storefrontProofUrl",
@@ -82,6 +84,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
     seedQlooId: seed.rows[0].qlooId, objective: run.objective,
     specifiedPartner: partner, market: run.constraints_json?.market ?? "US",
     userConstraints: run.constraints_json?.commerceRequirements ?? {},
+    userFeedback: run.feedback_snapshot_json?.effects ?? null,
     maxCatalogCalls: run.plan_json?.maxCatalogCalls ?? (partner ? 56 :
       run.constraints_json?.commerceRequirements?.heroProduct ? 160 : 88) };
   const result = await (contextSeed ? researchContext(request) : research(request));
@@ -173,6 +176,11 @@ export async function processCommerceRun(run, workerId, { research = researchNat
     await recordMemory(memoryRowsFromRun({ objective: run.objective,
       market: request.market, candidates: result.candidates }))
       .catch((error) => console.error("Research memory not recorded:", error.message));
+    // A few judged pairs that were not recommended go to the review queue.
+    await recordSamples(reviewSamplesFromRun({ runId: run.id, objective: run.objective,
+      market: request.market, candidates: result.candidates,
+      shownKeys: foundDecisions.map((item) => opportunityKeyFor(run.objective, item.references)) }))
+      .catch((error) => console.error("Review samples not recorded:", error.message));
   }
   return true;
 }

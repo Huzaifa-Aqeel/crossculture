@@ -23,7 +23,7 @@ if (process.env.LLM_PROVIDER === "bedrock" && !process.env.BEDROCK_MODEL_ID) {
 const names = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "QLOO_API_KEY",
   "QLOO_BASE_URL", "TAVILY_API_KEY", "TAVILY_API_KEY_2", "SHOPIFY_UCP_PROFILE_URL",
   "LLM_PROVIDER", "LLM_FALLBACK_PROVIDER", "BEDROCK_MODEL_ID", "GROQ_API_BASE",
-  "GROQ_API_KEY", "GROQ_MODEL", "COMMERCE_CONTEXT_DISCOVERY_ENABLED"];
+  "GROQ_API_KEY", "GROQ_MODEL", "COMMERCE_CONTEXT_DISCOVERY_ENABLED", "REVIEWER_EMAILS"];
 const variables = Object.fromEntries(names.filter((name) => process.env[name])
   .map((name) => [name, process.env[name]]));
 variables.COMMERCE_CONTEXT_DISCOVERY_ENABLED ??= "0";

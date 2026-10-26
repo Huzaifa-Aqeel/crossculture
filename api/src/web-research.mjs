@@ -161,9 +161,13 @@ export async function tavilyExtract(url, { focus } = {}) {
 // Reserve before the provider call. The same ledger also counts failed requests,
 // since a provider may charge for a request that fails locally. Legacy Search
 // cache rows count until their rolling day expires.
+// The database is reached through a transaction-mode pooler, where a
+// session lock can be taken on one server connection and "released" on
+// another, leaving it held. Every lock here is transaction-scoped.
 async function reserveWebRequest(client, operation) {
-  await client.query("select pg_advisory_lock(hashtextextended('web:global-budget', 0))");
+  await client.query("begin");
   try {
+    await client.query("select pg_advisory_xact_lock(hashtextextended('web:global-budget', 0))");
     const creditReservation = reservedCredits(operation);
     const activeKey = creditReservation ? tavilyKey() : null;
     const keyHash = activeKey ? createHash("sha256").update(activeKey).digest("hex") : null;
@@ -230,8 +234,12 @@ async function reserveWebRequest(client, operation) {
       payload_json,payload_hash,fetched_at,fresh_until,retain_until,last_status)
       values ('web','usage',$1,$2,'shared',$3::jsonb,$4,now(),now(),now()+interval '2 days','not_found')`,
     [operation, hash, JSON.stringify(payload), payloadHash]);
+    await client.query("commit");
     return { hash, keyHash, reservedCredits: creditReservation };
-  } finally { await client.query("select pg_advisory_unlock(hashtextextended('web:global-budget', 0))"); }
+  } catch (error) {
+    await client.query("rollback").catch(() => {});
+    throw error;
+  }
 }
 
 async function finishWebRequest(client, reservation, operation, usage, status) {
@@ -262,16 +270,28 @@ export function inspectedExtractResponse(response, url, focus, title = "", publi
     .map((item) => inspectedSearchResult({ ...item, title, published_date: publishedAt }, focus)).filter(Boolean);
 }
 
-// One cached web question. The per-key advisory lock spans the provider call so two
-// processes never spend quota on the same cold query.
-export async function withWebSearch(query, { includeDomains, focus } = {}, load = tavilySearch) {
+// Concurrent identical questions in this process share one request. No lock
+// is held across the provider call: the shared credit budget is still
+// reserved atomically, but two processes asking the same cold question at
+// the same moment may each spend one credit.
+const inFlight = new Map();
+function sharedRequest(key, work) {
+  if (!inFlight.has(key)) inFlight.set(key, work().finally(() => inFlight.delete(key)));
+  return inFlight.get(key);
+}
+
+// One cached web question.
+export function withWebSearch(query, { includeDomains, focus } = {}, load = tavilySearch) {
   const normalized = query.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 200);
-  if (!normalized) return { results: [], cacheStatus: "empty" };
+  if (!normalized) return Promise.resolve({ results: [], cacheStatus: "empty" });
   const normalizedFocus = String(focus ?? normalized.split(/\s+/).at(-1)).toLowerCase().trim();
   const hash = webRequestHash(normalized, includeDomains, normalizedFocus);
+  return sharedRequest(`search:${hash}`, () => webSearch(normalized, includeDomains, normalizedFocus, hash, load));
+}
+
+async function webSearch(normalized, includeDomains, normalizedFocus, hash, load) {
   const client = await db().connect();
   try {
-    await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [`web:${hash}`]);
     const cached = await client.query(
       `select payload_json from private.provider_cache
        where provider='web' and resource_type='search' and resource_key=$1 and request_hash=$2
@@ -319,22 +339,22 @@ export async function withWebSearch(query, { includeDomains, focus } = {}, load 
       [normalized, hash, JSON.stringify(compact), payloadHash,
         `${FRESH_MS} milliseconds`, `${RETAIN_MS} milliseconds`]);
     return { ...compact, cacheStatus: "new" };
-  } finally {
-    try { await client.query("select pg_advisory_unlock(hashtextextended($1, 0))", [`web:${hash}`]); }
-    finally { client.release(); }
-  }
+  } finally { client.release(); }
 }
 
 // Extract only a specific, previously identified public page for an unanswered
 // question. Keep a compact inspected excerpt, never a raw page body.
-export async function withWebExtract(url, { focus, title = "", publishedAt = null } = {}, load = tavilyExtract) {
+export function withWebExtract(url, { focus, title = "", publishedAt = null } = {}, load = tavilyExtract) {
   const safeUrl = publicPage(url);
   const term = String(focus ?? "").toLowerCase().trim();
-  if (!safeUrl || !exactTermPattern(term)) return { results: [], cacheStatus: "invalid" };
+  if (!safeUrl || !exactTermPattern(term)) return Promise.resolve({ results: [], cacheStatus: "invalid" });
   const hash = createHash("sha256").update(JSON.stringify(["extract-v1", safeUrl, term])).digest("hex");
+  return sharedRequest(`extract:${hash}`, () => webExtract(safeUrl, term, title, publishedAt, hash, load));
+}
+
+async function webExtract(safeUrl, term, title, publishedAt, hash, load) {
   const client = await db().connect();
   try {
-    await client.query("select pg_advisory_lock(hashtextextended($1, 0))", [`web:${hash}`]);
     const cached = await client.query(`select payload_json from private.provider_cache
       where provider='web' and resource_type='extract' and resource_key=$1 and request_hash=$2
         and scope='shared' and last_status='succeeded' and fresh_until>now() and retain_until>now()
@@ -364,8 +384,5 @@ export async function withWebExtract(url, { focus, title = "", publishedAt = nul
         retain_until=excluded.retain_until,last_status=excluded.last_status,updated_at=now()`,
     [safeUrl, hash, JSON.stringify(compact), payloadHash]);
     return { ...compact, cacheStatus: "new" };
-  } finally {
-    try { await client.query("select pg_advisory_unlock(hashtextextended($1, 0))", [`web:${hash}`]); }
-    finally { client.release(); }
-  }
+  } finally { client.release(); }
 }

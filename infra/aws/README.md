@@ -1,11 +1,12 @@
 # CrossCulture AWS deployment
 
-Target account: `390402563459`; region: `us-east-1`; CLI profile: `pet-care`.
+Target account: the one your CLI profile signs in to (read at deploy time, or set
+`AWS_ACCOUNT_ID`); region: `us-east-1`; CLI profile: `AWS_PROFILE` (default `pet-care`).
 
 ## IAM deployment permission
 
-`margin-memory-dev` has [crossculture-deployer-iam-policy.json](crossculture-deployer-iam-policy.json)
-as an inline policy. It permits creation and configuration of
+The deploying IAM user has [crossculture-deployer-iam-policy.json](crossculture-deployer-iam-policy.json)
+as an inline policy (replace `ACCOUNT_ID` with your account ID before attaching it). It permits creation and configuration of
 `crossculture-*` roles and passing only those roles to Lambda and EventBridge
 Scheduler. It does not grant general IAM administration.
 
@@ -47,10 +48,8 @@ because API requests and background research can generate text.
 7. Set Vercel's `CROSSCULTURE_API_URL` to the API Function URL without a
    trailing slash; redeploy the web app and run a signed-in research test.
 
-The deployed API Function URL is
-`https://667jhjc6nv25kftsaa7bmybdca0wuakz.lambda-url.us-east-1.on.aws/`.
-Its `/health` endpoint returned HTTP 200. Vercel's `/api/health` still returned
-503 before its `CROSSCULTURE_API_URL` setting was added.
+The deployed API Function URL is printed by `deploy.sh`; its `/health` endpoint
+should return HTTP 200.
 
 The production Shopify agent profile is
 `https://culture-circle.vercel.app/ucp-agent-profile.json`. It returned HTTP

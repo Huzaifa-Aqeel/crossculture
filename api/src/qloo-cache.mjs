@@ -3,7 +3,7 @@ import pg from "pg";
 
 const VERSION = "qloo-cache-v1";
 const OPERATIONS = new Set(["qloo_describe", "qloo_find_tags", "qloo_recommend", "qloo_rank",
-  "qloo_entity_tags", "qloo_audience_demographics", "qloo_where_popular"]);
+  "qloo_entity_tags", "qloo_audience_demographics", "qloo_where_popular", "qloo_audience_tags"]);
 let pool;
 
 function database() {

@@ -29,7 +29,27 @@ supabase/.temp/
 
 # Local diagnostics and third-party reference copy
 qloo-hackathon-kit-main/
-Screenshot From 2026-10-11 19-54-18.png
+Screenshot*.png
+Pasted image*.png
+
+# Development-only material kept on the developer's machine: agent
+# instructions, the build log and plan, internal reports, the labelled
+# evaluation set and scripts that call live providers.
+AGENTS.md
+**/AGENTS.md
+BUILD_PLAN.md
+progress.md
+api/reports/
+api/fixtures/commerce-mechanism-eval-*.json
+api/scripts/*-live.mjs
+api/scripts/probe-*.mjs
+api/scripts/inspect-*.mjs
+api/scripts/audit-*.mjs
+api/scripts/preflight-*.mjs
+api/scripts/replay-*.mjs
+api/scripts/eval-*.mjs
+api/.tmp-*
+/scripts/
 
 # Editor and operating-system files
 .DS_Store

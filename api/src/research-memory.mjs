@@ -16,14 +16,16 @@ const IDENTITY_FAILURE_MS = 7 * 24 * 60 * 60 * 1000;
 const SCREEN_HOURS = 6;
 const RETENTION_DAYS = 180;
 const REJECTION_DAYS = 7;
-// Identity failures that repeat on every attempt. Anything else in a trace
+// Identity failures that repeat on every attempt, including a domain that
+// does not exist (EBUSY is how Lambda reports one). Anything else in a trace
 // (network errors, timeouts, HTTP 403/429/5xx, an unavailable search) can
 // clear, so a failure containing one is never remembered.
 const LASTING_IDENTITY_FAILURES = new Set(["site_name_mismatch", "not_html", "website_missing",
   "website_invalid", "website_not_https", "storefront_not_found", "storefront_proof_mismatch",
   "catalog_search_missing", "shop_id_missing", "endpoint_host_unrelated", "endpoint_invalid",
   "official_website_needed", "no_brand_site_result", "top_result_not_verified",
-  "http_404", "http_410", "non_public_address", "redirect_loop", "redirect_limit", "redirect_invalid"]);
+  "http_404", "http_410", "non_public_address", "redirect_loop", "redirect_limit", "redirect_invalid",
+  "network_enotfound", "network_ebusy"]);
 // Partner research stopped by a shared limit says nothing about the partner.
 const INTERRUPTED = new Set(["research_time_limit_reached", "catalog_rate_limited",
   "catalog_budget_reached", "catalog_unavailable"]);
@@ -117,7 +119,12 @@ export function memoryRowsFromRun({ objective, market, candidates }) {
       screenKey: screen?.key ?? null, screenAddsValue: screen?.addsValue ?? null,
       assessedCount: candidate.assessedCount ?? 0, recommendableCount: candidate.recommendableCount ?? 0,
       supportedCount: candidate.memory?.pairs?.filter((pair) => pair.status === "supported").length ?? 0,
-      catalogCalls: candidate.catalogCallsUsed ?? 0, pairs: candidate.memory?.pairs ?? [] };
+      catalogCalls: candidate.catalogCallsUsed ?? 0,
+      // Product identifiers travel with each pair for review sampling only;
+      // memory keeps the hashed key and verdict fields.
+      pairs: (candidate.memory?.pairs ?? []).map(({ opportunityKey, partnerCategory, status,
+        mechanismState, reasonCodes, judge }) => ({ opportunityKey, partnerCategory, status,
+        mechanismState, reasonCodes, judge })) };
     if (candidate.status === "identity_unverified") {
       const reason = lastingIdentityFailure(candidate.identityDiagnostics);
       if (reason) rows.push({ ...base, outcome: "identity_unverified", identityReason: reason, pairs: [] });

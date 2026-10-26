@@ -8,7 +8,7 @@ const suites = {
     "check-commerce-product-discovery-adaptive", "check-commerce-context", "check-commerce-audience",
     "check-commerce-mechanism-benchmark", "check-new-run-objectives", "check-web-research",
     "check-research-dispatch", "check-research-memory",
-    "check-catalog-contract"],
+    "check-catalog-contract", "check-review-queue"],
   local: ["check-qloo-cache", "check-tavily-cache-budget", "check-commerce-run-local",
     "check-local-api-auth"],
 };

@@ -56,3 +56,24 @@ export async function closeQloo() {
   client = undefined;
   if (current) await current.close();
 }
+
+// Tag insights narrowed to tag types. The harness's entity_tags workflow
+// returns only a brand's 20 most affine tags, which are dominated by
+// near-universal place, music and media tags; its CLI sends this same
+// /v2/insights request but prints entity results only. Same gateway and
+// credential as the harness.
+export async function qlooTypedTags(entityId, tagTypes, take = 30) {
+  const base = process.env.QLOO_BASE_URL;
+  const key = process.env.QLOO_API_KEY;
+  if (!base || !key) throw new Error("Cultural research is not configured.");
+  const url = new URL("/v2/insights", base);
+  url.search = new URLSearchParams({ "filter.type": "urn:tag", "signal.interests.entities": entityId,
+    "filter.tag.types": tagTypes.join(","), take: String(take) }).toString();
+  const response = await fetch(url, { headers: { "X-Api-Key": key, accept: "application/json" },
+    signal: AbortSignal.timeout(15_000) });
+  if (!response.ok) return { status: response.status === 429 ? "rate_limited" : "provider_error", results: [] };
+  const body = await response.json();
+  return { status: "ok", results: (body?.results?.tags ?? []).map((tag) => ({ id: tag.tag_id ?? tag.id,
+    name: tag.name, type: tag.type ?? null, affinity: tag.query?.affinity ?? tag.affinity ?? null,
+    popularity: tag.popularity ?? null })) };
+}

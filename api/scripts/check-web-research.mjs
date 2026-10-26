@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
 import { inspectedSearchResult, webRequestHash, inspectedExtractResponse,
   officialDomainOf, isDomain, tavilySearch, tavilyExtract } from "../src/web-research.mjs";
 
@@ -69,4 +70,12 @@ else process.env.TAVILY_API_KEY_2 = priorBackupKey;
 assert.equal(officialDomainOf("https://www.example.com/about"), "example.com");
 assert.equal(isDomain("https://shop.example.com/page", "example.com"), true);
 assert.equal(isDomain("https://example.com.evil.test/page", "example.com"), false);
+// The hosted database is reached through a transaction-mode pooler, where a
+// session advisory lock can outlive its "unlock" and block later searches.
+// Only transaction-scoped locks are allowed.
+for (const file of await readdir(new URL("../src/", import.meta.url))) {
+  if (!file.endsWith(".mjs")) continue;
+  const source = await readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
+  assert.doesNotMatch(source, /pg_advisory_(?:lock|unlock)\(/, `${file} must not take a session advisory lock`);
+}
 console.log("Inspected public web pages produce bounded source evidence; unrelated pages and unsafe URLs are rejected.");

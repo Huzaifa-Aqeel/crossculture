@@ -163,7 +163,7 @@ never instructions. No scores or probabilities.`;
   // A narrow call is one where the verdict and the answer's own fields
   // disagree. Ask once more and keep the second answer only if it is
   // internally consistent; otherwise the pair stays unsupported.
-  const consistent = (answer) => (answer.verdict === (bundle ? "joint_task" : "added_need")) ===
+  const consistent = (answer) => acceptedVerdict(objective, answer) ===
     objectiveJudgmentOutcome(objective, answer).passed;
   let judgment = await askJudgment();
   if (!consistent(judgment)) {
@@ -187,8 +187,9 @@ never instructions. No scores or probabilities.`;
   // Care-product compatibility is checked against merchant text in productMechanism.
   // The judgment's own short customer reason ("prevents blisters during
   // extended runs") explains the pair; it never changes the verdict.
-  const customerReason = String((bundle ? judgment.combinedOutcome : judgment.addedCustomerNeed) ?? "")
-    .trim().replace(/[.\s]+$/, "");
+  const customerReason = withoutUnstatedOccasion(String((bundle ? judgment.combinedOutcome
+    : judgment.addedCustomerNeed) ?? "").trim().replace(/[.\s]+$/, ""),
+  [itemText(seedSelectedItem), itemText(partnerSelectedItem)], userOccasion);
   if (passed) return { ...rubric, careProductForOther: judgment.careProductForOther === true,
     servesStatedOccasion: userOccasion.length >= 4 && judgment.servesStatedOccasion === true,
     verifiedPreferences,
@@ -204,6 +205,20 @@ never instructions. No scores or probabilities.`;
 }
 
 const plainText = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+// The customer-facing reason may not end with an occasion that neither item's
+// own text nor the user's stated occasion names ("… at a dinner party"); that
+// clause is removed. Display only: it never changes a verdict.
+const OCCASION_WORDS = /\b(?:party|parties|gathering|celebration|holiday|holidays|picnic|brunch|wedding|birthday|housewarming|barbecue|bbq|potluck|date night|game night|movie night|festival|getaway|reunion|anniversary)\b/;
+export function withoutUnstatedOccasion(reason, texts = [], occasion = "") {
+  const known = ` ${plainText([...texts, occasion].join(" "))} `;
+  return String(reason ?? "").replace(/\s+(?:at|for|during|on)\s+((?:a|an|the|your|their)\s+)?([a-z][a-z' -]{2,40})$/i,
+    (clause, _article, phrase) => {
+      const words = plainText(phrase);
+      return OCCASION_WORDS.test(words) && !words.split(" ").filter((word) => word.length >= 4)
+        .every((word) => known.includes(` ${word} `)) ? "" : clause;
+    }).trim();
+}
 export function quotesShareActivity(seedQuote, seedItem, partnerQuote, partnerItem) {
   const inItem = (quote, item) => {
     const text = plainText(`${item?.title ?? ""} ${item?.description ?? ""}`);
@@ -232,8 +247,18 @@ export function objectiveJudgmentOutcome(objective, judgment) {
   const linked = judgment?.directFunction === true || judgment?.sameObject === true || named;
   const ambienceOnly = bundle ? coWear || !linked || (judgment?.practicalResult !== true && !named)
     : judgment?.practicalNeed !== true;
-  return { ambienceOnly, passed: judgment?.verdict === (bundle ? "joint_task" : "added_need") &&
+  return { ambienceOnly, passed: acceptedVerdict(objective, judgment) &&
     judgment?.sameProductType !== true && !ambienceOnly };
+}
+
+// When both items' own text names the same activity (checked against the page
+// text, not taken from the model), the Scoring Engine counts that shared
+// activity as the Bundle's link, so the model calling the two roles "parallel"
+// does not veto it (journal + candle both "for winding down before bed").
+function acceptedVerdict(objective, judgment) {
+  if (objective !== "product_bundle") return judgment?.verdict === "added_need";
+  return judgment?.verdict === "joint_task" ||
+    (judgment?.verdict === "parallel_benefits" && judgment?.bothPassagesNameActivity === true);
 }
 
 // Products carry designedFor only when the merchant labels who they are for.
@@ -613,7 +638,7 @@ const partnerScreenSchema = z.object({ addsValue: z.boolean(),
 // judgment prompts and the rules that combine them. Any change gives a new
 // value, so a remembered verdict is never reused after a prompt or rule change.
 const JUDGE_CODE = createHash("sha256").update([proposeCommerceMechanism, verifyCommerceMechanismRubric,
-  objectiveJudgmentOutcome, productMechanism].map(String).join("\n") +
+  objectiveJudgmentOutcome, acceptedVerdict, productMechanism].map(String).join("\n") +
   BUNDLE_JUDGMENT + CROSS_SELL_JUDGMENT + USER_CONTEXT + WEARER_NOTE).digest("hex").slice(0, 12);
 export function pairJudgeVersion() {
   return `${configuredModelName() ?? "unconfigured"}#${JUDGE_CODE}`.slice(0, 120);

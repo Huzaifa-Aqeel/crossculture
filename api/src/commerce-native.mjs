@@ -1,4 +1,4 @@
-import { personalQlooRecommendBrands, personalQlooEntityTags } from "./personal-qloo.mjs";
+import { personalQlooRecommendBrands, personalQlooEntityTags, personalQlooAudienceTags } from "./personal-qloo.mjs";
 import { withWebSearch, officialDomainOf } from "./web-research.mjs";
 import { researchCommercePair } from "./commerce-research.mjs";
 import { triageCommerceLeads } from "./commerce-mechanism.mjs";
@@ -11,6 +11,9 @@ import { discoverVerifiedStorefront, secureCatalogFetch, fetchFailureCode,
   TRANSIENT_FETCH_FAILURES } from "./shopify-catalog.mjs";
 
 const QLOO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Qloo native brand leads read per run. Affinity is nearly flat across them
+// (about 0.94–0.96), so the useful partners come from the catalog screen, not rank.
+const NATIVE_LEADS = 12;
 const normalized = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const businessName = (value) => String(value ?? "").trim()
@@ -47,6 +50,7 @@ export function siteNameMatchesBrand(siteName, brand) {
 }
 const seedIdentityCache = new Map();
 const SEED_IDENTITY_TTL_MS = 10 * 60 * 1000;
+const IDENTITY_CHECK_MS = 45_000;
 
 // Resolve null when the run deadline passes, even if a provider call inside
 // the identity check does not support cancellation itself.
@@ -450,8 +454,10 @@ export function selectNativeCommerceLeads(leads, limit = 6) {
 // A direct pair uses the same product research but never treats a filtered Qloo result as discovery.
 export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, objective,
   specifiedPartner = null, market = "US", userConstraints = {}, maxCatalogCalls = 160,
+  userFeedback = null,
   maxResearchMs = Number(process.env.COMMERCE_RUN_RESEARCH_MS) || 300_000 }, {
   recommend = personalQlooRecommendBrands, entityTags = personalQlooEntityTags,
+  audienceTags = personalQlooAudienceTags,
   verifyBusiness = verifyCommerceBusiness, researchPair = researchCommercePair,
   discoverStorefront = discoverVerifiedStorefront,
   investigateDirect = investigateDirectCommerceCulture,
@@ -464,9 +470,11 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   const remainingResearchMs = () => Number.isFinite(maxResearchMs) && maxResearchMs > 0
     ? Math.max(0, maxResearchMs - (now() - startedAt)) : Infinity;
   // Identity checks can make many slow public requests. Bound each one by the
-  // run's remaining time instead of checking the clock only between steps.
+  // run's remaining time instead of checking the clock only between steps,
+  // and by its own limit, so one stuck website cannot hold a research slot
+  // for the rest of the run (checks normally finish within seconds).
   const verifyWithinDeadline = (candidate, { allowSearch = false } = {}) => {
-    const remaining = remainingResearchMs();
+    const remaining = Math.min(remainingResearchMs(), IDENTITY_CHECK_MS);
     const controller = Number.isFinite(remaining) ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), Math.max(1, remaining)) : null;
     const signal = controller?.signal ?? null;
@@ -520,20 +528,27 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
     leads = [{ qlooId: specifiedPartner.qlooId, name: specifiedPartner.name,
       website: specifiedPartner.officialWebsite, description: specifiedPartner.description }];
   } else {
-    discovery = await recommend(ownerUserId, seedQlooId);
+    discovery = await recommend(ownerUserId, seedQlooId, { limit: NATIVE_LEADS });
     if (!["ok", "partial"].includes(discovery?.envelope?.status)) {
       return { coverage: "qloo_unavailable", candidates: [],
         opportunities: { supported: [], needs_verification: [], unsupported: [] } };
     }
-    leads = nativeLeads(discovery.envelope, seedQlooId, 12);
+    leads = nativeLeads(discovery.envelope, seedQlooId, NATIVE_LEADS);
     // Prefer an official website a user (or an earlier run) already verified
     // for this Qloo brand over Qloo's own website field, which is often empty.
     const known = await knownWebsites(leads.map((lead) => lead.qlooId)).catch(() => new Map());
     leads = leads.map((lead) => known.get(lead.qlooId)
       ? { ...lead, website: known.get(lead.qlooId), websiteSource: "verified_record" } : lead);
   }
+  // Partners the user passed on in this project (already working with them,
+  // not right for the brand, not credible) are not researched again.
+  const userExcluded = new Set(specifiedPartner ? [] : userFeedback?.excludedPartnerQlooIds ?? []);
+  const excludedByUser = leads.filter((lead) => userExcluded.has(lead.qlooId));
+  leads = leads.filter((lead) => !userExcluded.has(lead.qlooId));
   let seedTagsPromise = null;
   const seedTagsOnce = () => (seedTagsPromise ??= entityTags(ownerUserId, seedQlooId).catch(() => null));
+  let seedAudiencePromise = null;
+  const seedAudienceOnce = () => (seedAudiencePromise ??= audienceTags(ownerUserId, seedQlooId).catch(() => null));
   const candidates = [];
   const evaluated = [];
   let catalogCallsUsed = 0;
@@ -554,8 +569,10 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   // against its real catalog sample inside pair research; partners with no
   // value stop there, before deep search. Time and budget still bound the run.
   const excludedTrace = [];
-  // Categories the starting store sells, shared by all partners in this run.
+  // Categories the starting store sells, and starting-product work, shared by
+  // all partners in this run.
   const seedRange = new Map();
+  const runShared = new Map();
   const rank = { likely: 0, possible: 1, unlikely: 2 };
   const hintOrder = [...leads].sort((a, b) =>
     rank[fitOf(a)] - rank[fitOf(b)] || (a.originalOrder ?? 0) - (b.originalOrder ?? 0));
@@ -567,6 +584,10 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   const remembered = specifiedPartner ? { ordered: leads, skipped: [] }
     : orderLeadsWithMemory(hintOrder, memoryTiers);
   const selectedLeads = remembered.ordered;
+  for (const lead of excludedByUser) {
+    excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
+      status: "excluded_by_user" });
+  }
   for (const lead of remembered.skipped) {
     excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
       status: "identity_unverified_recently", identityReason: memoryTiers.get(lead.qlooId).identityFailure });
@@ -628,13 +649,17 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       const partnerTags = specifiedPartner ? null
         : await entityTags(ownerUserId, verifiedPartner.qlooId).catch(() => null);
       const seedTags = specifiedPartner ? null : await seedTagsOnce();
+      // Lifestyle and audience tags for the "who both brands appeal to" line.
+      const [seedAudience, partnerAudience] = specifiedPartner ? [null, null] : await Promise.all([
+        seedAudienceOnce(), audienceTags(ownerUserId, verifiedPartner.qlooId).catch(() => null)]);
       const cultureEvidence = specifiedPartner ? culture.supportProof ?? null : {
         seedQlooId, partnerQlooId: verifiedPartner.qlooId,
         unconstrained: discovery.sampleData !== true,
         envelope: discovery.envelope,
-        seedTags: seedTags?.tags ?? [], partnerTags: partnerTags?.tags ?? [] };
-      const tagResponseIds = [seedTags?.responseId, partnerTags?.responseId]
-        .filter((id) => typeof id === "string");
+        seedTags: seedTags?.tags ?? [], partnerTags: partnerTags?.tags ?? [],
+        seedAudienceTags: seedAudience?.tags ?? [], partnerAudienceTags: partnerAudience?.tags ?? [] };
+      const tagResponseIds = [seedTags?.responseId, partnerTags?.responseId,
+        seedAudience?.responseId, partnerAudience?.responseId].filter((id) => typeof id === "string");
       const configuredPartnerBudget = Number(process.env.COMMERCE_CATALOG_CALLS_PER_PARTNER);
       const partnerCeiling = Number.isFinite(configuredPartnerBudget) && configuredPartnerBudget > 0
         ? Math.max(22, Math.min(96, Math.floor(configuredPartnerBudget)))
@@ -659,7 +684,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
         result = await researchPair({ seed: verifiedSeed,
           partner: { ...verifiedPartner, description: verifiedPartner.description ?? lead.description },
           objective, discoveryBasis: specifiedPartner ? "user_specified" : "qloo_native_brand",
-          cultureEvidence, market, userConstraints, seedRange,
+          cultureEvidence, market, userConstraints, seedRange, runShared,
+          userRejectedKeys: userFeedback?.rejectedOpportunityKeys ?? [],
           maxCatalogCalls: candidateBudget, maxResearchMs: partnerTime });
       } finally { reservedCalls -= candidateBudget; }
       // A storefront or capability failure can return before making any
@@ -684,6 +710,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       candidate.exactDetailFailures = result.exactDetailFailures ?? 0;
       candidate.pairsSkippedFromMemory = result.pairsSkippedFromMemory ?? 0;
       candidate.pairsSkippedOwnRange = result.pairsSkippedOwnRange ?? 0;
+      candidate.pairsSkippedByUser = result.pairsSkippedByUser ?? 0;
       candidate.productSearchPlanning = result.productSearchPlanning ?? "not_run";
       candidate.productSelectionPlanning = result.productSelectionPlanning ?? "not_run";
       candidate.stopReason = result.stopReason ?? null;

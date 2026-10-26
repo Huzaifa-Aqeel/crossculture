@@ -40,7 +40,12 @@ try {
   [keyHash, JSON.stringify(snapshot), createHash("sha256").update(JSON.stringify(snapshot)).digest("hex")]);
   const queries = ["a", "b", "c"].map((letter) => `fixture ${nonce} ${letter}`);
   let providerCalls = 0;
+  let locksDuringProvider = 0;
   const load = async () => { providerCalls += 1;
+    // No lock may span the provider call: under the hosted transaction pooler
+    // a held lock can leak and stall every later search.
+    locksDuringProvider += Number((await db.query(
+      "select count(*) from pg_locks where locktype='advisory'")).rows[0].count);
     await new Promise((resolve) => setTimeout(resolve, 30));
     return { results: [], usage: { credits: 1 } }; };
   const concurrent = await Promise.allSettled(queries.map((query) =>
@@ -49,6 +54,13 @@ try {
   assert.equal(concurrent.filter((item) => item.status === "rejected" &&
     /Tavily account credits are exhausted/.test(item.reason.message)).length, 1);
   assert.equal(providerCalls, 2, "atomic reservations must prevent a third provider call");
+  assert.equal(locksDuringProvider, 0, "no advisory lock is held during a provider call");
+  const [first, second] = await Promise.all([1, 2].map(() =>
+    withWebSearch(`${queries[0]} again`, { focus: "fixture" }, () => {
+      throw new Error("Credits are exhausted, so the provider must not be called"); })
+      .catch((error) => error)));
+  assert.match(first.message, /Tavily account credits are exhausted/);
+  assert.equal(first, second, "identical concurrent questions share one request");
   const reused = await withWebSearch(queries[0], { focus: "fixture" },
     () => { throw new Error("A fresh cached query must not call the provider"); });
   assert.equal(reused.cacheStatus, "fresh");

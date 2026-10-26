@@ -10,6 +10,7 @@ type Offer = { status: string; title?: string; url?: string | null;
 type Assessment = { policyVersion: string; status: "supported" | "needs_verification" | "unsupported";
   culturalRelationship: string; culturalExplanation: string; culturalTheme?: string | null;
   culturalThemes?: string[]; sharedAudienceTastes?: string[];
+  sharedAudienceAppeal?: { people?: string[]; lifestyle?: string[] };
   reasonCodes: string[]; currentOfferReview?: "current" | "changed_since_assessment" | "refresh_unavailable" | "not_checked";
   materialUnknowns: string[]; dealUnknowns: string[]; reviewFlags?: string[];
   assortmentScope?: { observedFamilies: string[]; coverage: string } | null;
@@ -21,7 +22,8 @@ type Match = { id: string; partnerEntityId: string; partnerName: string; partner
   evidence?: { commerce?: { identitySourceRefs?: string[]; culturalSourceRefs?: string[];
     externalFindings?: { kind: string; url: string; publishedAt?: string | null }[] } };
   currentOffers?: { seed: Offer; partner: Offer };
-  briefId?: string | null };
+  briefId?: string | null; feedback?: Feedback | null };
+type Feedback = { id: string; action: "save" | "reject"; reasonCode?: string | null };
 type Run = { id: string; kind: string; status: string; stage: string; seedName: string;
   errorCode?: string | null; createdAt?: string;
   result?: { message?: string; coverage?: string; stopReason?: string }; matches: Match[] };
@@ -76,14 +78,16 @@ const listText = (items: string[]) => items.length < 2 ? items.join("")
 function culturalLine(score: Assessment, seedName: string, partnerName: string) {
   const themes = (score.culturalThemes?.length ? score.culturalThemes : score.culturalTheme ? [score.culturalTheme] : [])
     .map((theme) => theme.toLowerCase());
-  const tastes = score.sharedAudienceTastes ?? [];
+  const people = score.sharedAudienceAppeal?.people ?? [];
+  const lifestyle = score.sharedAudienceAppeal?.lifestyle ?? [];
   const affinity = score.culturalRelationship === "native_recommendation_verified"
-    ? `${seedName}'s customers also favor ${partnerName}.`
+    ? `People who like ${seedName} also tend to like ${partnerName}.`
     : score.culturalRelationship === "direct_pair_supported"
-      ? `${partnerName}'s customers also favor ${seedName}.` : "";
+      ? `People who like ${partnerName} also tend to like ${seedName}.` : "";
   if (!affinity && !themes.length) return "The cultural link between these brands is not confirmed.";
   return [affinity, themes.length ? `Both brands are known for ${listText(themes)}.` : "",
-    tastes.length ? `Their audiences share a taste for ${listText(tastes)}.` : ""].filter(Boolean).join(" ");
+    people.length ? `Both brands appeal to ${listText(people)}.`
+      : lifestyle.length ? `Both brands are associated with ${listText(lifestyle)}.` : ""].filter(Boolean).join(" ");
 }
 
 // The first sentence of the partner's brand description, kept short.
@@ -107,9 +111,38 @@ const sentenceCase = (text: string) => {
 
 type Action = "check";
 
-function Opportunity({ projectId, match, others, run, pending, launch, onShow, onCheck }: {
+const PASS_REASONS: [string, string][] = [["products_dont_fit", "Products don't go together"],
+  ["not_right_for_brand", "Not right for my brand"], ["already_working", "Already working with them"],
+  ["partner_not_credible", "Partner not credible"], ["other", "Other"]];
+type FeedbackActions = { vote: (match: Match, action: "save" | "reject") => Promise<void>;
+  explain: (match: Match, reasonCode: string, note?: string) => Promise<void>; undo: (match: Match) => Promise<void> };
+
+// One click records the vote; a reason for "Not a fit" is optional and can follow.
+function FeedbackBar({ match, actions }: { match: Match; actions: FeedbackActions }) {
+  const [busy, setBusy] = useState(false);
+  const [other, setOther] = useState<string | null>(null);
+  const run = (task: () => Promise<void>) => { setBusy(true); task().finally(() => setBusy(false)); };
+  const feedback = match.feedback;
+  if (!feedback) return <div className="rs-feedback"><span className="rs-quiet">Is this a good fit?</span>
+    <button className="rs-link" type="button" disabled={busy} onClick={() => run(() => actions.vote(match, "save"))}>Good fit</button>
+    <button className="rs-link" type="button" disabled={busy} onClick={() => run(() => actions.vote(match, "reject"))}>Not a fit</button></div>;
+  const undo = <button className="rs-link" type="button" disabled={busy} onClick={() => run(() => actions.undo(match))}>Undo</button>;
+  if (feedback.action === "save") return <div className="rs-feedback"><span className="rs-quiet">Marked as a good fit.</span>{undo}</div>;
+  return <div className="rs-feedback rs-feedback-pass"><span className="rs-quiet">Marked as not a fit.</span>{undo}
+    {!feedback.reasonCode && other === null && <div className="rs-tags rs-reasons"><span className="rs-quiet">Why? (optional)</span>
+      {PASS_REASONS.map(([code, text]) => <button key={code} type="button" disabled={busy}
+        onClick={() => code === "other" ? setOther("") : run(() => actions.explain(match, code))}>{text}</button>)}</div>}
+    {!feedback.reasonCode && other !== null && <form className="rs-reason-note" onSubmit={(event) => {
+      event.preventDefault(); run(() => actions.explain(match, "other", other)); }}>
+      <input aria-label="What didn't fit?" placeholder="What didn't fit?" maxLength={160} value={other}
+        onChange={(event) => setOther(event.target.value)} autoFocus />
+      <button className="rs-button-quiet" type="submit" disabled={busy}>Send</button></form>}
+    {feedback.reasonCode && <span className="rs-quiet">Thanks, noted.</span>}</div>;
+}
+
+function Opportunity({ projectId, match, others, run, pending, launch, onShow, onCheck, feedback }: {
   projectId: string; match: Match; others: Match[]; run: Run; pending: Record<string, Action>; launch?: Launch;
-  onShow: (match: Match) => void; onCheck: (match: Match) => void }) {
+  onShow: (match: Match) => void; onCheck: (match: Match) => void; feedback: FeedbackActions }) {
   const router = useRouter();
   // One partner card can hold several product combinations; the user picks which one to view.
   const combinations = [match, ...others];
@@ -150,10 +183,12 @@ function Opportunity({ projectId, match, others, run, pending, launch, onShow, o
       {issues.length ? <div className="rs-fact"><dt>Potential challenges</dt><dd><ul>{issues.map((item) => <li key={item}>{item}</li>)}</ul></dd></div> : null}
     </dl>
 
-    {(shown.briefId || canPropose) && <div className="rs-opp-actions">
-      <button className="rs-button" type="button"
+    <div className="rs-opp-actions">
+      {(shown.briefId || canPropose) && <button className="rs-button" type="button"
         onClick={() => router.push(`/projects/${projectId}/proposal/${shown.id}?run=${run.id}`)}>
-        {shown.briefId ? "Open proposal" : "Create proposal"}</button></div>}
+        {shown.briefId ? "Open proposal" : "Create proposal"}</button>}
+      <span className="rs-spacer" />
+      <FeedbackBar key={shown.id} match={shown} actions={feedback} /></div>
 
     {others.length > 0 && <div className="rs-combos"><span className="rs-quiet">Other combinations with {shown.partnerName}</span>
       <div className="rs-combo-list">{combinations.filter((item) => item.id !== shown.id).map((item) =>
@@ -274,6 +309,35 @@ export function CommerceResearch({ projectId }: { projectId: string }) {
     return { ...match, ...payload.match } as Match;
   };
   const check = (match: Match) => act(match, "check", async () => { await fetchCurrent(match); });
+  const send = async (url: string, method: string, body?: object) => {
+    const response = await fetch(url, { method, headers: { "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.message ?? "Your feedback could not be saved.");
+    return payload;
+  };
+  const feedbackActions: FeedbackActions = {
+    vote: async (match, action) => {
+      try {
+        const { feedback } = await send("/api/personal/feedback", "POST", { runId: run?.id, matchId: match.id, action });
+        updateMatch(setRun, match.id, { feedback });
+      } catch (failure) { setError(failure instanceof Error ? failure.message : "Your feedback could not be saved."); }
+    },
+    explain: async (match, reasonCode, note) => {
+      if (!match.feedback) return;
+      try {
+        const { feedback } = await send(`/api/personal/feedback/${match.feedback.id}`, "PATCH", { reasonCode, note });
+        updateMatch(setRun, match.id, { feedback });
+      } catch (failure) { setError(failure instanceof Error ? failure.message : "Your feedback could not be saved."); }
+    },
+    undo: async (match) => {
+      if (!match.feedback) return;
+      try {
+        await send(`/api/personal/feedback/${match.feedback.id}`, "DELETE");
+        updateMatch(setRun, match.id, { feedback: null });
+      } catch (failure) { setError(failure instanceof Error ? failure.message : "Your feedback could not be saved."); }
+    },
+  };
   // Shown combinations load live details once, without a click.
   const show = useCallback((match: Match) => {
     if (match.score?.currentOfferReview !== "not_checked" || isFresh(checkedAt.get(match.id))) return;
@@ -315,7 +379,8 @@ export function CommerceResearch({ projectId }: { projectId: string }) {
       {groups.map((group) => group.partners.length ? <div key={group.status}>
         <h4 className="rs-section-title">{group.status === "supported" ? "Recommended" : "Worth checking"}</h4>
         {group.partners.map((matches) => <Opportunity key={matches[0].id} projectId={projectId} match={matches[0]} others={matches.slice(1)} run={run}
-          pending={pending} launch={launch[`${run.id}:${matches[0].partnerEntityId}`] ?? launchCache.get(`${run.id}:${matches[0].partnerEntityId}`)} onShow={show} onCheck={check} />)}
+          pending={pending} launch={launch[`${run.id}:${matches[0].partnerEntityId}`] ?? launchCache.get(`${run.id}:${matches[0].partnerEntityId}`)} onShow={show} onCheck={check}
+          feedback={feedbackActions} />)}
       </div> : null)}
     </>}
     {error && <p className="rs-error" role="alert">{error}</p>}

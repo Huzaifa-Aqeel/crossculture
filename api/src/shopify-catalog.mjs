@@ -24,6 +24,26 @@ export function publicIpAddress(address) {
   return /^[23][0-9a-f]/.test(lower);
 }
 
+// Checked public DNS answers are reused for five minutes, and one lookup serves
+// concurrent requests for the same host. A run otherwise repeats the same few
+// lookups hundreds of times. Failed or non-public answers are never kept.
+const DNS_TTL_MS = 5 * 60_000;
+const dnsAnswers = new Map();
+export function publicAnswers(hostname, { resolve = lookup, now = Date.now } = {}) {
+  const cached = dnsAnswers.get(hostname);
+  if (cached && (cached.pending || cached.expiresAt > now())) return cached.answers;
+  const answers = resolve(hostname, { all: true, verbatim: true }).then((found) => {
+    if (!found.length || found.some((item) => !publicIpAddress(item.address))) {
+      throw new Error("Storefront endpoint did not resolve to public addresses.");
+    }
+    dnsAnswers.set(hostname, { answers, expiresAt: now() + DNS_TTL_MS });
+    return found;
+  }).catch((error) => { dnsAnswers.delete(hostname); throw error; });
+  if (dnsAnswers.size >= 500) dnsAnswers.delete(dnsAnswers.keys().next().value);
+  dnsAnswers.set(hostname, { answers, pending: true });
+  return answers;
+}
+
 // DNS is checked and pinned for this HTTPS request. Redirects are never followed here;
 // a caller that follows one must send the next hop through this function again.
 export async function secureCatalogFetch(url, options = {}) {
@@ -31,10 +51,7 @@ export async function secureCatalogFetch(url, options = {}) {
   if (target.protocol !== "https:" || target.port || target.username || target.password) {
     throw new Error("Public HTTPS endpoint required.");
   }
-  const answers = await lookup(target.hostname, { all: true, verbatim: true });
-  if (!answers.length || answers.some((item) => !publicIpAddress(item.address))) {
-    throw new Error("Storefront endpoint did not resolve to public addresses.");
-  }
+  const answers = await publicAnswers(target.hostname);
   // Every answer was checked above, so the connection may try each of them
   // (IPv4/IPv6 fallback) without another DNS lookup.
   const pinned = answers[0];
@@ -77,9 +94,11 @@ export function catalogEndpoint(domain) {
 
 // A short code for a failed public fetch. It is developer diagnostics only and
 // never contains response content.
-// EBUSY appeared from DNS lookups inside Lambda (25 Oct) and cleared on later runs.
+// Inside Lambda a domain that does not exist fails its DNS lookup with EBUSY
+// rather than ENOTFOUND (all 13 such hosts on 25–26 Oct resolve nowhere), so
+// like a missing host it is a real answer and is not retried.
 export const TRANSIENT_FETCH_FAILURES = new Set(["network_econnreset", "network_eai_again",
-  "network_epipe", "network_econnaborted", "network_etimedout", "network_ebusy"]);
+  "network_epipe", "network_econnaborted", "network_etimedout"]);
 
 export function fetchFailureCode(error) {
   if (error?.name === "TimeoutError" || error?.name === "AbortError") return "timeout";

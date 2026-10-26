@@ -8,10 +8,8 @@
     "start": "node --env-file-if-exists=../.env.local src/server.mjs",
     "aws:package": "node scripts/package-lambda.mjs",
     "aws:worker-concurrency": "node --env-file-if-exists=../.env.local scripts/configure-worker-concurrency.mjs",
-    "inspect-qloo": "node scripts/inspect-qloo.mjs",
     "test": "node scripts/run-checks.mjs offline",
-    "test:local": "node scripts/run-checks.mjs local",
-    "eval:mechanism": "node --env-file-if-exists=../.env.local scripts/eval-commerce-mechanism.mjs"
+    "test:local": "node scripts/run-checks.mjs local"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1152.0",

@@ -21,6 +21,9 @@ assert.equal(lastingIdentityFailure([{ reason: "redirect_301" }, { reason: "site
 assert.equal(lastingIdentityFailure([{ reason: "site_name_mismatch" }, { reason: "http_403" }]), null);
 assert.equal(lastingIdentityFailure([{ reason: "network_etimedout" }]), null);
 assert.equal(lastingIdentityFailure([{ reason: "deadline_reached" }]), null);
+assert.equal(lastingIdentityFailure([{ reason: "network_ebusy" }, { reason: "official_website_needed" }]),
+  "official_website_needed", "A domain that does not exist is a lasting answer");
+assert.equal(lastingIdentityFailure([{ reason: "network_enotfound" }]), "network_enotfound");
 assert.equal(lastingIdentityFailure([]), null);
 
 const now = Date.parse("2026-10-25T12:00:00Z");
@@ -94,9 +97,10 @@ const ids = ["22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-33
   "44444444-4444-4444-8444-444444444444"];
 let researched = [];
 let recalled = null;
+let recommendOptions = null;
 const deps = (recallPartners) => ({
-  recommend: async () => ({ envelope: { status: "ok", results: ids.map((id, index) => ({
-    entity_id: id, name: `Brand ${index}`, properties: { website: `https://brand${index}.example.com` } })) } }),
+  recommend: async (_owner, _seed, options) => { recommendOptions = options; return { envelope: { status: "ok", results: ids.map((id, index) => ({
+    entity_id: id, name: `Brand ${index}`, properties: { website: `https://brand${index}.example.com` } })) } }; },
   verifyBusiness: async (candidate) => ({ id: candidate.qlooId, name: candidate.name,
     officialWebsite: candidate.website ?? "https://seed.example.com", identityStatus: "verified" }),
   researchPair: async (input) => { researched.push(input.partner.name);
@@ -113,9 +117,36 @@ deps(async (input) => { recalled = input; return [
   { ...row(ids[2], "researched", { supportedCount: 2, recommendableCount: 2 }), observedAt: new Date().toISOString() },
   { ...row(ids[0], "identity_unverified", { identityReason: "site_name_mismatch" }), observedAt: new Date().toISOString() }]; }));
 assert.deepEqual(recalled, { qlooIds: ids, objective: "product_bundle", market: "US" });
+assert.equal(recommendOptions.limit, 12, "Native discovery reads 12 Qloo leads");
 assert.deepEqual(researched, ["Brand 2", "Brand 1"], "Proven partner first; remembered failure skipped");
 assert.ok(discovered.candidates.some((item) => item.status === "identity_unverified_recently" &&
   item.identityReason === "site_name_mismatch"));
+// Both brands' audience tags reach the evidence step; the starting brand's
+// are fetched once per run.
+const audienceCalls = [];
+const cultureSeen = [];
+await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,
+  objective: "product_bundle" }, { ...deps(async () => []),
+  // The real identity check returns the partner's Qloo ID.
+  verifyBusiness: async (candidate) => ({ id: candidate.qlooId, qlooId: candidate.qlooId, name: candidate.name,
+    officialWebsite: candidate.website ?? "https://seed.example.com", identityStatus: "verified" }),
+  audienceTags: async (_owner, id) => { audienceCalls.push(id);
+    return { tags: [{ id: `urn:tag:lifestyle:qloo:${id.slice(0, 4)}`, name: "Outdoor", popularity: 0.98 }], responseId: null }; },
+  researchPair: async (input) => { cultureSeen.push(input.cultureEvidence);
+    return { coverage: "no_catalog_results", callsUsed: 0,
+      opportunities: { supported: [], needs_verification: [], unsupported: [] } }; } });
+assert.equal(audienceCalls.filter((id) => id === seedQlooId).length, 1, "Starting brand audience tags once per run");
+assert.equal(cultureSeen.length, 3);
+assert.ok(cultureSeen.every((evidence) => evidence.seedAudienceTags.length === 1 && evidence.partnerAudienceTags.length === 1));
+// Partners the user passed on in this project are not researched again.
+researched = [];
+const withFeedback = await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,
+  objective: "product_bundle", userFeedback: { excludedPartnerQlooIds: [ids[1]], rejectedOpportunityKeys: [] } },
+deps(async () => []));
+assert.deepEqual(researched, ["Brand 0", "Brand 2"]);
+assert.ok(withFeedback.candidates.some((item) => item.qlooId === ids[1] && item.status === "excluded_by_user"));
 researched = [];
 await researchNativeCommerce({ ownerUserId: "owner",
   seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,

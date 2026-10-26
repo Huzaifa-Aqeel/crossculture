@@ -123,6 +123,11 @@ let missingHostProbes = 0;
 await discoverVerifiedStorefront("https://missing.example.com", { onlyDomain: "missing.example.com",
   retryDelayMs: 0, fetcher: async () => { missingHostProbes += 1; throw networkError("ENOTFOUND"); } });
 assert.equal(missingHostProbes, 1, "A missing host is not retried");
+// Inside Lambda a domain that does not exist fails with EBUSY: not retried either.
+let busyHostProbes = 0;
+await discoverVerifiedStorefront("https://missing.example.com", { onlyDomain: "missing.example.com",
+  retryDelayMs: 0, fetcher: async () => { busyHostProbes += 1; throw networkError("EBUSY"); } });
+assert.equal(busyHostProbes, 1, "A Lambda EBUSY (missing domain) is not retried");
 
 // Confirmation reuses the first-party store proof instead of probing again.
 const confirmed = await verifySelectedCommerceBrand({ qlooId, name: "Everlane" }, null, {
@@ -403,6 +408,16 @@ assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, pr
   false, "A mood or ritual outcome needs both items' own text to name it");
 assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, practicalResult: false,
   bothPassagesNameActivity: true }).passed, true);
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, verdict: "parallel_benefits",
+  practicalResult: false, sameObject: false, bothPassagesNameActivity: true }).passed, true,
+  "Both pages naming the same ritual links a journal and a candle even if the model calls them parallel");
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, verdict: "parallel_benefits",
+  practicalResult: false, sameObject: false, bothPassagesNameActivity: false }).passed, false,
+  "Parallel ambience without a shared named activity stays unsupported");
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, verdict: "parallel_benefits",
+  bothWornOrCarried: true, directFunction: false, bothPassagesNameActivity: true }).passed, false);
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, verdict: "unrelated",
+  bothPassagesNameActivity: true }).passed, false);
 assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, sameProductType: true }).passed, false);
 assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, bothWornOrCarried: true,
   directFunction: false }).passed, false, "An outfit or bag-with-clothing pairing is ordinary co-wear");
@@ -481,4 +496,23 @@ await verifyCommerceBusiness({ qlooId, name: "Hiut Denim", market: "GB" },
   { firstParty: async (candidate) => { ukTried.push(candidate.website); return null; } });
 assert.deepEqual(ukTried, ["https://hiutdenim.com", "https://hiutdenim.co.uk"]);
 
+// DNS: one lookup serves concurrent requests for a host, answers are reused
+// for five minutes, and failed or non-public answers are never kept.
+{
+  const { publicAnswers } = await import("../src/shopify-catalog.mjs");
+  let lookups = 0; let clock = 0;
+  const resolve = async () => { lookups += 1; return [{ address: "93.184.216.34", family: 4 }]; };
+  await Promise.all([publicAnswers("dns-a.example.com", { resolve, now: () => clock }),
+    publicAnswers("dns-a.example.com", { resolve, now: () => clock })]);
+  await publicAnswers("dns-a.example.com", { resolve, now: () => clock });
+  assert.equal(lookups, 1, "Concurrent and repeat lookups share one answer");
+  clock = 5 * 60_000 + 1;
+  await publicAnswers("dns-a.example.com", { resolve, now: () => clock });
+  assert.equal(lookups, 2, "An answer expires after five minutes");
+  let privateLookups = 0;
+  const privateResolve = async () => { privateLookups += 1; return [{ address: "10.0.0.5", family: 4 }]; };
+  await assert.rejects(publicAnswers("dns-b.example.com", { resolve: privateResolve }));
+  await assert.rejects(publicAnswers("dns-b.example.com", { resolve: privateResolve }));
+  assert.equal(privateLookups, 2, "A non-public answer is never kept");
+}
 console.log("Commerce entry and run reliability checks passed: redirects, retries, deadlines, pair batching and retry policy.");

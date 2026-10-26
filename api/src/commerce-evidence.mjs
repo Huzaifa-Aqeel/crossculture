@@ -14,14 +14,52 @@ const SHOP_ID = /^gid:\/\/shopify\/Shop\/[A-Za-z0-9_-]+$/;
 const AUDIENCE_TASTE_TAG = /^urn:tag:(?:genre:media|genre:music):[a-z0-9_:]+$/;
 const AUDIENCE_TASTE_NOISE = /^(?:friend|friends|friendship|love|family|family relationships|relationships|21st century|20th century|female protagonist|male protagonist|teenage girl|teenage boy|single mother|single father|death|murder|husband|wife|marriage|based on novel|new york city|los angeles)$/i;
 // Shared tastes as readable phrases: a music genre reads "indie music".
+// Qloo's popularity marks near-universal tags: folk music, for example, sits
+// at 0.9997 and was carried by 12 of 16 brands checked (26 Oct), so it says
+// nothing about a pair. Tags without a popularity are treated the same way.
+export const UNIVERSAL_TAG_POPULARITY = 0.9995;
+const distinctive = (tag) => Number.isFinite(tag?.popularity) && tag.popularity < UNIVERSAL_TAG_POPULARITY;
 export function sharedAudienceTastes(seedTags, partnerTags, limit = 3) {
-  const clean = (tags) => (Array.isArray(tags) ? tags : []).map((tag) => ({ id: tag?.id,
+  const clean = (tags) => (Array.isArray(tags) ? tags : []).filter(distinctive).map((tag) => ({ id: tag?.id,
     name: String(tag?.name ?? "").trim() })).filter((tag) => AUDIENCE_TASTE_TAG.test(tag.id ?? "") &&
     tag.name.length >= 3 && !AUDIENCE_TASTE_NOISE.test(tag.name));
   const partnerIds = new Set(clean(partnerTags).map((tag) => tag.id));
   const phrase = (tag) => tag.id.startsWith("urn:tag:genre:music:") && !/\bmusic$/i.test(tag.name)
     ? `${tag.name.toLowerCase()} music` : tag.name.toLowerCase();
   return [...new Set(clean(seedTags).filter((tag) => partnerIds.has(tag.id)).map(phrase))].slice(0, limit);
+}
+// Who both brands appeal to, for this product pair. A tag counts only when
+// Qloo gives it to both brands in separate requests (the products are never
+// sent to Qloo), it is not near-universal, and a topic word of it appears in
+// the selected products' own text: Rumpl and United by Blue share
+// "environmental advocates", and the duffle's page mentions the environment.
+// People tags (customer identity, segment, influencer appeal) read "appeal
+// to"; lifestyle tags read "associated with". Explanation only.
+const PEOPLE_TAG = /^urn:tag:(?:customer_identity|customer_segment|influencer_appeal):qloo:/;
+const LIFESTYLE_TAG = /^urn:tag:lifestyle:qloo:/;
+const ROLE_WORDS = new Set(["advocates", "advocate", "enthusiasts", "enthusiast", "consumers", "consumer",
+  "individuals", "people", "influencers", "influencer", "lovers", "seekers", "shoppers", "bloggers",
+  "lifestyle", "living", "style", "conscious", "focused", "minded", "fans", "community"]);
+const stems = (text) => new Set(plainIdentity(text).split(" ").filter((word) => word.length >= 4)
+  .map((word) => word.slice(0, 5)));
+export function sharedAudienceAppeal(seedTags, partnerTags, productTexts, limit = 2) {
+  const usable = (tags) => (Array.isArray(tags) ? tags : []).filter((tag) => distinctive(tag) &&
+    (PEOPLE_TAG.test(tag?.id ?? "") || LIFESTYLE_TAG.test(tag?.id ?? "")) && plainIdentity(tag.name).length >= 4);
+  const partner = new Map(usable(partnerTags).map((tag) => [plainIdentity(tag.name), tag]));
+  const products = stems(productTexts.filter((value) => typeof value === "string").join(" "));
+  const relevant = (name) => plainIdentity(name).split(" ").filter((word) => word.length >= 4 &&
+    !ROLE_WORDS.has(word)).some((word) => products.has(word.slice(0, 5)));
+  const shared = new Map();
+  for (const tag of usable(seedTags)) {
+    const key = plainIdentity(tag.name);
+    const other = partner.get(key);
+    if (!other || shared.has(key) || !relevant(tag.name)) continue;
+    shared.set(key, { name: key, people: PEOPLE_TAG.test(tag.id) || PEOPLE_TAG.test(other.id),
+      popularity: Math.max(tag.popularity, other.popularity) });
+  }
+  const ordered = [...shared.values()].sort((a, b) => a.popularity - b.popularity);
+  return { people: ordered.filter((tag) => tag.people).slice(0, limit).map((tag) => tag.name),
+    lifestyle: ordered.filter((tag) => !tag.people).slice(0, limit).map((tag) => tag.name) };
 }
 const validated = new WeakSet();
 const host = (url) => { try { const parsed = new URL(url); return parsed.protocol === "https:" ? parsed.hostname : null; }
@@ -105,6 +143,7 @@ export function validateCommerceEvidence(raw) {
   let culturalTheme = null;
   let culturalThemes = [];
   let audienceTastes = [];
+  let audienceAppeal = { people: [], lifestyle: [] };
   if (raw.discoveryBasis === "qloo_native_brand" &&
       QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
       cultureEvidence.seedQlooId === seed.qlooId && cultureEvidence.partnerQlooId === partner.qlooId &&
@@ -136,9 +175,14 @@ export function validateCommerceEvidence(raw) {
       culturalThemes = [...new Set([corroborated ?? shared[0], ...shared]
         .map((tag) => String(tag.name).trim()))].slice(0, 3);
     }
-    // Shared audience tastes explain the fit to the customer; per Scoring
-    // Engine 3.3 they never change the assessment or the ranking.
-    audienceTastes = sharedAudienceTastes(cultureEvidence.seedTags, cultureEvidence.partnerTags);
+    // Shared music, film and dining genres are not shown: across 11 brands
+    // (26 Oct) the shared ones were carried by 9-11 of them (rhythm & blues,
+    // popularity 0.98, by all 11), and Qloo popularity does not catch that.
+    // The pair's shared audience (below) is specific and is shown instead.
+    audienceAppeal = sharedAudienceAppeal(cultureEvidence.seedAudienceTags, cultureEvidence.partnerAudienceTags,
+      [seedDetail?.product?.title, partnerDetail?.product?.title,
+        ...(raw.sourceAuthority?.seedDescription ? [productDescriptionText(seedDetail?.product)] : []),
+        ...(raw.sourceAuthority?.partnerDescription ? [productDescriptionText(partnerDetail?.product)] : [])]);
   } else if (raw.discoveryBasis === "user_specified" &&
       cultureEvidence.kind === "direct_unconstrained_native" &&
       QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
@@ -282,7 +326,7 @@ export function validateCommerceEvidence(raw) {
   };
   const input = { objective: raw.objective, discoveryBasis: raw.discoveryBasis,
     identity, culturalRelationship, culturalExplanation, culturalTheme,
-    culturalThemes, sharedAudienceTastes: audienceTastes,
+    culturalThemes, sharedAudienceTastes: audienceTastes, sharedAudienceAppeal: audienceAppeal,
     seedOffer: selectedSeedValid ? "supported" : "unknown",
     partnerOffer: selectedPartnerValid ? "supported" : "unknown",
     seedAssortment: selectedSeedValid && raw.assortmentScope?.observedFamilies?.length &&

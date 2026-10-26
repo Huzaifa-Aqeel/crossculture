@@ -22,6 +22,7 @@ import { taxonomyCategory, screenKeyFor, recallScreenDecision,
 // The caller supplies only independently verified brand identities and Qloo evidence.
 export async function researchCommercePair({ seed, partner, objective, cultureEvidence = null,
   discoveryBasis, market = "US", userConstraints = {}, maxCatalogCalls = 28, seedRange = null,
+  runShared = null, userRejectedKeys = [],
   maxResearchMs = Number(process.env.COMMERCE_PARTNER_RESEARCH_MS) || 120_000 }, {
   createCatalog = () => catalogClient({ maxCalls: maxCatalogCalls }), discoverStorefront = discoverVerifiedStorefront,
   productQueries = null, planAnchorSearch = planAnchorProductSearch,
@@ -44,10 +45,23 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
       coverage: "selected_seed_product_required", callsUsed: 0 };
   }
   const startedAt = now();
+  // Work that depends only on the starting product (its store, product detail,
+  // Catalog capabilities, product-based search plan) is done once per run and
+  // shared by every partner through runShared. A failed or empty result is not
+  // shared, so the next partner tries again.
+  const once = (key, make, keep = Boolean) => {
+    if (!runShared) return make();
+    if (!runShared.has(key)) runShared.set(key, make().then((value) => {
+      if (!keep(value)) runShared.delete(key);
+      return value;
+    }, (error) => { runShared.delete(key); throw error; }));
+    return runShared.get(key);
+  };
   const timeLimitReached = () => Number.isFinite(maxResearchMs) && maxResearchMs > 0 &&
     now() - startedAt >= maxResearchMs;
   const [seedStore, partnerStore] = await Promise.all([
-    discoverStorefront(seed.officialWebsite), discoverStorefront(partner.officialWebsite),
+    once("seedStore", () => discoverStorefront(seed.officialWebsite), (store) => Boolean(store?.shopId)),
+    discoverStorefront(partner.officialWebsite),
   ]);
   if (!seedStore?.shopId || !partnerStore?.shopId || seedStore.shopId === partnerStore.shopId) {
     return { opportunities: { supported: [], needs_verification: [], unsupported: [] },
@@ -69,7 +83,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     }
     return null;
   });
-  const globalTools = await optionalTools("global") ?? new Set();
+  const globalTools = await once("globalTools", () => optionalTools("global")) ?? new Set();
   const canResearch = (set) => set?.has("search_catalog") &&
     (set.has("get_product") || set.has("lookup_catalog"));
   async function scope(store) {
@@ -82,7 +96,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   }
   // One partner's store being slow or down skips that partner. The starting
   // store or the shared Global Catalog failing still stops the run.
-  const [seedScope, partnerScope] = await Promise.all([scope(seedStore),
+  const [seedScope, partnerScope] = await Promise.all([once("seedScope", () => scope(seedStore)),
     scope(partnerStore).catch((error) => {
       if (error?.code === "catalog_unavailable") return "unavailable";
       throw error;
@@ -159,9 +173,9 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   let heroDetail;
   {
     try {
-      heroDetail = await catalog.detail(seedScope.domain, userConstraints.heroProduct.productId,
-        userConstraints.heroProduct.variantId, null, seedScope.tools,
-        { market, expectedSellerId: seedScope.domain === "global" ? seedStore.shopId : null });
+      heroDetail = await once("heroDetail", () => catalog.detail(seedScope.domain,
+        userConstraints.heroProduct.productId, userConstraints.heroProduct.variantId, null, seedScope.tools,
+        { market, expectedSellerId: seedScope.domain === "global" ? seedStore.shopId : null }));
       if (seedScope.domain === "global" && heroDetail.variant.seller?.id !== seedStore.shopId) {
         throw new Error("Selected seller changed.");
       }
@@ -295,11 +309,11 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   let productSearchPlanning = "empty";
   if (!productQueries && !timeLimitReached()) {
     try {
-      anchorPlan = validatePartnerSearchPlan(await planAnchorSearch({
+      anchorPlan = validatePartnerSearchPlan(await once("anchorPlan", () => planAnchorSearch({
         seedProduct: heroDetail.product, seedVariant: heroDetail.variant, objective,
         preferences: userConstraints.softPreferences ?? [], occasion: userConstraints.occasion ?? "",
         seedDescriptionTrusted: seedScope.domain !== "global",
-      }), [], heroDetail.product);
+      })), [], heroDetail.product);
     } catch { coverageIssues.add("anchor_search_planning_unavailable"); }
     try {
       retrievalPlan = validatePartnerSearchPlan(await planPartnerSearch({
@@ -693,6 +707,10 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   const rejected = await recallRejections(found.map(keyOf), pairJudgeVersion()).catch(() => new Set());
   const pairsSkippedFromMemory = found.filter((pair) => rejected.has(keyOf(pair))).length;
   found = found.filter((pair) => !rejected.has(keyOf(pair)));
+  // An exact pair this user marked "Not a fit" is never shown to them again.
+  const passed = new Set(userRejectedKeys);
+  const pairsSkippedByUser = found.filter((pair) => passed.has(keyOf(pair))).length;
+  found = found.filter((pair) => !passed.has(keyOf(pair)));
   // Cross-Sell: a partner item in a category the starting brand already sells
   // competes with its own range. Search the starting store once per partner
   // category name ("Belts"); a result in a similar category drops those pairs.
@@ -720,6 +738,22 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     }
     pairsSkippedOwnRange = found.filter((pair) => ownRange.has(taxonomyCategory(pair.partnerProduct))).length;
     found = found.filter((pair) => !ownRange.has(taxonomyCategory(pair.partnerProduct)));
+  }
+  // Assess product kinds in turn (dinnerware, bowls, serveware) instead of
+  // several items of one kind first; the selector's order is kept within a kind.
+  const kindOf = (product) => taxonomyCategory(product) ?? `product:${product?.id}`;
+  {
+    const byKind = new Map();
+    for (const pair of found) {
+      const kind = kindOf(pair.partnerProduct);
+      if (!byKind.has(kind)) byKind.set(kind, []);
+      byKind.get(kind).push(pair);
+    }
+    const queues = [...byKind.values()];
+    found = [];
+    for (let index = 0; queues.some((queue) => index < queue.length); index += 1) {
+      for (const queue of queues) if (queue[index]) found.push(queue[index]);
+    }
   }
   const assessed = [];
   // Use actual remaining calls rather than assuming every assessment will use
@@ -848,7 +882,8 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         ...(detailedMechanism.requiresCompatibility ? ["selected_product_compatibility_unverified"] : []),
         ...([seedOffer, partnerOffer].some((offer) => offer.state !== "supported")
           ? ["market_shipping_unverified"] : [])] }));
-    const assessedItem = { partnerId: partner.id, seedProductId: pair.seedProduct.id,
+    const assessedItem = { partnerId: partner.id, partnerKind: kindOf(partnerDetail.product),
+      seedProductId: pair.seedProduct.id,
       seedVariantId: pair.seedVariant.id, partnerProductId: pair.partnerProduct.id,
       partnerVariantId: pair.partnerVariant.id, sellerId: partnerStore.shopId,
       assessment, // The offer view is transient and must not be persisted.
@@ -863,6 +898,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
       partner: { productId: pair.partnerProduct.id, variantId: pair.partnerVariant.id,
         sellerId: partnerStore.shopId, storefrontDomain: partnerScope.domain } } };
     pairOutcomes.push({ opportunityKey: opportunityKeyFor(objective, assessedItem.references),
+      references: assessedItem.references,
       partnerCategory: taxonomyCategory(partnerDetail.product), status: assessment.status,
       mechanismState: assessment.productMechanism.gate.state, reasonCodes: assessment.reasonCodes,
       // Only a completed judgment can be reused later.
@@ -932,7 +968,9 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     }
     if (coverageIssues.has("catalog_rate_limited") || coverageIssues.has("catalog_budget_reached")) break;
     const grounded = assessed.filter(groundedBenefit);
-    if (grounded.filter((item) => item.assessment.status === "supported").length >= ENOUGH_SUPPORTED) {
+    // Two Supported items of the same kind (two cereal bowls) count once.
+    if (new Set(grounded.filter((item) => item.assessment.status === "supported")
+      .map((item) => item.partnerKind)).size >= ENOUGH_SUPPORTED) {
       partnerStop = "enough_opportunities_found"; break;
     }
     if (assessed.length >= NO_FIT_SAMPLE && !grounded.length) { partnerStop = "no_fit_in_sample"; break; }
@@ -950,7 +988,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     observedCandidateCount: seenSearchProducts.size,
     eligibleCandidateCount, screenedCandidateCount, screeningBatchCount,
     exploredRoleCount: exploredRoles.size,
-    searchPagesFetched, exactDetailFailures, pairsSkippedFromMemory, pairsSkippedOwnRange,
+    searchPagesFetched, exactDetailFailures, pairsSkippedFromMemory, pairsSkippedOwnRange, pairsSkippedByUser,
     stopReason: coverageIssues.has("catalog_rate_limited") ? "catalog_rate_limited"
       : coverageIssues.has("research_time_limit_reached") ? "research_time_limit_reached"
       : coverageIssues.has("catalog_budget_reached") ? "catalog_budget_reached"

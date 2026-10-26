@@ -1,4 +1,4 @@
-import { qlooCall } from "./qloo.mjs";
+import { qlooCall, qlooTypedTags } from "./qloo.mjs";
 import { qlooCacheIdentity, readQlooCache, storeQlooResponse } from "./qloo-cache.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -180,6 +180,9 @@ function normalizeTags(results) {
       ? sourceDescription.replace(/\s+/g, " ").trim().slice(0, 500) : "";
     tags.push({ id, name, type: typeof item?.type === "string" ? item.type : null,
       affinity: Number.isFinite(item?.affinity) ? item.affinity : null,
+      // Qloo's popularity separates near-universal tags (0.9996+) from ones
+      // that characterize a brand.
+      popularity: Number.isFinite(item?.popularity) ? item.popularity : null,
       ...(description ? { description } : {}) });
   }
   return tags;
@@ -214,6 +217,36 @@ export async function personalQlooEntityTags(ownerUserId, entityId, { provider =
   });
   return { tags, responseId: saved.id, inputHash: identity.inputHash,
     cacheStatus: "new", sampleData: provider !== qlooCall, status: "ok" };
+}
+
+// The lifestyle and audience tags that characterize a brand, beyond its top
+// 20 tags. Explanation only: never a gate or ranking input.
+export const AUDIENCE_TAG_TYPES = ["urn:tag:lifestyle:qloo", "urn:tag:customer_identity:qloo",
+  "urn:tag:customer_segment:qloo", "urn:tag:influencer_appeal:qloo"];
+export async function personalQlooAudienceTags(ownerUserId, entityId,
+  { provider = qlooTypedTags, now = new Date() } = {}) {
+  if (!QLOO_UUID.test(entityId ?? "")) throw new Error("A confirmed cultural brand identifier is required.");
+  const context = { entities: [entityId], tag_types: AUDIENCE_TAG_TYPES, take: 30 };
+  const identity = qlooCacheIdentity({ operation: "qloo_audience_tags", context, ownerUserId });
+  const cached = await readQlooCache(identity, { now });
+  if (cached.status !== "missing" && !(cached.sampleData && provider === qlooTypedTags)) {
+    return { tags: normalizeTags(cached.result?.results), responseId: cached.responseId,
+      cacheStatus: cached.status, sampleData: cached.sampleData };
+  }
+  const envelope = await provider(entityId, AUDIENCE_TAG_TYPES, 30);
+  if (envelope?.status !== "ok" || !Array.isArray(envelope.results)) {
+    return { tags: [], responseId: null, cacheStatus: "uncached", sampleData: provider !== qlooTypedTags };
+  }
+  const tags = normalizeTags(envelope.results);
+  const saved = await storeQlooResponse(identity, {
+    result: envelope, providerStatus: envelope.status, resolvedEntityIds: tags.map((tag) => tag.id),
+    affinities: tags.filter((tag) => Number.isFinite(tag.affinity)).map((tag) => ({ entityId: tag.id, affinity: tag.affinity })),
+    rights: { storage: "permitted", scope: "private" },
+    collectedAt: now, respondedAt: now,
+    freshUntil: new Date(now.getTime() + DAY), retainUntil: new Date(now.getTime() + 7 * DAY),
+    sampleData: provider !== qlooTypedTags,
+  });
+  return { tags, responseId: saved.id, cacheStatus: "new", sampleData: provider !== qlooTypedTags };
 }
 
 // Aggregate demographic affinity is optional research for an explicitly

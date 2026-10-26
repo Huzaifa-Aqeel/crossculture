@@ -20,13 +20,16 @@ function priceText(price) {
 export function culturalSummary(assessment, seedName, partnerName) {
   const themes = (assessment?.culturalThemes?.length ? assessment.culturalThemes
     : assessment?.culturalTheme ? [assessment.culturalTheme] : []).map((item) => line(item, 80).toLowerCase());
-  const tastes = (assessment?.sharedAudienceTastes ?? []).map((item) => line(item, 60));
+  const appeal = assessment?.sharedAudienceAppeal ?? {};
+  const people = (appeal.people ?? []).map((item) => line(item, 60));
+  const lifestyle = (appeal.lifestyle ?? []).map((item) => line(item, 60));
   const affinity = assessment?.culturalRelationship === "native_recommendation_verified"
-    ? `${seedName}'s customers also favor ${partnerName}.`
-    : assessment?.culturalRelationship === "direct_pair_supported" ? `${partnerName}'s customers also favor ${seedName}.` : "";
+    ? `People who like ${seedName} also tend to like ${partnerName}.`
+    : assessment?.culturalRelationship === "direct_pair_supported" ? `People who like ${partnerName} also tend to like ${seedName}.` : "";
   if (!affinity && !themes.length) return "";
   return [affinity, themes.length ? `Both brands are known for ${listText(themes)}.` : "",
-    tastes.length ? `Their audiences share a taste for ${listText(tastes)}.` : ""].filter(Boolean).join(" ");
+    people.length ? `Both brands appeal to ${listText(people)}.`
+      : lifestyle.length ? `Both brands are associated with ${listText(lifestyle)}.` : ""].filter(Boolean).join(" ");
 }
 
 export function commerceProposal({ seedName, partnerName, objective, assessment = {},

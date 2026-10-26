@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { catalogClient, catalogEndpoint, discoverVerifiedStorefront, PROFILE_EXAMPLE,
   verifyCatalogOffer } from "../src/shopify-catalog.mjs";
 import { assessCommerceOpportunity, durableCommerceDecision,
-  rankCommerceOpportunities } from "../src/brand-commerce.mjs";
+  rankCommerceOpportunities, customerText } from "../src/brand-commerce.mjs";
 import { validateCommerceEvidence, hasExplicitThirdPartyCoBrand } from "../src/commerce-evidence.mjs";
 import { chooseProductCombinations, isCommerceMerchandise, observedProductQueries, productMechanism,
   transientProductFacts, validatePartnerSearchPlan, prioritizeObservedPartnerProducts,
@@ -10,7 +10,7 @@ import { chooseProductCombinations, isCommerceMerchandise, observedProductQuerie
   commerceRoleKey, prioritizeUnexploredRole,
   usefulCollectionSearch, searchResultMatchesQuery, productWearer, brandWearer } from "../src/commerce-products.mjs";
 import { parseCommerceMechanismProposal, parseCommerceMechanismRubric,
-  parsePartnerProductSearchPlan, parsePartnerProductSelection } from "../src/commerce-mechanism.mjs";
+  parsePartnerProductSearchPlan, parsePartnerProductSelection, withoutUnstatedOccasion } from "../src/commerce-mechanism.mjs";
 import { researchCommercePair } from "../src/commerce-research.mjs";
 import { researchNativeCommerce, selectNativeCommerceLeads,
   verifyCommerceBusiness, verifyFirstPartyCommerceBusiness,
@@ -20,7 +20,7 @@ import { investigateDirectCommerceCulture } from "../src/commerce-culture.mjs";
 import { publicIpAddress } from "../src/shopify-catalog.mjs";
 import { currentCommerceAssessment, refreshCommerceOffers } from "../src/commerce-offer-refresh.mjs";
 import { vetCommerceShortlist } from "../src/commerce-vetting.mjs";
-import { commerceProposal } from "../src/proposal-template.mjs";
+import { commerceProposal, culturalSummary } from "../src/proposal-template.mjs";
 import { isDomain } from "../src/web-research.mjs";
 import { normalizeQlooBrands } from "../src/brand-resolution.mjs";
 import { productSearchInput } from "../src/commerce-preview.mjs";
@@ -393,6 +393,21 @@ assert.throws(() => assessCommerceOpportunity({ identity: "supported",
   culturalRelationship: "native_recommendation_verified", objectiveSuitability: "matches_explicit_focus" }),
 /Server-validated commerce evidence required/);
 assert.equal(assessFixture().status, "supported");
+// A stray character from another writing system cuts a displayed reason back
+// to its last complete sentence (live 26 Oct: "… without needing另").
+assert.equal(customerText("The blanket keeps you warm. The kit collects litter without needing另"),
+  "The blanket keeps you warm.");
+assert.equal(customerText("warm comfort and litter collection另外"), "", "No complete sentence left: dropped");
+assert.equal(customerText("Café-ready pour-over™ — brews 2 cups."), "Café-ready pour-over™ — brews 2 cups.");
+// "Why it fits" may not end with an occasion the products and user never named
+// (live 25 Oct: Arhaus dinnerware "… at a dinner party").
+const panText = ["Sauté Pan non-toxic ceramic coating", "Gallatin dinnerware set stoneware"];
+assert.equal(withoutUnstatedOccasion("elegant presentation of the same stew at a dinner party", panText),
+  "elegant presentation of the same stew");
+assert.equal(withoutUnstatedOccasion("serving soup from the pan into the bowls at the table", panText),
+  "serving soup from the pan into the bowls at the table", "A non-occasion clause stays");
+assert.equal(withoutUnstatedOccasion("a cozy meal for a picnic", panText, "weekend picnic"),
+  "a cozy meal for a picnic", "The user's stated occasion stays");
 // Proposals are written straight from the verified opportunity (no concept step).
 const directProposal = commerceProposal({ seedName: "First brand", partnerName: "Second brand",
   objective: "product_bundle", assessment: assessFixture(),
@@ -788,6 +803,27 @@ const researchDeps = { discoverStorefront: async (url) => ({
     callsUsed: () => 6,
   }) };
 const qualified = await researchCommercePair(pairInput, researchDeps);
+// Starting-product work is done once per run and shared by later partners.
+const sharedCalls = [];
+let anchorPlans = 0;
+const sharedRun = new Map();
+const countingDeps = { ...researchDeps, productQueries: null,
+  discoverStorefront: async (url) => { sharedCalls.push(`store:${new URL(url).hostname}`);
+    return researchDeps.discoverStorefront(url); },
+  planAnchorSearch: async () => { anchorPlans += 1; return { queries: [], observedProductIds: [] }; },
+  screenPartner: async () => ({ addsValue: true, exampleTitles: [] }),
+  createCatalog: () => { const base = researchDeps.createCatalog(); return { ...base,
+    tools: async (domain) => { sharedCalls.push(`tools:${domain}`); return base.tools(domain); },
+    detail: async (domain, ...rest) => { sharedCalls.push(`detail:${domain.startsWith("seed") ? "seed" : "partner"}`);
+      return base.detail(domain, ...rest); } }; } };
+await researchCommercePair({ ...pairInput, runShared: sharedRun }, countingDeps);
+const firstPartnerCalls = sharedCalls.length;
+sharedCalls.length = 0;
+await researchCommercePair({ ...pairInput, runShared: sharedRun }, countingDeps);
+assert.ok(!sharedCalls.some((call) => /^(?:store:seed|tools:global|tools:seed|detail:seed)/.test(call)),
+  `A later partner repeats no starting-product work: ${sharedCalls.join(", ")}`);
+assert.ok(sharedCalls.length < firstPartnerCalls);
+assert.equal(anchorPlans, 1, "The product-based search plan is made once per run");
 // Pairs the same judge rejected recently are skipped without new model calls;
 // each new verdict records which judge (model and prompts) produced it.
 assert.match(qualified.memory.pairs[0].judge, /#[0-9a-f]{12}$/);
@@ -798,6 +834,13 @@ const remembered = await researchCommercePair(pairInput, { ...researchDeps,
 assert.equal(recallInput.judge, qualified.memory.pairs[0].judge);
 assert.ok(remembered.pairsSkippedFromMemory > 0);
 assert.equal(remembered.assessedCount, 0);
+// An exact pair this user marked "Not a fit" is not assessed or shown again.
+const passedKeys = qualified.memory.pairs.map((pair) => pair.opportunityKey);
+const userPassed = await researchCommercePair({ ...pairInput, userRejectedKeys: passedKeys }, { ...researchDeps,
+  proposeMechanism: async () => { throw new Error("A pair the user passed on is not judged again"); } });
+assert.ok(userPassed.pairsSkippedByUser > 0);
+assert.equal(userPassed.assessedCount, 0);
+assert.ok(qualified.memory.pairs[0].references?.partner?.productId, "Pair outcomes carry identifiers for review sampling");
 // Storefront products send only description.html; a stated preference found
 // there counts (it was silently missed when only description.plain was read).
 const htmlMat = { ...mat, description: { html: "<p>Made from <em>organic cotton</em> loops.</p>" } };
@@ -826,6 +869,18 @@ const noFit = await researchCommercePair(pairInput, { ...researchDeps, productQu
     reason: "unrelated_products" }) });
 assert.equal(noFit.stopReason, "no_fit_in_sample");
 assert.equal(noFit.assessedCount, 8);
+// Supported items of the same kind count once toward "enough": five mats of
+// one kind and one of another never reach three kinds.
+const kindMats = manyMats.slice(0, 6).map((item, index) => ({ ...item,
+  categories: [{ value: `gid://shopify/TaxonomyCategory/${index < 5 ? "hg-3-4-2" : "hg-3-4-9"}`, taxonomy: "shopify" }] }));
+const kindCatalog = () => ({ ...manyCatalog(),
+  search: async (domain) => domain.startsWith("seed") ? [towel] : kindMats,
+  detail: async (domain, id) => productWithOffer(domain.startsWith("seed") ? towel
+    : kindMats.find((item) => item.id === id) ?? kindMats[0]) });
+const twoKinds = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  createCatalog: kindCatalog, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }) });
+assert.notEqual(twoKinds.stopReason, "enough_opportunities_found");
+assert.equal(twoKinds.assessedCount, 6);
 // One partner's store timing out skips that partner; the starting store
 // timing out still stops research.
 const timingOut = (side) => () => ({ ...researchDeps.createCatalog(),
@@ -875,7 +930,10 @@ assert.equal(rememberedOut.memory.screen.reused, true);
 assert.equal(qualified.memory.pairs.length, qualified.assessedCount);
 assert.ok(qualified.memory.pairs.every((pair) => /^[0-9a-f]{64}$/.test(pair.opportunityKey) &&
   Object.keys(pair).every((key) => ["opportunityKey", "partnerCategory", "status",
-    "mechanismState", "reasonCodes", "judge"].includes(key))), "No product text enters research memory");
+    "mechanismState", "reasonCodes", "judge", "references"].includes(key)) &&
+  // Identifiers travel with a pair only for review sampling; memory rows drop them.
+  ["seed", "partner"].every((side) => Object.keys(pair.references[side]).every((key) =>
+    ["productId", "variantId", "sellerId", "storefrontDomain"].includes(key)))), "No product text enters research memory");
 // Who a product is for comes from the merchant's own labels (real Everlane data:
 // "/products/mens-linen-ls-shirt-white-blue" in "Men's Clothing").
 assert.equal(productWearer({ title: "The Classic Shirt in Linen | White / Blue",
@@ -1188,15 +1246,41 @@ assert.equal(assessFixture({ cultureEvidence: taggedCulture([sharedTag], []) }).
   "no_named_theme", "A tag only one brand carries is not shared");
 // Shared audience tastes (real tag kinds from a Caraway/Brooklinen lookup):
 // meaningful tastes kept, payment/price/story-word noise dropped, no ranking effect.
-const tasteTags = [{ id: "urn:tag:genre:media:cookbooks", name: "Cookbooks" },
-  { id: "urn:tag:genre:music:folk", name: " folk" }, { id: "urn:tag:credit_card:place:discover", name: "Discover" },
-  { id: "urn:tag:cost_description:place:expensive", name: "Expensive" },
-  { id: "urn:tag:keyword:media:friendship", name: "friendship" },
-  { id: "urn:tag:specialty_dish:place:avocado_toast", name: "Avocado Toast" }];
-const withTastes = assessFixture({ cultureEvidence: taggedCulture(tasteTags,
-  [...tasteTags, { id: "urn:tag:genre:media:food", name: "Food" }]) });
-assert.deepEqual(withTastes.sharedAudienceTastes, ["cookbooks", "folk music"],
-  "Readable tastes; dishes and story keywords are noise");
+// Popularities are Qloo's (26 Oct). Shared music, film and dining genres
+// are no longer shown (rhythm & blues, popularity 0.98, was on 11 of 11 brands).
+const tasteTags = [{ id: "urn:tag:genre:media:cookbooks", name: "Cookbooks", popularity: 0.99982 },
+  { id: "urn:tag:genre:music:folk", name: " folk", popularity: 0.9997 },
+  { id: "urn:tag:genre:music:bluegrass", name: " bluegrass", popularity: 0.995 },
+  { id: "urn:tag:genre:media:food", name: "Food" },
+  { id: "urn:tag:credit_card:place:discover", name: "Discover", popularity: 0.99999 },
+  { id: "urn:tag:keyword:media:friendship", name: "friendship", popularity: 0.99 },
+  { id: "urn:tag:specialty_dish:place:avocado_toast", name: "Avocado Toast", popularity: 0.99 }];
+const withTastes = assessFixture({ cultureEvidence: taggedCulture(tasteTags, tasteTags) });
+assert.deepEqual(withTastes.sharedAudienceTastes, [],
+  "Shared genres are not shown: across 11 brands they were near-universal even below the popularity cutoff");
+assert.doesNotMatch(culturalSummary(withTastes, "Seed", "Partner"), /share a taste/);
+// Who both brands appeal to (real Rumpl / United by Blue tags, 26 Oct): a
+// shared lifestyle or audience tag whose topic appears in the products' own
+// text; a shared tag unrelated to the products is not shown.
+const appealTag = (type, name, popularity) => ({ id: `urn:tag:${type}:qloo:${name.toLowerCase().replace(/[^a-z]+/g, "_")}`, name, popularity });
+const appealSeed = [appealTag("influencer_appeal", "Environmental Advocates", 0.9942),
+  appealTag("lifestyle", "Environmental Stewardship", 0.9971), appealTag("customer_segment", "Toddlers", 0.9334),
+  appealTag("customer_segment", "Hikers", 0.975), appealTag("lifestyle", "Adventure", 0.9996)];
+const appealPartner = [appealTag("influencer_appeal", "Environmental Advocates", 0.9942),
+  appealTag("lifestyle", "Environmental Stewardship", 0.9971), appealTag("customer_segment", "Toddlers", 0.9334),
+  appealTag("lifestyle", "Adventure", 0.9996)];
+const appealed = assessFixture({ cultureEvidence: { ...taggedCulture([], []),
+  seedAudienceTags: appealSeed, partnerAudienceTags: appealPartner },
+  sourceAuthority: { seedDescription: true, partnerDescription: true },
+  seedDetail: { ...fixtureEvidence.seedDetail, product: { ...fixtureEvidence.seedDetail.product,
+    description: { plain: "Cleans a pound of trash from the environment with every adventure." } } } });
+assert.deepEqual(appealed.sharedAudienceAppeal, { people: ["environmental advocates"],
+  lifestyle: ["environmental stewardship"] }, "Shared, distinctive and named by the products; toddlers, hikers and near-universal adventure are not");
+assert.equal(appealed.status, "supported", "Audience appeal explains; it never changes the verdict");
+assert.deepEqual(assessFixture({ cultureEvidence: { ...taggedCulture([], []),
+  seedAudienceTags: appealSeed, partnerAudienceTags: appealPartner } }).sharedAudienceAppeal,
+{ people: [], lifestyle: [] }, "Without a product word for the topic, nothing is claimed");
+assert.match(culturalSummary(appealed, "Rumpl", "United by Blue"), /Both brands appeal to environmental advocates\./);
 // Brand-attribute tags from a real Everlane/Cuyana/Nisolo lookup name themes,
 // matched by descriptor across tag kinds; up to three are kept for display.
 const everlaneTags = [{ id: "urn:tag:lifestyle:qloo:conscious_consumerism", name: "Conscious Consumerism" },

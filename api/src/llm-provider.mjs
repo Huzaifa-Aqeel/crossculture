@@ -1,6 +1,13 @@
 import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 
 const DEFAULT_BEDROCK_MODEL = "qwen.qwen3-next-80b-a3b";
+// Request differences by model. Both accept a JSON schema for the answer.
+// Kimi K3 reasons before answering: it rejects a temperature, and its
+// reasoning counts against the output limit, so it gets extra room.
+const MODEL_TRAITS = {
+  "qwen.qwen3-next-80b-a3b": { jsonSchema: true },
+  "us.moonshotai.kimi-k3": { jsonSchema: true, temperature: false, reasoningTokens: 4000 },
+};
 let client;
 let clientRegion;
 
@@ -36,12 +43,14 @@ export async function bedrockText({ system, user, maxTokens, temperature = 0, js
     client = new BedrockRuntimeClient({ region, maxAttempts: 4, retryMode: "adaptive" });
     clientRegion = region;
   }
+  const traits = MODEL_TRAITS[modelId] ?? {};
   const command = new ConverseCommand({
     modelId,
     system: [{ text: system }],
     messages: [{ role: "user", content: [{ text: user }] }],
-    inferenceConfig: { maxTokens, temperature },
-    ...(jsonSchema && modelId === "qwen.qwen3-next-80b-a3b" ? { outputConfig: {
+    inferenceConfig: { maxTokens: maxTokens + (traits.reasoningTokens ?? 0),
+      ...(traits.temperature === false ? {} : { temperature }) },
+    ...(jsonSchema && traits.jsonSchema ? { outputConfig: {
       textFormat: { type: "json_schema", structure: { jsonSchema: {
         name: "crossculture_result", schema: JSON.stringify(jsonSchema),
       } } },

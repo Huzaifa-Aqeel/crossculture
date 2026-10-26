@@ -44,9 +44,9 @@ export function assessCommerceOpportunity(input) {
   const productMechanism = { kind: input.mechanism, attributeEvidence, jointUseCoherence, incrementalValue,
     gate: check(mechanismState, "product_mechanism", input.productRefs ?? []),
     roles: { seedRole: String(input.seedRole ?? ""), partnerRole: String(input.partnerRole ?? "") },
-    boundedRationale: String(input.rationale ?? "").slice(0, 500),
-    ...(typeof input.customerReason === "string" && input.customerReason.trim()
-      ? { customerReason: input.customerReason.trim().slice(0, 200) } : {}) };
+    boundedRationale: customerText(input.rationale).slice(0, 500),
+    ...(customerText(input.customerReason)
+      ? { customerReason: customerText(input.customerReason).slice(0, 200) } : {}) };
   const allowed = input.objective === "product_bundle"
     ? new Set(["functional_complement", "occasion_complement"])
     : new Set(["functional_complement", "occasion_complement", "assortment_complement"]);
@@ -89,6 +89,9 @@ export function assessCommerceOpportunity(input) {
       .filter((value) => typeof value === "string")).slice(0, 3).map((value) => value.slice(0, 80)) : [],
     sharedAudienceTastes: unique((input.sharedAudienceTastes ?? []).filter((value) =>
       typeof value === "string")).slice(0, 3).map((value) => value.slice(0, 60)),
+    sharedAudienceAppeal: Object.fromEntries(["people", "lifestyle"].map((kind) => [kind,
+      unique((input.sharedAudienceAppeal?.[kind] ?? []).filter((value) => typeof value === "string"))
+        .slice(0, 2).map((value) => value.slice(0, 60))])),
     identity, culturalGate, productMechanism, objectiveFit,
     commercialChecks, commercialState: Object.values(commercialChecks).some((item) => item.state === "contradicted")
       ? "offer_blocked" : Object.values(commercialChecks).some((item) => item.state === "unknown")
@@ -111,6 +114,16 @@ export function assessCommerceOpportunity(input) {
         : [])],
     reviewFlags: unique(input.reviewFlags ?? []), evidenceRefs: unique(input.evidenceRefs ?? []),
     evaluatedAt: input.evaluatedAt ?? new Date().toISOString() };
+}
+
+// Model-written text shown to customers. A stray character from another
+// writing system (a known model slip: "…without needing另") cuts the text back
+// to its last complete sentence; with none left, the text is dropped.
+export function customerText(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  const slip = text.search(/[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u);
+  if (slip < 0) return text;
+  return text.slice(0, slip).match(/^[\s\S]*[.!?](?=\s|$)/)?.[0].trim() ?? "";
 }
 
 function compareSupported(a, b) {

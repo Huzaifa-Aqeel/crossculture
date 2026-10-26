@@ -3,7 +3,7 @@ set -euo pipefail
 
 aws_profile="${AWS_PROFILE:-pet-care}"
 aws_region="${AWS_REGION:-us-east-1}"
-aws_account="390402563459"
+aws_account="${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text --profile "$aws_profile")}"
 aws_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd "$aws_dir/../.." && pwd)"
 api_dir="$repo_dir/api"
