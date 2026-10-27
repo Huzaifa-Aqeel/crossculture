@@ -1,206 +1,99 @@
 # CrossCulture
 
-**Find the brand partner your customers already love — and the exact product bundle to launch with.**
+**Find a brand partnership that makes sense for both the audience and the products.**
 
-CrossCulture is a research agent for direct-to-consumer brands. You pick one of your own products and a goal (a two-brand **product bundle** or a **cross-sell**). The agent uses Qloo's taste graph to find brands whose audiences share your audience's taste, checks each candidate's real store, finds the exact partner products that work with yours, judges every pairing against verified product facts, and writes a partnership proposal grounded in what both audiences love.
+CrossCulture helps a brand explore product bundles and cross-sells with another brand. Start with one of your products. The app uses Qloo to find culturally related brands, checks their real storefronts for complementary products, and explains which combinations are worth discussing. You can also name a brand you already have in mind and compare the two directly.
 
-- Live app: `https://culture-circle.vercel.app` (sign-in required; judges receive a demo account with the submission)
-- Built for the [Qloo Agentic Hackathon](https://qloo.devpost.com/)
+**[Try the live app](https://culture-circle.vercel.app/)** · Sign-in is required; judge access is provided privately with the hackathon submission.
 
----
+## The problem
 
-## 1. Problem
+Finding a partner means answering two questions: why might people interested in one brand care about the other, and what would their products offer together? A team must check cultural signals, verify both stores' products, and explain the combination's value across many potential partners.
 
-Small and mid-sized brands grow through collaborations — co-branded bundles, "customers also bought" cross-sells, joint launches. Finding the right partner is slow and mostly guesswork:
+CrossCulture brings those checks into one research flow. Its output is a **starting point for a partnership conversation**, not a forecast of sales or proof that either brand has agreed to collaborate.
 
-- **"Similar brand" lists find competitors, not partners.** A cookware brand needs a dinnerware partner, not another cookware brand.
-- **Product fit alone isn't enough.** A blanket and a duffle bag go together, but the collaboration works only if both brands speak to the same people.
-- **AI assistants guess.** Ask a language model which brands share your audience and it answers from popularity and press coverage. It cannot know what a brand's audience actually loves.
+## What happens in a search
 
-CrossCulture answers two questions together, with evidence for each: **will these two audiences care about each other** (Qloo), and **do these exact products work together** (live store data plus a checked judgment).
+1. **Choose a brand, country, goal, and starting product.** The app confirms the brand and its Shopify storefront.
+2. **Find or name a partner.** In *Suggest partners*, Qloo recommends brands from the starting brand's taste signal. In *Compare with a brand*, you choose the second brand and Qloo helps assess the cultural relationship.
+3. **Check products.** The worker verifies the partner's storefront, searches its live Shopify catalog, and evaluates specific products and variants against the chosen product and goal.
+4. **Review the evidence.** Results separate the product reason, cultural connection, current offers, and potential challenges. Weak or unverified combinations are not presented as recommendations.
+5. **Create a proposal.** A recommended combination can become an editable proposal with product links, supporting reasons, and points the brands still need to agree on.
 
-## 2. What it does
+### An observed result
 
-1. **Choose your brand, market, goal and one product.** The agent confirms the brand's official website and Shopify store before anything else.
-2. **Discover culturally related partners.** Qloo recommends brands using your brand as the only taste signal; each candidate's identity and store are verified.
-3. **Research real products.** The agent screens each partner's live catalog, plans searches for complementary products, and selects exact partner products and variants.
-4. **Judge every pair.** A model proposes how the two products work together; the server checks every cited fact against the product pages, a separate rubric and an objective judgment must agree, and weak or generic pairings are rejected.
-5. **Explain the cultural fit.** Each recommended partner shows why the brands belong together, from Qloo: the taste link, **who both brands resonate with**, and the cities where both audiences are strongest.
-6. **Write the proposal.** One click produces an editable partnership proposal built only from verified facts, ready to copy or download.
-7. **Learn.** Research memory makes later runs faster for everyone; your "Good fit" / "Not a fit" feedback shapes your next run.
+In a hosted US **Product bundle** run using Rumpl's *Original Puffy Blanket – Grand Teton*, Qloo's brand recommendation included **United by Blue**. After storefront and product research, the app found three supported combinations with that partner, including the **(R)evolution™ 55L Carry-On Duffle**. The blanket can be carried and protected in the duffle on an outdoor trip. The run reached its research time limit after 40 Shopify Catalog calls, so it did **not** review every Qloo lead or every product in those stores.
 
-Example result (Rumpl × United by Blue, Bundle):
+A separate Qloo audience-tag check found *environmental advocates* and *sustainability advocates* in the top half of both brands' returned lists. These are aggregate associations, not evidence that the brands have the same customers.
 
-> **Rumpl Original Puffy Blanket + United by Blue (R)evolution™ 55L Carry-On Duffle** — *Recommended*
-> **Why it fits:** The packable blanket is stored and protected in the water-resistant duffle during an outdoor trip.
-> **Cultural connection:** People who like Rumpl also tend to like United by Blue. Both brands resonate with environmental advocates and sustainability advocates.
-> **Where audiences overlap:** the metros that rank highly for both brands.
+## Why Qloo is essential
 
-## 3. How Qloo is used, and why
+Qloo supplies the cultural evidence; Shopify supplies observed product and offer details. The model helps plan searches and propose a product mechanism, while server rules check whether its claims are supported. A plausible product pair alone cannot establish a cultural link.
 
-Qloo decides **who the partner is** and **why the two brands belong together**. Shopify product data and a checked model judgment decide **which products, and why they work together**.
-
-| Step | Qloo capability | Why it fits the problem |
-|---|---|---|
-| Resolve your brand | `describe` (MCP) | Anchors research on Qloo's actual brand entity, not a name guess. |
-| Discover partners | `recommend`, brand → brands, your brand as the only signal (MCP) | Finds taste-adjacent brands across categories — partners, not competitors. Every suggested partner starts here. |
-| Cultural gate | the partner must appear in that unconstrained recommendation | A pair cannot be *Recommended* without a real Qloo taste link. |
-| Who both brands resonate with | type-filtered tag insights per brand: lifestyle, customer identity, customer segment, influencer appeal | The pair-specific "why": shared audience descriptors that only taste data can supply. |
-| Where audiences overlap | `where_popular` for both brands | Concrete launch markets for ads, local creators or a pop-up. |
-| Compare Two Brands | `rank`, a reverse recommendation check, and shared tags | Tests a partner the user already has in mind. |
-
-All Qloo calls go through the official harness (`@qloo/qloo-harness`, MCP over stdio) except one: the harness's tag workflow has no tag-type filter, so the audience-tag request is sent directly to the same `/v2/insights` endpoint on the event gateway with the event credential. Qloo responses are cached privately per user.
-
-**Grounding rules for cultural claims**
-
-- A tag counts as shared only when Qloo returns it for **both** brands in **separate** requests.
-- **Near-universal tags are never shown.** In a check of 16 brands, "folk music" was carried by 12 and "women-owned" by all 16; a Qloo popularity cutoff (0.9995) and a test across 11 brands removed generic music, film and dining genres entirely.
-- **Core to both brands.** A shared audience tag is shown only when it is in the top half of each brand's Qloo list, ordered by the weaker of the two positions, so it must be strong for both brands. Segments naming children ("Toddlers") describe parents and are never presented as the audience.
-- **Products never create a connection.** Products are never sent to Qloo as a signal; product text only decides which of the qualifying tags is shown first.
-- **Wording stays honest.** "Both brands resonate with …" describes aggregate taste associations — never "shared customers", demand or sales.
-- **Cultural explanation never changes a verdict or the ranking.** A weak product pair is not rescued by a good story.
-
-## 4. Request-to-result walkthrough (redacted)
-
-Run: **Rumpl**, United States, **Product bundle**, starting product *Original Puffy Blanket – Grand Teton*. Qloo entity IDs are shortened; no credentials or user data are shown.
-
-1. **Resolve the brand** — `qloo_describe { entity: "Rumpl", type: "brand" }` → Qloo brand `589F…` with an official website. The website's homepage names the brand and exposes a Shopify storefront (`/.well-known/ucp`), so the identity is verified.
-2. **Discover partners** — `qloo_recommend { target_type: "brand", signals: ["589F…"], limit: 12 }` → 12 brands, including United by Blue, Smartwool, Ibex, Royal Robbins and Toad&Co. *Choice:* brand entities only, a single-brand signal, no tag filters, so the result is Qloo's own taste link rather than one we steered.
-3. **Verify each partner** — homepage name match and Shopify storefront for each lead. United by Blue passes; several leads fail honestly (a domain that does not exist, a store that blocks access).
-4. **Research products (Shopify Storefront Catalog, live)** — the agent screens United by Blue's catalog against the blanket, plans searches ("waterproof gear sack", "compact camping pillow", …), selects exact products and variants, and judges each pair. Ten pairs are assessed; three are recommended: the 55L Carry-On Duffle, the Reusable DIY Cleanup Kit and the 1L Go-Anywhere Bag.
-5. **Explain the culture** — per brand: `GET /v2/insights?filter.type=urn:tag&signal.interests.entities=<brand>&filter.tag.types=urn:tag:lifestyle:qloo,urn:tag:customer_identity:qloo,urn:tag:customer_segment:qloo,urn:tag:influencer_appeal:qloo&take=30`. *Choice:* audience and lifestyle tag types only — a brand's unfiltered top tags are dominated by near-universal ones (payment cards, "women-owned", folk music). Rumpl and United by Blue both carry, in the top half of their lists, *environmental advocates* and *sustainability advocates*; across 11 brands checked, most shared audience tags were carried only by the pair itself. The same rule on other categories:
-
-   | Pair | Category | "Both brands resonate with …" |
-   |---|---|---|
-   | Rumpl × United by Blue | outdoor | environmental advocates and sustainability advocates |
-   | Everlane × Cuyana | apparel | conscious consumers and minimalists |
-   | Glossier × Summer Fridays | beauty | professional makeup artists and beauty enthusiasts |
-   | Wild One × BarkBox | pets | animal lovers |
-   | Caraway × Arhaus | home | women's fashion and free-spirited individuals |
-
-6. **Launch areas** — `qloo_where_popular` for both brands within the United States; metros present in both lists become "Where audiences overlap".
-7. **Result** — a recommended card per partner, with alternative combinations, current prices and stock, potential challenges, and a proposal on request.
-
-**What this does not establish:** Qloo associations are aggregate taste affinities, not evidence of shared customers, partner interest, demand or sales. Prices, stock and shipping are checked live but are not a negotiated deal.
-
-## 5. The agent
-
-CrossCulture is an orchestrated research agent: code controls the sequence, budgets and stopping rules; models plan and judge inside it; every claim is checked against a tool result.
-
-| Part | Role |
+| Product decision | Qloo evidence used |
 |---|---|
-| Tools | Qloo (MCP harness), Shopify Storefront Catalog (Shopify UCP, MCP over HTTPS), Tavily web search (identity fallback and public-source review of a saved partner) |
-| Planner (model) | Screens partner catalogs, plans product searches, selects candidate products |
-| Judge (model, separately prompted) | Proposes a product mechanism, then a rubric and an objective judgment classify it; the server verifies every cited passage and applies deterministic rules |
-| Budgets and stops | Per-partner and per-run Catalog call limits, time limits, early stops once enough distinct good pairs are found |
-| Memory | Shared research memory (proven partners first, dead ends skipped, decisions reused) and per-user feedback |
+| Identify the starting brand | `qloo_describe` resolves the named brand to a Qloo brand entity. |
+| Suggest partners | `qloo_recommend` requests brands using **only the starting brand** as its signal, without product or tag filters. The partner must come from that response. |
+| Compare two named brands | The app checks an unconstrained recommendation in either direction; if neither returns the pair, it uses `qloo_rank` and specific shared tags corroborated by both brands' public pages. A focused rank alone does not prove a relationship. |
+| Explain the connection | Separate tag-insight requests for each brand can identify shared, sufficiently specific audience or lifestyle associations. |
+| Suggest launch areas | `qloo_where_popular` for each brand identifies metro areas appearing in both result lists within the chosen country. These are suggested areas to investigate, not measured customer overlap. |
 
-Model: Qwen3-Next 80B on AWS Bedrock (configurable; an OpenAI-compatible endpoint also works). On a 72-pair synthetic benchmark, three repeats each, the judge passed 90% of good pairs and none of the 38 bad pairs.
+The app uses the pinned `@qloo/qloo-harness` MCP package for its Qloo workflows. One audience-tag query calls the event gateway's read-only `/v2/insights` endpoint directly with the same server-side event credential: the harness's tag workflow does not expose the tag-type filter needed to avoid generic tags. Qloo responses are cached privately per user. Credentials never go to the browser.
 
-### Learning
+### Redacted Qloo-to-result path
 
-- **Shared research memory (all users):** partners that produced recommended pairs for similar products are researched first; partners with no website or Shopify store are skipped for 7 days; recent catalog screens and judged rejections are reused. Only store identifiers and public Shopify taxonomy categories are kept — no user, brand or product content.
-- **Personal feedback (your next run):** "Not a fit" hides those two products from you again (any colour or size); "Already working with them", "Not right for my brand" or "Partner not credible" drops that partner from future searches for your brand; partners you liked are researched first.
-- **Designed next:** learning across users from consensus (20 or more distinct brands, 70% or more agreement, monthly), and a monthly judge update that switches on only if the benchmark does not regress.
+For the Rumpl example, the relevant choices were:
 
-## 6. Architecture
+1. `qloo_describe` resolved **Rumpl** as a brand entity; its identifier is omitted here.
+2. `qloo_recommend` requested up to **12 brand entities**, with Rumpl's entity as the sole signal. United by Blue was among the returned candidates. Products were not sent to Qloo to steer this discovery.
+3. Both brands were queried separately for **lifestyle, customer identity, customer segment, and influencer-appeal tags**. Shared tags were considered only when they were prominent for both brands and not near-universal.
+4. The worker verified United by Blue's store and assessed actual Shopify products. A supported product combination, the Qloo relationship, and the remaining business unknowns were then shown together.
 
-```
-Browser (Next.js, Vercel)
-   │  Supabase Auth session
-   ▼
-API (AWS Lambda) ── verifies the user, queues runs, serves results and proposals
-   │  invokes
-   ▼
-Research worker (AWS Lambda) ── runs one research job
-   ├─ Qloo  (@qloo/qloo-harness MCP + /v2/insights tag request)
-   ├─ Shopify Storefront Catalog (UCP)
-   ├─ AWS Bedrock (planner and judge)
-   └─ Tavily (selective web search)
-   ▼
-Supabase Postgres ── projects, runs, opportunities, assessments, proposals,
-                     feedback, private per-user Qloo cache, shared research memory
+Qloo's result is evidence of aggregate taste affinity. The product pairing is CrossCulture's assessment based on observed listings; neither source establishes demand, partnership consent, or a ready-to-sell joint bundle.
+
+## How it runs
+
+```text
+Next.js on Vercel → authenticated API on AWS Lambda → Supabase run record
+                                               ↘ research Lambda → Qloo, Shopify Catalog,
+                                                                 Bedrock, selective Tavily search
+                                                   → results and proposals in Supabase Postgres
 ```
 
-Security and data handling:
+The API returns after queuing a run. A separate Lambda claims one run and writes its results; Supabase stores project and run state. Qloo credentials, model credentials, and database access remain server-side. User records have row-level security; the Qloo response cache is private per user.
 
-- Provider keys and the database URL are server-only; the browser receives only Supabase's publishable values.
-- Row-level security on user data; the research memory and review tables are server-only.
-- No Shopify product content is stored: opportunities keep product and variant identifiers, and product details are fetched live when shown.
-- Public fetches are restricted to HTTPS on public addresses, with DNS pinned per request.
+For implementation detail, see the [architecture](CrossCulture_Brand_Brand_Architecture_v2.2_Clarified.md), [assessment rules](CrossCulture_Brand_Brand_Scoring_Engine_v1.1.md), and [AWS deployment guide](infra/aws/README.md).
 
-## 7. Repository layout
+## Run it locally
 
-| Path | Contents |
-|---|---|
-| `web/` | Next.js app (research setup, results, proposal studio) |
-| `api/src/` | API, research worker, Qloo, Shopify Catalog and model adapters, assessment and memory |
-| `api/scripts/` | Offline checks (`npm test`) and Lambda packaging |
-| `api/fixtures/` | Labelled pair benchmarks used by the checks |
-| `supabase/migrations/` | Database schema |
-| `infra/aws/` | Lambda deployment scripts and IAM policies ([guide](infra/aws/README.md)) |
-| `CrossCulture_Brand_Brand_Architecture_v2.2_Clarified.md` | Research workflow specification |
-| `CrossCulture_Brand_Brand_Scoring_Engine_v1.1.md` | Assessment and ranking rules (no composite score) |
-
-## 8. Setup from a clean environment
-
-**Prerequisites**
-
-- Node.js 22.19 or newer, and npm
-- A Supabase project (Postgres and Auth)
-- A Qloo API key (for the hackathon: the event credential and gateway)
-- AWS credentials with Bedrock access to the chosen model (or an OpenAI-compatible endpoint)
-- A Tavily API key (identity fallback and partner review)
-- A public HTTPS URL serving `web/public/ucp-agent-profile.json` (Shopify's Catalog requires a hosted agent profile; deploying the web app provides one)
-
-**Steps**
+You need **Node.js 22.19+**, a Supabase project, an event-issued Qloo credential and gateway, a Tavily key, and either AWS Bedrock access or a configured OpenAI-compatible model endpoint. Shopify Catalog access also needs a public HTTPS URL serving the included [`ucp-agent-profile.json`](web/public/ucp-agent-profile.json). The Qloo harness is installed with the API dependencies; no global installation is needed.
 
 ```sh
 git clone https://github.com/Huzaifa-Aqeel/culture-circle.git
 cd culture-circle
 (cd api && npm ci)
 (cd web && npm ci)
-cp .env.example .env.local          # server settings
-cp web/.env.example web/.env.local  # public Supabase settings and API URL
+cp .env.example .env.local
+cp web/.env.example web/.env.local
 ```
 
-1. Fill in `.env.local`: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `QLOO_API_KEY`, `QLOO_BASE_URL`, `TAVILY_API_KEY`, `SHOPIFY_UCP_PROFILE_URL`, and the model settings (`LLM_PROVIDER=bedrock`, `AWS_PROFILE`, `AWS_REGION`, `BEDROCK_MODEL_ID`). Leave `RESEARCH_WORKER_FUNCTION_NAME` empty locally; the API then runs research in the same process.
-2. Fill in `web/.env.local` with your Supabase URL and publishable key; keep `CROSSCULTURE_API_URL=http://127.0.0.1:8787`.
-3. Apply the migrations in `supabase/migrations/` to your database in filename order (for example `npx supabase db push` with the Supabase CLI linked to your project).
-4. Start both apps:
+Set the server values in `.env.local`: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `QLOO_API_KEY`, `QLOO_BASE_URL` (the hackathon gateway is `https://hackathon.api.qloo.com`), `TAVILY_API_KEY`, `SHOPIFY_UCP_PROFILE_URL`, and the model settings. The examples in [`.env.example`](.env.example) show both model options. Leave `RESEARCH_WORKER_FUNCTION_NAME` empty locally so the API process runs the worker.
 
-   ```sh
-   (cd api && npm run dev)   # API and research worker on :8787
-   (cd web && npm run dev)   # web app on :3000
-   ```
-
-5. Open `http://localhost:3000`, sign up, and start a search at **New research**. Use US brands that sell through Shopify; a run usually takes 2–5 minutes.
-
-**Checks**
+Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in `web/.env.local`; leave `CROSSCULTURE_API_URL=http://127.0.0.1:8787`. Link the Supabase CLI to your project and apply `supabase/migrations/` in filename order, for example with `npx supabase db push`.
 
 ```sh
-(cd api && npm test)             # offline checks; no provider calls or credentials
-(cd web && npx tsc --noEmit && npm run build)
+(cd api && npm run dev)   # API and local worker on :8787
+(cd web && npm run dev)   # web app on :3000
 ```
 
-**Deploy:** the web app runs on Vercel; the API and research worker run on AWS Lambda — see [infra/aws/README.md](infra/aws/README.md).
+Open `http://localhost:3000`, sign in, and try a US brand with a Shopify storefront. An individual run commonly takes a few minutes. Offline checks run with `(cd api && npm test)` and do not call live providers.
 
-## 9. Known limitations
+## Limits
 
-- **Qloo coverage.** Brands without an exact Qloo brand entity cannot be researched (Fellow, Fishwife and Fly By Jing were not found during testing).
-- **Shopify only.** Partners must sell through a Shopify storefront that exposes the Storefront Catalog; others are skipped, and some sites block automated access.
-- **Partner relevance varies.** Qloo's recommendation scores for a brand's top partners are nearly flat, and many suggested brands sell unrelated products (clothing for a blanket, fashion for a pan). The catalog screen removes them, but some runs end with only one recommended partner.
-- **Audience tags are Qloo's inference.** "Both brands resonate with …" is shown only when a tag is core to both brands, but Qloo's audience descriptors are aggregate associations and can be surprising (Caraway and Arhaus share "women's fashion"). Brands with no shared core tag show the taste link and overlap cities only.
-- **Judge accuracy is measured, not proven.** The benchmark is 72 synthetic pairs labelled by an AI reviewer, plus three real pairs labelled by a person. It shows the judge rejects bad pairs reliably; it is not a field accuracy figure.
-- **No demand evidence.** Results identify plausible, verified opportunities; they do not establish partner interest, customer demand or sales.
-- **Run time.** A run takes 2–5 minutes and can end early at a time or call limit, with a note that the review covered a sample.
-- **Cross-user learning is designed, not built.** Shared research memory and personal feedback learning are live; learning from many users' feedback awaits real traffic.
-- **Tested in the United States.** Other markets are supported in the setup but have had little live testing.
+- Qloo must resolve the brand, and the app currently researches Shopify storefronts. Some stores cannot be verified or block access.
+- Research uses bounded searches and a time limit. A result is a sample of the available partners and products, not an exhaustive catalog review.
+- Qloo affinities and geographic popularity are aggregate signals. They do not identify shared customers, predict sales, or establish partner interest.
+- Shared research memory and personal feedback behavior are implemented in this repository. Learning a policy from many users' feedback remains planned, pending real traffic.
+- Live validation has focused on US brands; other markets have had limited testing.
 
-## 10. License
-
-Released under the MIT License — see [LICENSE](LICENSE).
-
-## Acknowledgments
-
-Taste data from [Qloo](https://www.qloo.com/) via the [Qloo hackathon kit](https://github.com/qloo/qloo-hackathon-kit). Product data from Shopify's Storefront Catalog. Built with Next.js, Supabase and AWS.
+Built for the [Qloo Agentic Hackathon](https://qloo.devpost.com/), with taste data from Qloo and product data from Shopify's Storefront Catalog.

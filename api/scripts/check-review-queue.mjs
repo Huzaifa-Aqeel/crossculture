@@ -51,6 +51,13 @@ assert.deepEqual(reviewSamplesFromRun({ runId: "r", objective: "product_bundle",
 const rows = memoryRowsFromRun({ objective: "product_bundle", market: "US", candidates: [{ ...candidates[0],
   status: "product_researched", memory: { ...candidates[0].memory, heroCategory: "hg-12-2-5" } }] });
 assert.ok(rows[0].pairs.every((item) => !("references" in item)));
+// Only a Supported pair keeps its partner product ID, to be re-checked first next time.
+const gidPair = (letter, status) => ({ ...pair(letter, status), references: { ...refs(letter),
+  partner: { ...refs(letter).partner, productId: `gid://shopify/Product/${letter.charCodeAt(0)}` } } });
+const productRows = memoryRowsFromRun({ objective: "product_bundle", market: "US", candidates: [{ qlooId: "q",
+  status: "product_researched", memory: { heroCategory: "hg-12-2-5",
+    pairs: [gidPair("a", "unsupported"), gidPair("b", "supported"), gidPair("c", "needs_verification")] } }] });
+assert.deepEqual(productRows[0].pairs.map((item) => item.partnerProductId), [null, "gid://shopify/Product/98", null]);
 
 assert.equal(isAdmin({ app_metadata: { role: "admin" } }), true);
 assert.equal(isAdmin({ app_metadata: {}, user_metadata: { role: "admin" } }), false,

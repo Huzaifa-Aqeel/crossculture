@@ -408,6 +408,15 @@ assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, pr
   false, "A mood or ritual outcome needs both items' own text to name it");
 assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, practicalResult: false,
   bothPassagesNameActivity: true }).passed, true);
+// Items for different users are not a Bundle even when both pages name the
+// same trip (blanket + dog first-aid kit, 27 Oct), unless one acts on the other.
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, sameObject: false,
+  directFunction: false, bothPassagesNameActivity: true, separateUsers: true }).passed, false,
+  "A blanket for you and a first-aid kit for your dog");
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, sameObject: false,
+  directFunction: false, bothPassagesNameActivity: true, separateUsers: false }).passed, true);
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, directFunction: true,
+  separateUsers: true }).passed, true, "A dog bowl that holds the food still links two products for different users");
 assert.equal(objectiveJudgmentOutcome("product_bundle", { ...practicalBundle, verdict: "parallel_benefits",
   practicalResult: false, sameObject: false, bothPassagesNameActivity: true }).passed, true,
   "Both pages naming the same ritual links a journal and a candle even if the model calls them parallel");
@@ -443,8 +452,8 @@ const judgmentBase = { seedJob: "brews", partnerJob: "grinds", sameProductType: 
   careProductForOther: false, combinedOutcome: "fresh coffee", practicalResult: true,
   seedActivityWords: "", partnerActivityWords: "", withoutPartner: "grinding", servesStatedOccasion: false,
   preferenceQuotes: [], verdict: "joint_task" };
-const answers = [rubricYes, { ...judgmentBase, directFunction: false, sameObject: false },
-  { ...judgmentBase, directFunction: true, sameObject: true }];
+const answers = [rubricYes, { ...judgmentBase, directFunction: false, sameObject: false, separateUsers: false },
+  { ...judgmentBase, directFunction: true, sameObject: true, separateUsers: false }];
 const recheckTrace = [];
 const rechecked = await verifyCommerceMechanismRubric({ objective: "product_bundle", trace: recheckTrace,
   proposal: { kind: "functional_complement", seedRole: "coffee", partnerRole: "grinder", occasion: "",

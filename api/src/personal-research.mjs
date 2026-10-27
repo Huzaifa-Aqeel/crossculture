@@ -191,7 +191,10 @@ export async function listPersonalRuns(userId, projectId) {
 function customerCommerceRunResult(result) {
   if (!result || typeof result !== "object") return result;
   return { message: result.message, coverage: result.coverage,
-    stopReason: result.stopReason };
+    stopReason: result.stopReason,
+    // Partners whose store already sells the starting brand's co-branded products.
+    existingCollaborations: (result.candidates ?? []).filter((candidate) =>
+      candidate?.partnerSellsStartingBrand === true && candidate.name).map((candidate) => candidate.name) };
 }
 
 export async function getPersonalRun(userId, runId) {

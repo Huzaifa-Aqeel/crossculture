@@ -14,9 +14,9 @@ import { planAnchorProductSearch, planPartnerProductSearch, proposeCommerceMecha
   evaluateCommerceMechanism, screenPartnerAssortment, pairJudgeVersion } from "./commerce-mechanism.mjs";
 import { catalogClient, discoverVerifiedStorefront } from "./shopify-catalog.mjs";
 import { selectedProductPage } from "./commerce-product-page.mjs";
-import { categoryName, sameRange } from "./product-taxonomy.mjs";
+import { categoryName, sameRange, productKind } from "./product-taxonomy.mjs";
 import { taxonomyCategory, screenKeyFor, recallScreenDecision,
-  opportunityKeyFor, productPairKeyFor, recallJudgedRejections } from "./research-memory.mjs";
+  opportunityKeyFor, productPairKeyFor, recallJudgedRejections, recallProvenProducts } from "./research-memory.mjs";
 
 // Shared, transient pair research for native discovery and direct comparison.
 // The caller supplies only independently verified brand identities and Qloo evidence.
@@ -32,7 +32,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   verifyMechanism = verifyCommerceMechanismRubric,
   readSelectedProductPage = selectedProductPage, onEvaluation = null,
   screenPartner = screenPartnerAssortment, recallScreen = recallScreenDecision,
-  recallRejections = recallJudgedRejections,
+  recallRejections = recallJudgedRejections, recallProducts = recallProvenProducts,
   now = () => Date.now() } = {}) {
   if (!["product_bundle", "cross_sell"].includes(objective)) throw new Error("Commerce objective required.");
   if (!seed?.id || !partner?.id || seed.id === partner.id ||
@@ -132,6 +132,22 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     return wearerConflict(heroWearer, wearer) || (wornProduct(product) && label !== "unisex" && !wearer);
   };
   let wearerExcluded = 0;
+  // A partner product co-branded with the starting brand ("AllTrails × Rumpl
+  // …") is the starting brand's own product, not a partner product; it is
+  // noted as an existing collaboration. In a Bundle, a product of the exact
+  // same category as the starting product is a substitute.
+  const seedName = String(seed.name ?? "").trim();
+  const escapedSeed = seedName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const seedBrandWord = seedName.length >= 3
+    ? new RegExp(`(?:^|\\s)[×x]\\s*${escapedSeed}\\b|\\b${escapedSeed}\\s*[×x](?:\\s|$)`, "i") : null;
+  const sellsStartingBrand = (product) => Boolean(seedBrandWord?.test(String(product?.title ?? "")));
+  let partnerSellsStartingBrand = false;
+  const heroCategoryId = userConstraints.heroProduct?.categoryId ?? null;
+  const partnerProductUsable = (product) => {
+    if (!isCommerceMerchandise(product)) return false;
+    if (sellsStartingBrand(product)) { partnerSellsStartingBrand = true; return false; }
+    return !(objective === "product_bundle" && heroCategoryId && taxonomyCategory(product) === heroCategoryId);
+  };
   const searchScopePage = async (chosen, query, options = {}) => {
     const input = { market, shops: chosen.domain === "global" ? [chosen.shopId] : [], ...options };
     const page = catalog.searchPage ? await catalog.searchPage(chosen.domain, query, chosen.tools, input)
@@ -144,7 +160,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
       : page.products;
     // A two-brand Bundle never contains a fit-sized item.
     const kept = chosen === partnerScope ? products.filter((product) => !wearerMismatchFor(product) &&
-      !(objective === "product_bundle" && fitSized(product))) : products;
+      !(objective === "product_bundle" && fitSized(product)) && partnerProductUsable(product)) : products;
     wearerExcluded += products.length - kept.length;
     return { products: kept, pagination: page.pagination ?? { cursor: null, hasNextPage: false } };
   };
@@ -570,48 +586,57 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   // per plan. A large merchant catalog cannot take extra slots merely by size.
   let found = [...primary, ...alternatives].slice(0, 16);
   let productSelectionPlanning = "fallback";
+  let provenProductsRechecked = 0;
   let eligibleCandidateCount = 0;
   let screenedCandidateCount = 0;
   let screeningBatchCount = 0;
   if (partnerSamples.length) {
-    let proposedIds = retrievalPlan.observedProductIds;
+    // Products the search planner noted only steer searching; what gets
+    // judged comes from the selector (they return only if it fails).
+    const plannerNotedIds = retrievalPlan.observedProductIds;
+    let proposedIds = [];
     // Screen every observed product in manageable, scope-balanced batches.
     // A fixed first-64 cut otherwise hides later Catalog results from the
     // objective-aware selector even though they were already retrieved.
     const observedCandidates = prioritizePartnerResearchProducts(partnerSamples,
-      proposedIds, Number.MAX_SAFE_INTEGER);
+      plannerNotedIds, Number.MAX_SAFE_INTEGER);
     eligibleCandidateCount = observedCandidates.length;
     const observedIds = new Set(observedCandidates.map((item) => item.id));
     const screenedGroups = [];
     const screeningBatchSize = 48;
     let screenedCount = 0;
+    // The selector's picks are what gets judged. Unpicked products are never
+    // padded in (a gift card, dog toy and book took judging slots, 26 Oct);
+    // only a failed selector call falls back to the observed order.
+    let selectorFailed = false;
+    let exploratoryId = null;
     const selectIds = async (products) => {
       const allowed = new Set(products.map((item) => item.id));
       const selection = await selectPartnerProducts({ seedProduct: heroDetail.product,
         seedVariant: heroDetail.variant, objective, partnerProducts: products,
         seedDescriptionTrusted: seedScope.domain !== "global",
         partnerDescriptionTrusted: partnerScope.domain !== "global" });
-      return [...new Set(selection?.productIds ?? [])].filter((id) => allowed.has(id)).slice(0, 12);
+      return [...new Set(selection?.productIds ?? [])].filter((id) => allowed.has(id)).slice(0, 8);
     };
     for (let start = 0; start < observedCandidates.length; start += screeningBatchSize) {
       if (timeLimitReached()) { coverageIssues.add("research_time_limit_reached"); break; }
       const batch = observedCandidates.slice(start, start + screeningBatchSize);
       let selectedIds = [];
+      let failed = false;
       try {
         selectedIds = await selectIds(batch);
-        if (selectedIds.length) productSelectionPlanning = "objective_guided";
-      } catch { coverageIssues.add("partner_product_selection_unavailable"); }
+        productSelectionPlanning = "objective_guided";
+      } catch { failed = true; selectorFailed = true; coverageIssues.add("partner_product_selection_unavailable"); }
       screenedCount += batch.length;
       screenedCandidateCount += batch.length;
       screeningBatchCount += 1;
       const group = [...selectedIds];
-      // A thin search card is an evidence gap, not a negative selection.
-      // Keep a small exploratory route to exact detail in every batch.
-      const sparse = batch.find((item) => !selectedIds.includes(item.id) &&
+      // A thin search card is an evidence gap, not a negative selection: one
+      // such product across the whole partner may be inspected, last.
+      exploratoryId ??= batch.find((item) => !selectedIds.includes(item.id) &&
         String(item.description?.plain ?? item.description?.html ??
-          item.description ?? "").length < 100);
-      if (sparse) group.push(sparse.id);
-      if (!selectedIds.length && batch.length) group.push(batch[0].id);
+          item.description ?? "").length < 100)?.id ?? null;
+      if (failed && batch.length) group.push(batch[0].id);
       screenedGroups.push([...new Set(group)]);
     }
     if (screenedCount < observedCandidates.length) {
@@ -633,9 +658,9 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         const batch = finalists.slice(start, start + screeningBatchSize)
           .map((id) => observedCandidates.find((item) => item.id === id)).filter(Boolean);
         try { reduced.push(...await selectIds(batch)); }
-        catch { coverageIssues.add("partner_product_selection_unavailable"); }
-        if (batch.length && !reduced.some((id) => batch.some((item) => item.id === id))) {
-          reduced.push(batch[0].id);
+        catch {
+          coverageIssues.add("partner_product_selection_unavailable");
+          if (batch.length) reduced.push(batch[0].id);
         }
       }
       const unique = [...new Set(reduced)];
@@ -693,9 +718,40 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     }
     const enrichedSamples = partnerSamples.map((sample) => sample.map((item) =>
       enriched.get(item.id) ?? item));
-    const candidateLimit = Math.min(32, Math.max(10,
-      proposedIds.length + Math.min(16, enrichedCandidates.length)));
-    const ordered = prioritizePartnerResearchProducts(enrichedSamples, proposedIds, candidateLimit);
+    // Picks in the selector's order, then the one exploratory product. Only
+    // when every selector call failed is the list filled from observed order.
+    if (selectorFailed && productSelectionPlanning !== "objective_guided") {
+      proposedIds = [...new Set([...proposedIds, ...plannerNotedIds])];
+    }
+    // Partner products that formed Supported pairs for a similar starting
+    // product before are re-checked first, from live detail, so a good pair
+    // does not depend on being rediscovered (it is still judged again).
+    const remembered = [];
+    const rememberedIds = await recallProducts({ partnerQlooId: partner.qlooId, objective,
+      heroCategory: taxonomyCategory(heroDetail.product) ?? heroCategoryId }).catch(() => []);
+    for (const id of rememberedIds) {
+      if (timeLimitReached() || catalog.callsUsed() >= maxCatalogCalls - 12) break;
+      const observed = enrichedCandidates.find((item) => item.id === id);
+      if (observed) { remembered.push(observed); continue; }
+      try {
+        const detail = await catalog.detail(partnerScope.domain, id, null, null, partnerScope.tools,
+          { market, expectedSellerId: partnerScope.domain === "global" ? partnerStore.shopId : null });
+        const product = { ...detail.product, variants: [detail.variant] };
+        if (wearerMismatchFor(product) || (objective === "product_bundle" && fitSized(product)) ||
+            !partnerProductUsable(product)) continue;
+        detailCache.set(`${id}|${detail.variant.id}`, detail);
+        remembered.push(product);
+      } catch (error) {
+        if (error?.code === "catalog_rate_limited") { coverageIssues.add("catalog_rate_limited"); break; }
+      }
+    }
+    provenProductsRechecked = remembered.length;
+    const picks = [...new Set([...remembered.map((item) => item.id), ...proposedIds,
+      ...(exploratoryId ? [exploratoryId] : [])])];
+    const candidateLimit = selectorFailed && productSelectionPlanning !== "objective_guided"
+      ? Math.min(32, Math.max(10, picks.length + Math.min(16, enrichedCandidates.length)))
+      : Math.min(32, picks.length);
+    const ordered = prioritizePartnerResearchProducts([...enrichedSamples, remembered], picks, candidateLimit);
     found = chooseProductCombinations([{ ...heroDetail.product, variants: [heroDetail.variant] }],
       ordered, objective, candidateLimit);
   }
@@ -745,7 +801,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   }
   // Assess product kinds in turn (dinnerware, bowls, serveware) instead of
   // several items of one kind first; the selector's order is kept within a kind.
-  const kindOf = (product) => taxonomyCategory(product) ?? `product:${product?.id}`;
+  const kindOf = (product) => productKind(taxonomyCategory(product)) ?? `product:${product?.id}`;
   {
     const byKind = new Map();
     for (const pair of found) {
@@ -993,6 +1049,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     eligibleCandidateCount, screenedCandidateCount, screeningBatchCount,
     exploredRoleCount: exploredRoles.size,
     searchPagesFetched, exactDetailFailures, pairsSkippedFromMemory, pairsSkippedOwnRange, pairsSkippedByUser,
+    partnerSellsStartingBrand, provenProductsRechecked,
     stopReason: coverageIssues.has("catalog_rate_limited") ? "catalog_rate_limited"
       : coverageIssues.has("research_time_limit_reached") ? "research_time_limit_reached"
       : coverageIssues.has("catalog_budget_reached") ? "catalog_budget_reached"

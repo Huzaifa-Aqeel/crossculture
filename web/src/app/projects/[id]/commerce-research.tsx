@@ -27,7 +27,8 @@ type Match = { id: string; partnerEntityId: string; partnerName: string; partner
 type Feedback = { id: string; action: "save" | "reject"; reasonCode?: string | null };
 type Run = { id: string; kind: string; status: string; stage: string; seedName: string;
   errorCode?: string | null; createdAt?: string;
-  result?: { message?: string; coverage?: string; stopReason?: string }; matches: Match[] };
+  result?: { message?: string; coverage?: string; stopReason?: string; existingCollaborations?: string[] };
+  matches: Match[] };
 type Launch = { status: string; areas: string[] };
 
 const UNKNOWN_LABELS: Record<string, string> = {
@@ -119,9 +120,9 @@ type FeedbackActions = { vote: (match: Match, action: "save" | "reject") => Prom
 // Rate a match once: the choice is final. "Not a fit" offers one optional
 // reason, also final.
 function FeedbackBar({ match, actions }: { match: Match; actions: FeedbackActions }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [other, setOther] = useState<string | null>(null);
-  const run = (task: () => Promise<void>) => { setBusy(true); task().finally(() => setBusy(false)); };
+  const run = (action: string, task: () => Promise<void>) => { setBusy(action); task().finally(() => setBusy(null)); };
   const current = match.feedback?.action ?? null;
   const reason = match.feedback?.reasonCode ?? null;
   const saved = Boolean(match.feedback?.id) && match.feedback?.id !== "pending";
@@ -131,10 +132,10 @@ function FeedbackBar({ match, actions }: { match: Match; actions: FeedbackAction
       <span className="rs-rate-label">{rated ? "Your rating" : "Rate this match"}</span>
       <div className="rs-segment">
         <button type="button" aria-pressed={current === "save"} className={current === "save" ? "is-good" : ""}
-          disabled={busy || rated} onClick={() => run(() => actions.vote(match, "save"))}>
+          disabled={busy !== null || rated} data-busy={busy === "save"} onClick={() => run("save", () => actions.vote(match, "save"))}>
           <ThumbsUp size={15} aria-hidden="true" />Good fit</button>
         <button type="button" aria-pressed={current === "reject"} className={current === "reject" ? "is-pass" : ""}
-          disabled={busy || rated} onClick={() => run(() => actions.vote(match, "reject"))}>
+          disabled={busy !== null || rated} data-busy={busy === "reject"} onClick={() => run("reject", () => actions.vote(match, "reject"))}>
           <ThumbsDown size={15} aria-hidden="true" />Not a fit</button>
       </div>
     </div>
@@ -142,14 +143,16 @@ function FeedbackBar({ match, actions }: { match: Match; actions: FeedbackAction
       <div className="rs-reason-head"><strong>What didn&apos;t fit?</strong><span className="rs-quiet">Optional</span></div>
       <div className="rs-reason-chips" role="group" aria-label="Reason">
         {PASS_REASONS.map(([code, text]) => <button key={code} type="button"
-          aria-pressed={code === "other" && other !== null} disabled={busy || !saved}
-          onClick={() => code === "other" ? setOther(other ?? "") : run(() => actions.explain(match, code))}>{text}</button>)}
+          aria-pressed={code === "other" && other !== null} disabled={busy !== null || !saved}
+          data-busy={busy === code}
+          onClick={() => code === "other" ? setOther(other ?? "") : run(code, () => actions.explain(match, code))}>{text}</button>)}
       </div>
       {other !== null && <form className="rs-reason-note" onSubmit={(event) => {
-        event.preventDefault(); run(() => actions.explain(match, "other", other)); }}>
+        event.preventDefault(); run("other-note", () => actions.explain(match, "other", other)); }}>
         <input aria-label="What didn't fit?" placeholder="Tell us briefly" maxLength={160} value={other}
           onChange={(event) => setOther(event.target.value)} autoFocus />
-        <button className="rs-button-quiet" type="submit" disabled={busy || !saved}>Save</button></form>}
+        <button className="rs-button-quiet" type="submit" disabled={busy !== null || !saved}
+          data-busy={busy === "other-note"}>Save</button></form>}
     </div>}
     {current === "reject" && reason && <div className="rs-reason-panel rs-reason-final">
       <span className="rs-reason-done"><Check size={14} aria-hidden="true" />
@@ -192,7 +195,10 @@ function Opportunity({ projectId, match, others, run, pending, launch, onShow, o
       <div className="rs-fact"><dt>Why it fits</dt><dd>{score.productMechanism?.customerReason &&
         <strong className="rs-reason">{sentenceCase(score.productMechanism.customerReason)}</strong>}
         {score.productMechanism?.boundedRationale || "The product benefit needs more evidence."}</dd></div>
-      <div className="rs-fact"><dt>Cultural connection</dt><dd>{culturalLine(score, run.seedName, shown.partnerName)}</dd></div>
+      <div className="rs-fact"><dt>Cultural connection</dt><dd>
+        {run.result?.existingCollaborations?.includes(shown.partnerName)
+          ? `${shown.partnerName} already sells a co-branded ${run.seedName} product, so the brands have worked together before. ` : ""}
+        {culturalLine(score, run.seedName, shown.partnerName)}</dd></div>
       {launch?.areas.length ? <div className="rs-fact"><dt>Where audiences overlap</dt><dd>
         <div className="rs-tags">{launch.areas.map((area) => <span key={area}>{area}</span>)}</div>
         <span className="rs-quiet">Cities where both brands&apos; audiences are strongest. A good place to start targeted ads, local creators or a pop-up.</span></dd></div> : null}
@@ -380,10 +386,9 @@ export function CommerceResearch({ projectId }: { projectId: string }) {
         loadRun(event.target.value).catch((failure) => setError(failure.message)).finally(() => setLoadingRun(false)); }}>
         {runs.map((item) => <option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString()}</option>)}</select></div>}
 
-    {!run && !error && <div className="rs-empty">No research yet. Start a new search to find partners for one of your products.</div>}
     {working && <div className="rs-status"><strong>{run.kind === "discovery" ? "Finding partners" : "Comparing brands"}</strong>
       <div className="rs-progress"><i /></div>
-      <p>{run.stage}. This usually takes 3–5 minutes; you can leave this page and come back.</p></div>}
+      <p>{run.stage}. This usually takes 1–3 minutes, though some searches take longer. You can leave this page and come back.</p></div>}
     {failedMessage && <div className="rs-status"><strong>{failedMessage}</strong></div>}
 
     {run && !working && !failedMessage && <>

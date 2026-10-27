@@ -33,7 +33,7 @@ export function culturalSummary(assessment, seedName, partnerName) {
 }
 
 export function commerceProposal({ seedName, partnerName, objective, assessment = {},
-  offers = {}, launchAreas = [], sourceUrls = [] }) {
+  offers = {}, launchAreas = [], sourceUrls = [], existingCollaboration = false }) {
   const seed = name(seedName); const partner = name(partnerName);
   const goal = objective === "product_bundle" ? "Product bundle" : "Cross-sell";
   const product = (offer, brand) => {
@@ -43,7 +43,8 @@ export function commerceProposal({ seedName, partnerName, objective, assessment 
   };
   const mechanism = assessment.productMechanism ?? {};
   const why = [sentence(mechanism.customerReason), sentence(mechanism.boundedRationale)].filter(Boolean).join(" ");
-  const culture = culturalSummary(assessment, seed, partner);
+  const culture = [existingCollaboration ? `${partner} already sells a co-branded ${seed} product, so the brands have worked together before.` : "",
+    culturalSummary(assessment, seed, partner)].filter(Boolean).join(" ");
   const areas = launchAreas.map((item) => name(item)).filter(Boolean).slice(0, 4);
   const roles = mechanism.roles ?? {};
   const toAgree = [...new Set([...(assessment.dealUnknowns ?? []).map(sentence),

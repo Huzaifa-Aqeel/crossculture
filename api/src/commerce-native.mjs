@@ -716,6 +716,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       candidate.pairsSkippedFromMemory = result.pairsSkippedFromMemory ?? 0;
       candidate.pairsSkippedOwnRange = result.pairsSkippedOwnRange ?? 0;
       candidate.pairsSkippedByUser = result.pairsSkippedByUser ?? 0;
+      candidate.partnerSellsStartingBrand = result.partnerSellsStartingBrand === true;
       candidate.productSearchPlanning = result.productSearchPlanning ?? "not_run";
       candidate.productSelectionPlanning = result.productSelectionPlanning ?? "not_run";
       candidate.stopReason = result.stopReason ?? null;

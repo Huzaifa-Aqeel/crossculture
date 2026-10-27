@@ -38,7 +38,7 @@ export default function NewResearchPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
   // 1. Brand
   const [market, setMarket] = useState("US");
@@ -90,10 +90,10 @@ export default function NewResearchPage() {
   async function findBrand(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError("");
     const query = brandQuery.trim();
-    setBusy(true); setResolution(null); setBrandChoice("");
+    setBusy("find-brand"); setResolution(null); setBrandChoice("");
     setWebsiteNeeded(false); setWebsite("");
     const { ok, payload } = await post("/api/entities/resolve", { name: query, purpose: "commerce_seed", market });
-    setBusy(false);
+    setBusy(null);
     if (!ok) { setError(payload.message ?? "This brand could not be looked up right now."); return; }
     // A brand already confirmed for this country in an earlier project goes straight on.
     if (payload.known) { setBrand(payload.known); setStep(2); return; }
@@ -102,11 +102,11 @@ export default function NewResearchPage() {
 
   async function confirmBrand() {
     if (!resolution || !brandChoice) return;
-    setError(""); setBusy(true);
+    setError(""); setBusy("confirm-brand");
     const { ok, status, payload } = await post("/api/entities/confirm", { resolutionId: resolution.id,
       qlooId: brandChoice, purpose: "commerce_seed", market,
       ...(website.trim() ? { officialWebsite: website.trim() } : {}) });
-    setBusy(false);
+    setBusy(null);
     if (ok) {
       const chosen = resolution.qloo.candidates.find((item) => item.id === brandChoice);
       setBrand({ id: payload.entity.id, name: payload.entity.name, website: payload.entity.canonicalUrl ?? chosen?.website });
@@ -117,19 +117,19 @@ export default function NewResearchPage() {
   }
 
   async function findPartner() {
-    setBusy(true); setError(""); setPartnerResolution(null); setPartnerChoice(""); setPartner(null);
+    setBusy("find-partner"); setError(""); setPartnerResolution(null); setPartnerChoice(""); setPartner(null);
     const { ok, payload } = await post("/api/entities/resolve", { name: partnerQuery.trim(), purpose: "commerce_partner" });
     if (!ok) setError(payload.message ?? "This brand could not be looked up right now.");
     else setPartnerResolution(payload);
-    setBusy(false);
+    setBusy(null);
   }
 
   async function confirmPartner() {
     if (!partnerResolution || !partnerChoice) return;
-    setBusy(true); setError("");
+    setBusy("confirm-partner"); setError("");
     const { ok, status, payload } = await post("/api/entities/confirm", { resolutionId: partnerResolution.id,
       qlooId: partnerChoice, purpose: "commerce_partner", market });
-    setBusy(false);
+    setBusy(null);
     if (ok) { setPartner({ id: payload.entity.id, name: payload.entity.name }); setPartnerResolution(null); return; }
     setError(status === 409 ? "We couldn't confirm this partner's store automatically. Try another brand."
       : payload.message ?? "This partner could not be confirmed right now.");
@@ -139,7 +139,7 @@ export default function NewResearchPage() {
     if (!brand || !objective || !partnerValid) return;
     setError("");
     if (!projectId || projectObjective !== objective) {
-      setBusy(true);
+      setBusy("continue");
       const name = `${brand.name} · ${GOALS[objective].short}`;
       // A draft takes the new goal; a project that already has research keeps
       // its goal, so the new goal starts a new project.
@@ -147,7 +147,7 @@ export default function NewResearchPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name, objective, notes: projectNotes }) }) : null;
       const created = updated?.ok ? null : await post("/api/projects", { seedEntityId: brand.id, objective, market, name });
-      setBusy(false);
+      setBusy(null);
       if (created && !created.ok) { setError(created.payload.message ?? "This research could not be set up."); return; }
       if (created) { setProjectId(created.payload.project.id); setProjectNotes(created.payload.project.notes ?? ""); }
       setProjectObjective(objective);
@@ -156,11 +156,11 @@ export default function NewResearchPage() {
   }
 
   async function findProducts(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setProducts(null); setProductChoice(""); setProductNote("");
+    event.preventDefault(); setBusy("find-products"); setError(""); setProducts(null); setProductChoice(""); setProductNote("");
     const response = await fetch(`/api/entities/${brand?.id}/commerce-products?market=${market}&query=${encodeURIComponent(productQuery.trim())}`,
       { cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
-    setBusy(false);
+    setBusy(null);
     if (!response.ok) { setError(payload.message ?? "Your store could not be searched right now."); return; }
     setProducts(payload.products ?? []);
     if (!(payload.products ?? []).length) setProductNote(productCoverage[payload.coverage] ??
@@ -179,12 +179,12 @@ export default function NewResearchPage() {
     if (softPreferences.length > 6 || softPreferences.some((value) => value.length < 3 || value.length > 60)) {
       setError("Enter up to six short preferences, separated by commas."); return;
     }
-    setBusy(true); setError("");
+    setBusy("start"); setError("");
     let runProjectId = projectId && projectObjective === objective ? projectId : "";
     if (!runProjectId) {
       const created = await post("/api/projects", { seedEntityId: brand.id, objective, market,
         name: `${brand.name} · ${GOALS[objective].short}` });
-      if (!created.ok) { setBusy(false); setError(created.payload.message ?? "This research could not be set up."); return; }
+      if (!created.ok) { setBusy(null); setError(created.payload.message ?? "This research could not be set up."); return; }
       runProjectId = created.payload.project.id;
       setProjectId(runProjectId); setProjectObjective(objective);
     }
@@ -198,7 +198,7 @@ export default function NewResearchPage() {
         heroProduct: { productId: hero.productId, variantId: hero.variantId, title: hero.title,
           ...(hero.categoryId ? { categoryId: hero.categoryId } : {}) } },
       idempotencyKey: crypto.randomUUID() });
-    if (!ok) { setBusy(false); setError(payload.message ?? "Research could not start right now."); return; }
+    if (!ok) { setBusy(null); setError(payload.message ?? "Research could not start right now."); return; }
     router.push(`/projects/${runProjectId}?run=${payload.runId}`);
   }
 
@@ -230,8 +230,9 @@ export default function NewResearchPage() {
           minLength={2} maxLength={90} required placeholder="e.g. Caraway" /></label>
         <label className="rs-field">Country<select value={market} onChange={(event) => setMarket(event.target.value)}>
           {MARKETS.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
-      </div><div><button className="rs-button" type="submit" disabled={busy || brandQuery.trim().length < 2}>
-        {busy && !resolution ? "Searching…" : "Find brand"}</button></div></form>
+      </div><div><button className="rs-button" type="submit" disabled={busy !== null || brandQuery.trim().length < 2}
+        data-busy={busy === "find-brand"} data-unavailable={brandQuery.trim().length < 2}>
+        {busy === "find-brand" ? "Searching…" : "Find brand"}</button></div></form>
       {resolution && (resolution.qloo.candidates.length ? <>
         <div className="rs-options" role="radiogroup" aria-label="Matching brands">
           {resolution.qloo.candidates.map((item) => <label className="rs-option" key={item.id}>
@@ -245,7 +246,9 @@ export default function NewResearchPage() {
           <label className="rs-field">Official website<input type="url" value={website}
             onChange={(event) => setWebsite(event.target.value)} placeholder="https://yourbrand.com" /></label></div>}
         <div className="rs-actions"><button className="rs-button" type="button" onClick={confirmBrand}
-          disabled={busy || !brandChoice || (websiteNeeded && !website.trim())}>{busy ? "Checking…" : "Continue"}</button></div>
+          disabled={busy !== null || !brandChoice || (websiteNeeded && !website.trim())}
+          data-busy={busy === "confirm-brand"} data-unavailable={!brandChoice || (websiteNeeded && !website.trim())}>
+          {busy === "confirm-brand" ? "Checking…" : "Continue"}</button></div>
       </> : <p className="rs-hint" style={{ marginTop: 16 }}>No brand matched. Check the spelling or try the full brand name.</p>)}
     </section>}
 
@@ -255,7 +258,7 @@ export default function NewResearchPage() {
           data-selected={objective === value}><input type="radio" name="goal" checked={objective === value}
             onChange={() => setObjective(value)} /><strong>{goal.label}</strong><span>{goal.detail}</span></label>)}
       </div>
-      <div className="rs-segment" role="group" aria-label="Partner">
+      <div className="rs-segment rs-mode-switch" role="group" aria-label="Partner">
         <button type="button" aria-pressed={mode === "discovery"} onClick={() => setMode("discovery")}>Suggest partners</button>
         <button type="button" aria-pressed={mode === "direct_pair"} onClick={() => setMode("direct_pair")}>Compare with a brand</button>
       </div>
@@ -264,19 +267,23 @@ export default function NewResearchPage() {
           <button className="rs-link" type="button" onClick={() => setPartner(null)}>Change</button></div> : <>
           <div className="rs-row-action"><label className="rs-field">Partner brand<input value={partnerQuery}
             onChange={(event) => setPartnerQuery(event.target.value)} placeholder="e.g. Cuyana" /></label>
-            <button className="rs-button-quiet" type="button" disabled={busy || partnerQuery.trim().length < 2}
+            <button className="rs-button-quiet" type="button" disabled={busy !== null || partnerQuery.trim().length < 2}
+              data-busy={busy === "find-partner"} data-unavailable={partnerQuery.trim().length < 2}
               onClick={findPartner}>Find</button></div>
           {partnerResolution && (partnerResolution.qloo.candidates.length ? <>
             <div className="rs-options">{partnerResolution.qloo.candidates.map((item) => <label className="rs-option" key={item.id}>
               <input type="radio" name="partner" checked={partnerChoice === item.id} onChange={() => setPartnerChoice(item.id)} />
               <span><strong>{item.name}</strong>{item.description && <small>{item.description}</small>}</span></label>)}</div>
-            <div><button className="rs-button-quiet" type="button" disabled={busy || !partnerChoice}
-              onClick={confirmPartner}>{busy ? "Checking…" : "Use this brand"}</button></div></>
+            <div><button className="rs-button-quiet" type="button" disabled={busy !== null || !partnerChoice}
+              data-busy={busy === "confirm-partner"} data-unavailable={!partnerChoice}
+              onClick={confirmPartner}>{busy === "confirm-partner" ? "Checking…" : "Use this brand"}</button></div></>
             : <p className="rs-hint">No brand matched. Check the spelling or try the full brand name.</p>)}
         </>}
       </div>}
       <div className="rs-actions"><button className="rs-button" type="button" onClick={continueToProduct}
-        disabled={busy || !objective || !partnerValid}>Continue</button></div>
+        disabled={busy !== null || !objective || !partnerValid} data-busy={busy === "continue"}
+        data-unavailable={!objective || !partnerValid}>
+        {busy === "continue" ? "Continuing…" : "Continue"}</button></div>
     </section>}
 
     {step === 3 && <section className="rs-card"><h2>Your product</h2>
@@ -285,8 +292,9 @@ export default function NewResearchPage() {
         <label className="rs-field">Product name or page link<input value={productQuery}
           onChange={(event) => setProductQuery(event.target.value)} minLength={3} maxLength={300}
           placeholder="e.g. Sauté Pan" /></label>
-        <button className="rs-button-quiet" type="submit" disabled={busy || productQuery.trim().length < 3}>
-          {busy && !products ? "Searching…" : "Search store"}</button></div></form>
+        <button className="rs-button-quiet" type="submit" disabled={busy !== null || productQuery.trim().length < 3}
+          data-busy={busy === "find-products"} data-unavailable={productQuery.trim().length < 3}>
+          {busy === "find-products" ? "Searching…" : "Search store"}</button></div></form>
       {shownProducts.length > 0 && <div className="rs-options" role="radiogroup" aria-label="Your products">
         {shownProducts.map((item) => <label className="rs-option" key={item.productId}>
           <input type="radio" name="product" checked={productChoice === item.productId}
@@ -310,7 +318,8 @@ export default function NewResearchPage() {
         </div></details>
 
       <div className="rs-actions"><button className="rs-button" type="button" onClick={start}
-        disabled={busy || !productChoice}>{busy ? "Starting…" : mode === "direct_pair" ? `Compare with ${partner?.name ?? "partner"}` : "Find partners"}</button>
+        disabled={busy !== null || !productChoice} data-busy={busy === "start"} data-unavailable={!productChoice}>
+        {busy === "start" ? "Starting…" : mode === "direct_pair" ? `Compare with ${partner?.name ?? "partner"}` : "Find partners"}</button>
         <button className="rs-link" type="button" onClick={() => goTo(2)}>Back</button></div>
     </section>}
 

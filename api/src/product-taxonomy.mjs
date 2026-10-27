@@ -47,6 +47,11 @@ export function similarCategory(left, right) {
 // bags). For "does this store already sell it", they are one kind of product.
 const EVERYDAY_BAGS = ["aa-5-4", "lb-1", "lb-7", "lb-10", "lb-11", "lb-13", "lb-15"];
 const everydayBag = (id) => EVERYDAY_BAGS.some((root) => id === root || id.startsWith(`${root}-`));
+// The kind used to vary assessed products: everyday bags count as one kind
+// (a 25L carryall and a 27L carryall are the same idea for a Bundle).
+export function productKind(id) {
+  return id && everydayBag(id) ? "everyday-bags" : id;
+}
 export function sameRange(left, right) {
   return similarCategory(left, right) || Boolean(left && right && everydayBag(left) && everydayBag(right));
 }

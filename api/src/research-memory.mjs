@@ -130,8 +130,11 @@ export function memoryRowsFromRun({ objective, market, candidates }) {
       // Product identifiers travel with each pair for review sampling only;
       // memory keeps the hashed key and verdict fields.
       pairs: (candidate.memory?.pairs ?? []).map(({ opportunityKey, partnerCategory, status,
-        mechanismState, reasonCodes, judge }) => ({ opportunityKey, partnerCategory, status,
-        mechanismState, reasonCodes, judge })) };
+        mechanismState, reasonCodes, judge, references }) => ({ opportunityKey, partnerCategory, status,
+        mechanismState, reasonCodes, judge,
+        // A Supported pair's partner product is re-checked first next time.
+        partnerProductId: status === "supported" && /^gid:\/\/shopify\/Product\/\d+$/
+          .test(references?.partner?.productId ?? "") ? references.partner.productId : null })) };
     if (candidate.status === "identity_unverified") {
       const reason = lastingIdentityFailure(candidate.identityDiagnostics);
       if (reason) rows.push({ ...base, outcome: "identity_unverified", identityReason: reason, pairs: [] });
@@ -187,6 +190,20 @@ export async function recallJudgedRejections(opportunityKeys, judge) {
   return new Set(result.rows.filter((row) => row.state !== "supported").map((row) => row.key));
 }
 
+// Partner products that formed Supported pairs for a similar starting product
+// (first three taxonomy levels) in the last 90 days, most recent first.
+export async function recallProvenProducts({ partnerQlooId, objective, heroCategory, limit = 4 }) {
+  if (!process.env.DATABASE_URL || !partnerQlooId || !heroCategory) return [];
+  const result = await database().query(`select p.partner_product_id as id, o.hero_category as "heroCategory"
+    from private.pair_research_outcomes p
+    join private.partner_research_outcomes o on o.id=p.partner_outcome_id
+    where o.partner_qloo_id=$1 and o.objective=$2 and p.partner_product_id is not null
+      and p.status='supported' and o.observed_at>now()-make_interval(days=>$3)
+    order by o.observed_at desc limit 50`, [partnerQlooId, objective, MEMORY_DAYS]);
+  return [...new Set(result.rows.filter((row) => similarCategory(row.heroCategory, heroCategory))
+    .map((row) => row.id))].slice(0, limit);
+}
+
 export async function recordResearchMemory(rows) {
   if (!process.env.DATABASE_URL || !rows?.length) return 0;
   const connection = await database().connect();
@@ -203,10 +220,10 @@ export async function recordResearchMemory(rows) {
         row.assessedCount, row.recommendableCount, row.supportedCount, row.catalogCalls, MEMORY_VERSION]);
       for (const pair of row.pairs) {
         await connection.query(`insert into private.pair_research_outcomes
-          (partner_outcome_id,opportunity_key,partner_category,status,mechanism_state,reason_codes,model)
-          values ($1,$2,$3,$4,$5,$6::text[],$7)`, [partner.rows[0].id, pair.opportunityKey,
+          (partner_outcome_id,opportunity_key,partner_category,status,mechanism_state,reason_codes,model,partner_product_id)
+          values ($1,$2,$3,$4,$5,$6::text[],$7,$8)`, [partner.rows[0].id, pair.opportunityKey,
           pair.partnerCategory, pair.status, pair.mechanismState,
-          (pair.reasonCodes ?? []).slice(0, 12), pair.judge ?? null]);
+          (pair.reasonCodes ?? []).slice(0, 12), pair.judge ?? null, pair.partnerProductId ?? null]);
       }
     }
     await connection.query(`delete from private.partner_research_outcomes

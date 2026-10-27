@@ -18,7 +18,7 @@ export async function commerceProposalAction(userId, matchId, _input = {},
     coalesce(seed.official_website,seed.canonical_url) as "seedWebsite",
     coalesce(partner.official_website,partner.canonical_url) as "partnerWebsite",
     a.id as "assessmentId",a.score_json as assessment,a.evidence_json as evidence,
-    a.validity_status as "evidenceStatus"
+    a.validity_status as "evidenceStatus",r.result_json->'candidates' as candidates
     from public.matches m join public.analysis_runs r on r.id=m.analysis_run_id
     join catalog.entities seed on seed.id=m.brand_entity_id
     join catalog.entities partner on partner.id=m.partner_entity_id
@@ -54,6 +54,8 @@ export async function commerceProposalAction(userId, matchId, _input = {},
   const launch = await launchAreas(userId, row.seedQlooId, row.partnerQlooId, row.market)
     .catch(() => null);
   const markdown = commerceProposal({ seedName: row.seedName, partnerName: row.partnerName,
+    existingCollaboration: (row.candidates ?? []).some((candidate) =>
+      candidate?.name === row.partnerName && candidate.partnerSellsStartingBrand === true),
     objective: row.objective, assessment: row.assessment, offers: currentOffers,
     launchAreas: launch?.areas ?? [], sourceUrls: [
       ...(row.evidence?.commerce?.identitySourceRefs ?? []),

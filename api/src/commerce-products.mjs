@@ -307,6 +307,8 @@ export function isCommerceMerchandise(product) {
   const baseTitle = title.split(/\s+[-–—|:]\s+/)[0];
   const kind = bounded(product?.product_type ?? product?.type, 90).toLowerCase();
   if (product?.gift_card === true) return false;
+  // Storefront Catalog products carry a category, not a product type.
+  if (/^gc(?:-|$)/.test(taxonomyCategory(product) ?? "")) return false;
   if (/^(?:gift\s*card|gift\s*certificate|store\s*credit)$/i.test(kind)) return false;
   if (/\bgift\s*(?:cards?|certificates?)$/i.test(baseTitle)) return false;
   if (/^(?:(?:digital|virtual|electronic)\s+|e-)?gift\s*(?:cards?|certificates?)(?:\s*$|\s*[-–—|:]|\s+for\s+\$?\d)/i.test(title)) return false;

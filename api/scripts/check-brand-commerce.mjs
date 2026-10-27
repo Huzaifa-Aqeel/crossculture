@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { catalogClient, catalogEndpoint, discoverVerifiedStorefront, PROFILE_EXAMPLE,
   verifyCatalogOffer } from "../src/shopify-catalog.mjs";
 import { productPairKeyFor } from "../src/research-memory.mjs";
+import { productKind } from "../src/product-taxonomy.mjs";
 import { assessCommerceOpportunity, durableCommerceDecision,
   rankCommerceOpportunities, customerText } from "../src/brand-commerce.mjs";
 import { validateCommerceEvidence, hasExplicitThirdPartyCoBrand } from "../src/commerce-evidence.mjs";
@@ -794,7 +795,8 @@ const researchDeps = { discoverStorefront: async (url) => ({
   proposeMechanism: async () => bathProposal,
   planAnchorSearch: async () => ({ queries: [], observedProductIds: [] }),
   planPartnerSearch: async () => ({ queries: [], observedProductIds: [] }),
-  selectPartnerProducts: async () => ({ productIds: [] }),
+  // Like a real selector, picks the observed products (in order).
+  selectPartnerProducts: async ({ partnerProducts }) => ({ productIds: partnerProducts.map((item) => item.id) }),
   verifyMechanism: async () => bathRubric,
   productQueries: ["bath"], createCatalog: () => ({
     tools: async () => new Set(["search_catalog", "lookup_catalog"]),
@@ -885,6 +887,65 @@ const twoKinds = await researchCommercePair(pairInput, { ...researchDeps, produc
   createCatalog: kindCatalog, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }) });
 assert.notEqual(twoKinds.stopReason, "enough_opportunities_found");
 assert.equal(twoKinds.assessedCount, 6);
+// Only the selector's picks are judged (plus one exploratory product with a
+// thin description); unpicked products are never padded in (26 Oct: a gift
+// card, dog toy and book took judging slots).
+const assessedIds = (result) => result.memory.pairs.map((pair) => pair.references.partner.productId);
+const twoPicks = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  selectPartnerProducts: async () => ({ productIds: [manyMats[3].id, manyMats[7].id] }),
+  createCatalog: manyCatalog, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }),
+  verifyMechanism: async () => ({ ...bathRubric, jointUseCoherent: false, incrementalBenefit: false,
+    reason: "unrelated_products" }) });
+assert.deepEqual(assessedIds(twoPicks).slice(0, 2), [manyMats[3].id, manyMats[7].id], "Picks are judged in the selector's order");
+assert.equal(twoPicks.assessedCount, 3, "Two picks and one exploratory product; no padding");
+// A failed selector falls back to the observed order so research continues.
+const selectorDown = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,
+  selectPartnerProducts: async () => { throw new Error("model unavailable"); },
+  createCatalog: manyCatalog, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }),
+  verifyMechanism: async () => ({ ...bathRubric, jointUseCoherent: false, incrementalBenefit: false,
+    reason: "unrelated_products" }) });
+assert.ok(selectorDown.assessedCount >= 8, "Selector failure keeps the observed-order fallback");
+// A partner product that formed a Supported pair for a similar starting
+// product before is fetched live and judged first, even if this run's search
+// did not surface it.
+const rememberedMat = { ...mat, id: "gid://shopify/Product/remembered", title: "Remembered bath mat",
+  variants: [{ id: "gid://shopify/ProductVariant/remembered" }] };
+let recallAsked = null;
+const rechecked = await researchCommercePair({ ...pairInput, partner: { ...pairInput.partner, qlooId: "partner-qloo" },
+  userConstraints: { heroProduct: { ...chosenTowel.heroProduct, categoryId: "hg-3-4-1-2" } } }, { ...researchDeps,
+  productQueries: null, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }),
+  recallProducts: async (input) => { recallAsked = input; return [rememberedMat.id]; },
+  createCatalog: () => ({ ...manyCatalog(), detail: async (domain, id) => productWithOffer(domain.startsWith("seed") ? towel
+    : id === rememberedMat.id ? rememberedMat : manyMats.find((item) => item.id === id) ?? manyMats[0]) }) });
+assert.deepEqual(recallAsked, { partnerQlooId: "partner-qloo", objective: "product_bundle", heroCategory: "hg-3-4-1-2" });
+assert.equal(rechecked.provenProductsRechecked, 1);
+assert.equal(assessedIds(rechecked)[0], rememberedMat.id, "A remembered winner is judged first");
+// Gift cards, the starting brand's own co-branded products and (in a Bundle)
+// products of the starting product's exact category never reach selection;
+// a co-branded product is noted as an existing collaboration.
+const category = (id) => [{ value: `gid://shopify/TaxonomyCategory/${id}`, taxonomy: "shopify" }];
+const shelf = [
+  { ...mat, id: "gid://shopify/Product/gift", title: "Store Pass", categories: category("gc"), variants: [{ id: "gid://shopify/ProductVariant/gift" }] },
+  { ...mat, id: "gid://shopify/Product/cobrand", title: "Partner × Towelco Hand Towel", variants: [{ id: "gid://shopify/ProductVariant/cobrand" }] },
+  { ...mat, id: "gid://shopify/Product/same", title: "Plush Bath Towel", categories: category("hg-3-4-1-2"), variants: [{ id: "gid://shopify/ProductVariant/same" }] },
+  { ...mat, id: "gid://shopify/Product/keep", title: "Bath mat", categories: category("hg-3-4-2"), variants: [{ id: "gid://shopify/ProductVariant/keep" }] }];
+let selectorSaw = null;
+const shelved = await researchCommercePair({ ...pairInput, seed: { ...pairInput.seed, name: "Towelco" },
+  userConstraints: { heroProduct: { ...chosenTowel.heroProduct, categoryId: "hg-3-4-1-2" } } }, { ...researchDeps,
+  productQueries: null, screenPartner: async () => ({ addsValue: true, exampleTitles: [] }),
+  selectPartnerProducts: async ({ partnerProducts }) => { selectorSaw = partnerProducts.map((item) => item.id);
+    return { productIds: selectorSaw }; },
+  createCatalog: () => ({ ...manyCatalog(), search: async (domain) => domain.startsWith("seed") ? [towel] : shelf,
+    detail: async (domain, id) => productWithOffer(domain.startsWith("seed") ? towel
+      : shelf.find((item) => item.id === id) ?? shelf[3]) }) });
+assert.deepEqual(selectorSaw, ["gid://shopify/Product/keep"]);
+assert.equal(shelved.partnerSellsStartingBrand, true);
+assert.match(commerceProposal({ seedName: "Rumpl", partnerName: "AllTrails", objective: "product_bundle",
+  assessment: {}, existingCollaboration: true }), /AllTrails already sells a co-branded Rumpl product/);
+assert.doesNotMatch(commerceProposal({ seedName: "Rumpl", partnerName: "AllTrails", objective: "product_bundle",
+  assessment: {} }), /co-branded/);
+assert.equal(productKind("lb-13-1"), productKind("aa-5-4-19"), "Everyday bags count as one kind");
+assert.notEqual(productKind("lb-13-1"), productKind("hg-3-4-2"));
 // One partner's store timing out skips that partner; the starting store
 // timing out still stops research.
 const timingOut = (side) => () => ({ ...researchDeps.createCatalog(),
