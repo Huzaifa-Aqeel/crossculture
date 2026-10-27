@@ -14,21 +14,30 @@ export function productSearchInput(input, officialWebsite, store) {
   }
   if (!/^https?:\/\//i.test(value)) {
     if (value.length > 100) throw Object.assign(new Error("Use a shorter product name."), { statusCode: 400 });
-    return { query: value, exactPath: null };
+    return { query: value, exactHandle: null };
   }
   let url;
   try { url = new URL(value); }
   catch { throw Object.assign(new Error("Enter a valid product page URL."), { statusCode: 400 }); }
-  const allowedHosts = new Set([new URL(officialWebsite).hostname.toLowerCase(),
-    store.domain, store.endpointHost].filter(Boolean));
-  const slug = url.pathname.match(/(?:^|\/)products\/([a-z0-9][a-z0-9_-]{2,})\/?$/i)?.[1];
+  // The store with or without "www." is the same store (wildone.com and
+  // www.wildone.com, 27 Oct).
+  const bare = (host) => String(host ?? "").toLowerCase().replace(/^www\./, "");
+  const allowedHosts = new Set([new URL(officialWebsite).hostname, store.domain, store.endpointHost]
+    .filter(Boolean).map(bare));
+  // A product page may be reached through a collection
+  // (/collections/bowls/products/travel-bowl-duo); the product handle is what counts.
+  const handle = url.pathname.match(/(?:^|\/)products\/([a-z0-9][a-z0-9_-]{2,})\/?$/i)?.[1];
   if (url.protocol !== "https:" || url.port || url.username || url.password ||
-      !allowedHosts.has(url.hostname.toLowerCase()) || !slug) {
+      !allowedHosts.has(bare(url.hostname)) || !handle) {
     throw Object.assign(new Error("Use a product page from the verified brand store."), { statusCode: 400 });
   }
-  return { query: slug.replace(/[-_]+/g, " ").slice(0, 100),
-    exactPath: url.pathname.replace(/\/$/, "") };
+  return { query: handle.replace(/[-_]+/g, " ").slice(0, 100), exactHandle: handle.toLowerCase() };
 }
+
+const productHandle = (url) => {
+  try { return new URL(url).pathname.match(/\/products\/([^/]+)\/?$/i)?.[1]?.toLowerCase() ?? null; }
+  catch { return null; }
+};
 
 // Transient, authenticated selected-product chooser. The response is no-store;
 // the worker verifies a chosen product and variant again when research starts.
@@ -92,11 +101,18 @@ export async function previewStartingBrandProducts(seedEntityId, market = "US", 
     }
     for (const hit of hits) {
       if (seenProducts.has(hit.id)) continue;
-      if (searchInput.exactPath) {
-        let returnedPath;
-        try { returnedPath = new URL(hit.url).pathname.replace(/\/$/, ""); }
-        catch { continue; }
-        if (returnedPath !== searchInput.exactPath) continue;
+      if (searchInput.exactHandle && productHandle(hit.url) !== searchInput.exactHandle) continue;
+      // Shopify returns sold-out products in search but not in exact detail, so
+      // research cannot start from one. Show it as out of stock instead of
+      // silently dropping it and showing a different product (27 Oct).
+      const variants = (hit.variants ?? []).filter((variant) => variant.id);
+      if (variants.length && variants.every((variant) => variant.availability?.available === false)) {
+        products.push({ productId: hit.id, variantId: null, title: hit.title, url: hit.url ?? null,
+          family: observedProductType(hit) ?? "uncategorized", categoryId: taxonomyCategory(hit),
+          sized: fitSized(hit), outOfStock: true });
+        seenProducts.add(hit.id);
+        if (products.length >= 12) break;
+        continue;
       }
       const options = (hit.variants ?? []).filter((variant) => variant.id &&
         (scope.domain !== "global" || variant.seller?.id === store.shopId))
@@ -126,6 +142,6 @@ export async function previewStartingBrandProducts(seedEntityId, market = "US", 
     }
     if (products.length >= 12) break;
   }
-  return { products, coverage: products.length ? "observed_sample" : "no_verified_product_offer",
-    inspectedQueries: queries, market };
+  return { products, coverage: products.some((item) => !item.outOfStock) ? "observed_sample"
+    : products.length ? "only_out_of_stock" : "no_verified_product_offer", inspectedQueries: queries, market };
 }

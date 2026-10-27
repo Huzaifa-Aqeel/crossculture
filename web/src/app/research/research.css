@@ -52,6 +52,9 @@
 .rs-option:first-child{border-top:0}
 .rs-option:hover{background:#fafbf8}
 .rs-option input{margin-top:3px;width:17px;height:17px;flex:none;accent-color:#426b4d}
+.rs-option[data-unavailable]{cursor:default;background:#fafbf8}
+.rs-option[data-unavailable] strong{color:var(--muted)}
+.rs-option[data-unavailable]:hover{background:#fafbf8}
 .rs-option>span{display:grid;gap:3px;min-width:0;flex:1}
 .rs-option strong{font-size:14px}
 .rs-option small{color:var(--muted);font-size:12px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}

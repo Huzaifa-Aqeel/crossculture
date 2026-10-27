@@ -173,10 +173,16 @@ for (const [siteName, shopId, officialHost] of [
 const calls = [];
 const productStore = { domain: "shop.example.com", endpointHost: "shop.example.com" };
 assert.deepEqual(productSearchInput("  Bath towel  ", "https://seed.example.com", productStore),
-  { query: "Bath towel", exactPath: null });
+  { query: "Bath towel", exactHandle: null });
 assert.deepEqual(productSearchInput("https://seed.example.com/products/bath-towel?variant=11",
   "https://seed.example.com", productStore),
-  { query: "bath towel", exactPath: "/products/bath-towel" });
+  { query: "bath towel", exactHandle: "bath-towel" });
+// The store with or without "www.", and a product reached through a
+// collection, are the same product page (Wild One, 27 Oct).
+assert.deepEqual(productSearchInput("https://www.seed.example.com/collections/bath/products/Bath-Towel",
+  "https://seed.example.com", productStore), { query: "Bath Towel", exactHandle: "bath-towel" });
+assert.deepEqual(productSearchInput("https://seed.example.com/products/bath-towel",
+  "https://www.seed.example.com", productStore), { query: "bath towel", exactHandle: "bath-towel" });
 assert.throws(() => productSearchInput("https://other.example.com/products/bath-towel",
   "https://seed.example.com", productStore), /verified brand store/);
 assert.throws(() => productSearchInput("https://seed.example.com/collections/all",

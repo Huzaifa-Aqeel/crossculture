@@ -9,14 +9,15 @@ import "../research.css";
 type Candidate = { id: string; name: string; description: string | null; website: string | null };
 type Resolution = { id: string; qloo: { status: string; candidates: Candidate[] } };
 type Brand = { id: string; name: string; website?: string | null };
-type Product = { productId: string; variantId: string; title: string; url?: string | null; categoryId?: string | null;
-  sized?: boolean };
+type Product = { productId: string; variantId: string | null; title: string; url?: string | null; categoryId?: string | null;
+  sized?: boolean; outOfStock?: boolean };
 
 const productCoverage: Record<string, string> = {
   selected_seed_product_unverified: "That product could not be confirmed. Try its product page link.",
   storefront_probe_unavailable: "Your store could not be reached right now. Please try again shortly.",
   catalog_rate_limited: "Your store is busy right now. Please try again shortly.",
   catalog_unavailable: "Your store could not be reached right now. Please try again shortly.",
+  only_out_of_stock: "These products are out of stock right now, so they can't be researched. Try another product.",
 };
 
 async function post(path: string, body: unknown) {
@@ -163,13 +164,14 @@ export default function NewResearchPage() {
     setBusy(null);
     if (!response.ok) { setError(payload.message ?? "Your store could not be searched right now."); return; }
     setProducts(payload.products ?? []);
-    if (!(payload.products ?? []).length) setProductNote(productCoverage[payload.coverage] ??
+    if (payload.coverage === "only_out_of_stock") setProductNote(productCoverage.only_out_of_stock);
+    else if (!(payload.products ?? []).length) setProductNote(productCoverage[payload.coverage] ??
       "No matching products were found. Try a different name or paste the product page link.");
   }
 
   async function start() {
     const hero = products?.find((item) => item.productId === productChoice);
-    if (!hero || !brand || !objective) return;
+    if (!hero || !hero.variantId || hero.outOfStock || !brand || !objective) return;
     const currency = marketCurrency(market);
     const digits = new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 2;
     if (priceCap.trim() && !(digits ? new RegExp(`^\\d+(?:\\.\\d{1,${digits}})?$`) : /^\d+$/).test(priceCap.trim())) {
@@ -296,9 +298,11 @@ export default function NewResearchPage() {
           data-busy={busy === "find-products"} data-unavailable={productQuery.trim().length < 3}>
           {busy === "find-products" ? "Searching…" : "Search store"}</button></div></form>
       {shownProducts.length > 0 && <div className="rs-options" role="radiogroup" aria-label="Your products">
-        {shownProducts.map((item) => <label className="rs-option" key={item.productId}>
-          <input type="radio" name="product" checked={productChoice === item.productId}
-            onChange={() => setProductChoice(item.productId)} /><span><strong>{item.title}</strong></span>
+        {shownProducts.map((item) => <label className="rs-option" key={item.productId}
+          data-unavailable={item.outOfStock ? true : undefined}>
+          <input type="radio" name="product" checked={productChoice === item.productId} disabled={item.outOfStock}
+            onChange={() => setProductChoice(item.productId)} /><span><strong>{item.title}</strong>
+            {item.outOfStock && <small className="rs-quiet"> Out of stock — can&apos;t be researched right now</small>}</span>
           {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer">View</a>}</label>)}</div>}
       {productNote && <p className="rs-hint" style={{ marginTop: 14 }}>{productNote}</p>}
 
