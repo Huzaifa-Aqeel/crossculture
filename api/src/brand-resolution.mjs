@@ -17,9 +17,21 @@ export function normalizeQlooBrands(envelope) {
     ? envelope.resolution.issues.flatMap((issue) => Array.isArray(issue.candidates)
       ? issue.candidates.filter((candidate) => candidate.type === "urn:entity:brand")
         .map((candidate) => ({ ...candidate, entity_id: candidate.id })) : []) : [];
+  // Search results often omit the entity type; Qloo's resolution states it.
+  // Only an entity Qloo marks as a brand counts: a brand search for "Graza"
+  // returned "Graza, Polish colorist", a person, with no type on the result
+  // (27 Oct), and research for a person cannot find brand partners.
+  const typeById = new Map();
+  for (const outcome of envelope?.resolution?.outcomes ?? []) {
+    if (outcome?.selected?.id && outcome.selected.type) typeById.set(outcome.selected.id, outcome.selected.type);
+    for (const candidate of outcome?.candidates ?? []) {
+      if (candidate?.id && candidate.type) typeById.set(candidate.id, candidate.type);
+    }
+  }
   return [...resolved, ...choices]
-    .filter((item) => qlooId.test(item?.entity_id ?? "") &&
-      typeof item?.name === "string" && (!item.type || item.type === "urn:entity:brand"))
+    .filter((item) => qlooId.test(item?.entity_id ?? "") && typeof item?.name === "string" &&
+      (item.subtype ?? (item.type && item.type !== "urn:entity" ? item.type : null) ??
+        typeById.get(item.entity_id)) === "urn:entity:brand")
     .filter((item) => {
       if (seen.has(item.entity_id)) return false;
       seen.add(item.entity_id);

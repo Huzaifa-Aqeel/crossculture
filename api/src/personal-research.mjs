@@ -120,8 +120,9 @@ export async function startPersonalRun(userId, input) {
         from catalog.entities e where e.id=$1`, [project.rows[0].seed_entity_id]);
       const seed = identity.rows[0];
       if (!seed || seed.status !== "verified") bad("Confirm the starting brand before research.");
-      if (!seed.native && (process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED !== "1" ||
-          input.mode !== "discovery" || !requestedHero || !seed.website))
+      if (!seed.native && process.env.COMMERCE_CONTEXT_DISCOVERY_ENABLED !== "1")
+        bad("We don't have taste data for this brand, so partner research can't start. Search for the brand again.");
+      if (!seed.native && (input.mode !== "discovery" || !requestedHero || !seed.website))
         bad("Choose a current starting product for this discovery path.");
     }
     if (researchMode === "live_commerce" && input.mode === "direct_pair") {

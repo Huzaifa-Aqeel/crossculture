@@ -178,7 +178,9 @@ export const httpServer = createServer(async (request, response) => {
       if (cached) return send(response, 200, cached);
       const lookupId = await reserveBrandLookup(user.id, purpose, query);
       if (!lookupId) return send(response, 429, { message: "Too many brand lookups. Try again later." });
-      const envelope = await personalQlooDescribe(user.id, { entity: query });
+      // Ask Qloo for brands only; without a type it matches any entity
+      // ("Graza" resolved to a person, 27 Oct).
+      const envelope = await personalQlooDescribe(user.id, { entity: query, type: "brand" });
       const result = { id: lookupId, query,
         qloo: { status: envelope.status, candidates: normalizeQlooBrands(envelope) },
         message: "Choose the cultural brand that matches the business you mean." };

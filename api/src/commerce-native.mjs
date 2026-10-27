@@ -530,7 +530,10 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   } else {
     discovery = await recommend(ownerUserId, seedQlooId, { limit: NATIVE_LEADS });
     if (!["ok", "partial"].includes(discovery?.envelope?.status)) {
-      return { coverage: "qloo_unavailable", candidates: [],
+      // A request Qloo refuses outright (not retryable) will not work on a
+      // retry: the brand's taste identity is unusable, not briefly unavailable.
+      return { coverage: discovery?.envelope?.error?.retryable === false ? "qloo_brand_unusable"
+        : "qloo_unavailable", candidates: [],
         opportunities: { supported: [], needs_verification: [], unsupported: [] } };
     }
     leads = nativeLeads(discovery.envelope, seedQlooId, NATIVE_LEADS);

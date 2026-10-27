@@ -53,6 +53,7 @@ const RUN_NOTES: Record<string, string> = {
   catalog_rate_limited: "Stores were busy during this review. Please try again shortly.",
   catalog_unavailable: "A store could not be reached during this review. Please try again shortly.",
   qloo_unavailable: "Partner suggestions were unavailable. Please try again shortly.",
+  qloo_brand_unusable: "We couldn't use this brand's taste data, so no partners could be suggested. Search for the brand again.",
 };
 
 const digitsFor = (currency: string) => new Intl.NumberFormat("en", { style: "currency", currency })

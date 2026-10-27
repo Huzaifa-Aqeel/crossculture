@@ -63,6 +63,19 @@ const disambiguated = normalizeQlooBrands({ status: "needs_input", results: [],
 assert.equal(disambiguated.length, 1);
 assert.equal(disambiguated[0].id, businessId);
 assert.equal(disambiguated[0].description, "Leather goods");
+// Brand search results omit the type; Qloo's resolution states it. A person
+// named like a brand is never offered as the brand (Graza, a Polish colorist,
+// 27 Oct), and a result whose type is unknown is not offered either.
+const personId = "9ad1e13d-42af-4798-bdf7-45e9c78ad952";
+const searched = (type) => normalizeQlooBrands({ status: "ok",
+  results: [{ entity_id: personId, name: "Graza", properties: { description: "Polish colorist" } }],
+  resolution: { outcomes: [{ input: "Graza", status: "resolved",
+    ...(type ? { selected: { id: personId, name: "Graza", type } } : {}) }] } });
+assert.equal(searched("urn:entity:person").length, 0, "A person is not a brand");
+assert.equal(searched(null).length, 0, "An entity of unknown type is not offered as a brand");
+assert.equal(searched("urn:entity:brand").length, 1);
+assert.equal(normalizeQlooBrands({ status: "ok", results: [{ entity_id: personId, name: "Graza",
+  type: "urn:entity", subtype: "urn:entity:brand" }] }).length, 1, "Recommendation-style subtype counts");
 const hypothesizedSites = [];
 const inferredIdentity = await verifyCommerceBusiness({ qlooId: businessId, name: "Cuyana" }, {
   firstParty: async (candidate) => { hypothesizedSites.push(candidate.website);
