@@ -10,7 +10,10 @@ import { taxonomyCategory, similarCategory } from "./product-taxonomy.mjs";
 // the user's own Qloo results; every opportunity is still verified live.
 
 export { taxonomyCategory, similarCategory };
-export const MEMORY_VERSION = "research-memory-v1";
+// v2 (27 Oct): identity checks also try a brand name without Qloo's product
+// word and search with better hints. An identity failure recorded under older
+// rules is not remembered; everything else carries over.
+export const MEMORY_VERSION = "research-memory-v2";
 const MEMORY_DAYS = 90;
 const IDENTITY_FAILURE_MS = 7 * 24 * 60 * 60 * 1000;
 const SCREEN_HOURS = 6;
@@ -71,7 +74,8 @@ export function partnerMemoryTiers(rows, heroCategory, now = Date.now()) {
       identityFailure: null, verifiedSince: false };
     tiers.set(row.partnerQlooId, entry);
     if (row.outcome === "identity_unverified") {
-      if (!entry.verifiedSince && now - new Date(row.observedAt) < IDENTITY_FAILURE_MS) {
+      if (!entry.verifiedSince && now - new Date(row.observedAt) < IDENTITY_FAILURE_MS &&
+          (row.memoryVersion ?? MEMORY_VERSION) === MEMORY_VERSION) {
         entry.identityFailure ??= row.identityReason;
       }
       continue;
@@ -156,7 +160,7 @@ export async function recallPartnerMemory({ qlooIds, objective, market }) {
   const result = await database().query(`select partner_qloo_id as "partnerQlooId",
       observed_at as "observedAt",hero_category as "heroCategory",outcome,
       identity_reason as "identityReason",recommendable_count as "recommendableCount",
-      supported_count as "supportedCount"
+      supported_count as "supportedCount",memory_version as "memoryVersion"
     from private.partner_research_outcomes
     where partner_qloo_id=any($1::text[]) and objective=$2 and market=$3
       and observed_at>now()-make_interval(days=>$4)

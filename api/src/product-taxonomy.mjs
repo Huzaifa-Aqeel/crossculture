@@ -52,6 +52,18 @@ const everydayBag = (id) => EVERYDAY_BAGS.some((root) => id === root || id.start
 export function productKind(id) {
   return id && everydayBag(id) ? "everyday-bags" : id;
 }
+// Without a category, the product noun at the end of the title stands for the
+// kind ("Rectangle 9x13 Stretch Lid" and "Circle Stretch Lids 4-Pack" are both
+// "stretch lid"); the part after " - " or "(" names a variant, not the kind.
+const SIZE_WORDS = new Set(["pack", "set", "of", "count", "ct", "oz", "piece", "pieces", "pc", "pcs",
+  "small", "medium", "large", "mini", "xl", "xs", "and", "with", "for", "the"]);
+export function titleKind(title) {
+  const words = String(title ?? "").split(/\s[-–—|]\s|\(/)[0].toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(" ")
+    .filter((word) => word && !/\d/.test(word) && !SIZE_WORDS.has(word));
+  if (!words.length) return null;
+  return `title:${words.slice(-2).map((word) => word.length > 3 && /[^s]s$/.test(word) ? word.slice(0, -1) : word).join(" ")}`;
+}
 export function sameRange(left, right) {
   return similarCategory(left, right) || Boolean(left && right && everydayBag(left) && everydayBag(right));
 }

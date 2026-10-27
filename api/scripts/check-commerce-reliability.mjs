@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { discoverVerifiedStorefront, fetchFailureCode } from "../src/shopify-catalog.mjs";
 import { fetchBusinessHomepage, verifyFirstPartyCommerceBusiness,
   verifySelectedCommerceBrand, researchNativeCommerce, verifyCommerceBusiness,
-  decodeHtmlText, searchHint } from "../src/commerce-native.mjs";
+  decodeHtmlText, searchHint, siteNameMatchesBrand, coreBrandName } from "../src/commerce-native.mjs";
 import { researchCommercePair } from "../src/commerce-research.mjs";
 import { runFailurePlan } from "../src/personal-research.mjs";
 import { sharedLaunchAreas } from "../src/commerce-launch.mjs";
@@ -160,6 +160,23 @@ assert.equal(viaSearch.identitySourceUrl, "https://www.loandsons-official.com/")
 assert.equal(searchHint("Negative", "Negative is a brand of minimalist underwear and lingerie."),
   "minimalist underwear");
 assert.equal(searchHint("Lively", ""), "");
+// Qloo's narrative description words never become the search hint (live
+// 27 Oct: "Negative established specializes" found a government site).
+assert.equal(searchHint("Negative", "Established in 2014, the brand specializes in modern women's intimates, loungewear"),
+  "women intimates");
+// A product word Qloo adds to a name is dropped for the address and the site
+// name ("Toad&Co Clothing" is toadandco.com, "Toad&Co | Sustainable Clothing").
+assert.equal(coreBrandName("Toad&Co Clothing"), "Toad&Co");
+assert.equal(coreBrandName("Ibex Outdoor Clothing"), "Ibex");
+assert.equal(coreBrandName("Clothing"), "Clothing", "A name that is only the product word stays");
+assert.ok(siteNameMatchesBrand("Toad&Co | Sustainable Clothing", "Toad&Co Clothing"));
+assert.ok(!siteNameMatchesBrand("Patagonia", "Ibex Outdoor Clothing"));
+{
+  const tried = [];
+  await verifyCommerceBusiness({ qlooId, name: "Toad&Co Clothing" }, { firstParty: async (candidate) => {
+    tried.push(candidate.website); return null; } });
+  assert.ok(tried.includes("https://toadandco.com"), "The address guess also uses the name alone");
+}
 searches.length = 0;
 await verifyCommerceBusiness({ qlooId, name: "Negative",
   description: "Negative makes underwear and lingerie for women." },
@@ -275,7 +292,7 @@ await researchNativeCommerce({ ownerUserId: "owner",
 assert.ok(websitesTried.includes("https://verified-brand0.example.com"));
 assert.ok(!websitesTried.includes("https://brand0.example.com"), "Qloo's website field is not used when a verified one exists");
 
-// Two partners are researched at a time, each with a fair share of the time.
+// Three partners are researched at a time, each with a fair share of the time.
 let inFlightPartners = 0; let peakPartners = 0; const partnerTimes = [];
 await researchNativeCommerce({ ownerUserId: "owner",
   seed: { name: "Seed", officialWebsite: "https://seed.example.com" },
@@ -287,7 +304,7 @@ await researchNativeCommerce({ ownerUserId: "owner",
     return { coverage: "no_catalog_results", callsUsed: 4,
       opportunities: { supported: [], needs_verification: [], unsupported: [] } }; },
 });
-assert.equal(peakPartners, 2);
+assert.equal(peakPartners, 3);
 assert.ok(partnerTimes.every((ms) => ms > 100_000 && ms <= 120_000),
   "Each partner gets the full per-partner time while the run has time left");
 
@@ -442,6 +459,14 @@ assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sam
   practicalNeed: true }).passed, false, "Two items of the same type are substitutes");
 assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sameProductType: false,
   practicalNeed: false }).passed, false);
+// Coffee pods for a drip coffee maker (live 27 Oct): another format cannot be
+// used with the starting item, whatever the verdict says.
+const brewTask = { verdict: "joint_task", sameProductType: false, directFunction: true, sameObject: true,
+  practicalResult: true, separateUsers: false };
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...brewTask, formatMismatch: false }).passed, true);
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...brewTask, formatMismatch: true }).passed, false);
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sameProductType: false,
+  practicalNeed: true, formatMismatch: true }).passed, false);
 
 // A narrow judgment (verdict and its own fields disagree) is asked once more;
 // only an internally consistent second answer is kept.
@@ -449,7 +474,7 @@ const rubricYes = { seedRoleGroundedInSelectedItem: true, partnerRoleGroundedInS
   jointUseCoherent: true, incrementalBenefit: true, genericCoUseOnly: false,
   distinctConcreteJointValue: false, partnerSpecificReason: false, reason: "specific_joint_use" };
 const judgmentBase = { seedJob: "brews", partnerJob: "grinds", sameProductType: false, bothWornOrCarried: false,
-  careProductForOther: false, combinedOutcome: "fresh coffee", practicalResult: true,
+  careProductForOther: false, formatMismatch: false, combinedOutcome: "fresh coffee", practicalResult: true,
   seedActivityWords: "", partnerActivityWords: "", withoutPartner: "grinding", servesStatedOccasion: false,
   preferenceQuotes: [], verdict: "joint_task" };
 const answers = [rubricYes, { ...judgmentBase, directFunction: false, sameObject: false, separateUsers: false },
@@ -523,5 +548,65 @@ assert.deepEqual(ukTried, ["https://hiutdenim.com", "https://hiutdenim.co.uk"]);
   await assert.rejects(publicAnswers("dns-b.example.com", { resolve: privateResolve }));
   await assert.rejects(publicAnswers("dns-b.example.com", { resolve: privateResolve }));
   assert.equal(privateLookups, 2, "A non-public answer is never kept");
+}
+// Partners from the chosen product's Qloo categories join the brand-only
+// list: duplicates are dropped and each keeps its own request as evidence.
+{
+  const requests = [];
+  const bases = new Map();
+  const coffee = { id: "urn:tag:genre:brand:food_and_beverage:drinks:coffee_and_tea", name: "coffee & tea" };
+  const ids = ["a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1", "b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2",
+    "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3"];
+  const merged = await researchNativeCommerce({ ownerUserId: "owner",
+    seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId: qlooId,
+    objective: "product_bundle",
+    userConstraints: { heroProduct: { productId: "p", variantId: "v", title: "10-Cup Coffee Maker" } } }, {
+    chooseGenres: async ({ anchor }) => anchor === "10-Cup Coffee Maker" ? [coffee] : [],
+    recommend: async (_owner, _seed, options = {}) => { requests.push(options.includeTag ?? null);
+      return { envelope: { status: "ok", results: (options.includeTag ? ids.slice(1) : ids.slice(0, 2))
+        .map((id) => ({ entity_id: id, name: id.slice(0, 2), properties: { website: `https://${id.slice(0, 2)}.example.com` } })) },
+      responseId: options.includeTag ? "category-response" : "native-response" }; },
+    triageLeads: async ({ leads }) => leads.map(() => "possible"),
+    verifyBusiness: async (candidate) => ({ id: candidate.qlooId, qlooId: candidate.qlooId, name: candidate.name,
+      officialWebsite: candidate.website ?? "https://seed.example.com", identityStatus: "verified" }),
+    entityTags: async () => null, audienceTags: async () => null,
+    researchPair: async (input) => { bases.set(input.cultureEvidence.partnerQlooId, [input.discoveryBasis,
+      input.cultureEvidence.categoryTagId ?? null, input.cultureEvidence.unconstrained]);
+      return { coverage: "no_catalog_results", callsUsed: 0,
+        opportunities: { supported: [], needs_verification: [], unsupported: [] } }; } });
+  assert.deepEqual(requests, [null, coffee.id], "The brand-only and category requests both run");
+  assert.deepEqual(merged.partnerCategories, ["coffee & tea"]);
+  assert.equal(merged.discoveryReturnedCount, 3, "A partner in both lists is researched once");
+  assert.deepEqual(bases.get(ids[1]), ["qloo_native_brand", null, true], "The brand-only list wins a duplicate");
+  assert.deepEqual(bases.get(ids[2]), ["qloo_category_brand", coffee.id, false]);
+  assert.equal(merged.candidates.find((item) => item.qlooId === ids[2]).partnerCategory, "coffee & tea");
+}
+// With three Supported results, partners rated unlikely for the product are
+// skipped; likely and possible partners are still researched.
+{
+  const ids = ["d1d1d1d1-d1d1-4d1d-8d1d-d1d1d1d1d1d1", "e2e2e2e2-e2e2-4e2e-8e2e-e2e2e2e2e2e2",
+    "f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f3f3", "a4a4a4a4-a4a4-4a4a-8a4a-a4a4a4a4a4a4"];
+  const fits = ["likely", "possible", "unlikely", "unlikely"];
+  const studied = [];
+  const supported = (count) => Array.from({ length: count }, () => ({ best: { assessment: { status: "supported" } },
+    otherOpportunities: [] }));
+  process.env.COMMERCE_PARTNER_CONCURRENCY = "1";
+  const enough = await researchNativeCommerce({ ownerUserId: "owner",
+    seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId: qlooId, objective: "product_bundle" }, {
+    recommend: async () => ({ envelope: { status: "ok", results: ids.map((id, index) => ({ entity_id: id,
+      name: `Fit ${index}`, properties: { website: `https://fit${index}.example.com` } })) } }),
+    triageLeads: async ({ leads }) => leads.map((_, index) => fits[index]),
+    verifyBusiness: async (candidate) => ({ id: candidate.qlooId, qlooId: candidate.qlooId, name: candidate.name,
+      officialWebsite: candidate.website ?? "https://seed.example.com", identityStatus: "verified" }),
+    entityTags: async () => null, audienceTags: async () => null,
+    researchPair: async (input) => { studied.push(input.partner.name);
+      return { coverage: "partial_assortment", callsUsed: 4,
+        opportunities: { supported: supported(input.partner.name === "Fit 0" ? 2 : 1), needs_verification: [], unsupported: [] } }; } })
+    .catch((error) => ({ error }));
+  delete process.env.COMMERCE_PARTNER_CONCURRENCY;
+  assert.ok(!enough.error, enough.error?.message);
+  assert.deepEqual(studied, ["Fit 0", "Fit 1"], "Unlikely partners are skipped after three Supported");
+  assert.equal(enough.stopReason, "enough_results");
+  assert.equal(enough.candidates.filter((item) => item.status === "skipped_enough_results").length, 2);
 }
 console.log("Commerce entry and run reliability checks passed: redirects, retries, deadlines, pair batching and retry policy.");

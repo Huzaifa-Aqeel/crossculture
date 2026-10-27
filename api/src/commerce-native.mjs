@@ -1,7 +1,8 @@
 import { personalQlooRecommendBrands, personalQlooEntityTags, personalQlooAudienceTags } from "./personal-qloo.mjs";
 import { withWebSearch, officialDomainOf } from "./web-research.mjs";
 import { researchCommercePair } from "./commerce-research.mjs";
-import { triageCommerceLeads } from "./commerce-mechanism.mjs";
+import { chooseComplementGenres, triageCommerceLeads } from "./commerce-mechanism.mjs";
+import { BRAND_GENRES } from "./brand-genres.mjs";
 import { verifiedWebsitesForQlooIds } from "./catalog.mjs";
 import { recallPartnerMemory, partnerMemoryTiers, orderLeadsWithMemory } from "./research-memory.mjs";
 import { brandWearer } from "./commerce-products.mjs";
@@ -14,6 +15,10 @@ const QLOO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 // Qloo native brand leads read per run. Affinity is nearly flat across them
 // (about 0.94–0.96), so the useful partners come from the catalog screen, not rank.
 const NATIVE_LEADS = 12;
+// Partners added from Qloo brand categories that fit the chosen product.
+const CATEGORY_LEADS = 8;
+// Supported results after which partners rated unlikely for the product are skipped.
+const ENOUGH_SUPPORTED = 3;
 const normalized = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const businessName = (value) => String(value ?? "").trim()
@@ -34,9 +39,18 @@ export function decodeHtmlText(value) {
 
 const nameWords = (value) => businessName(value).toLowerCase().normalize("NFKD")
   .replace(/[\u0300-\u036f'’]/g, "").replace(/&/g, " and ").split(/[^a-z0-9]+/).filter(Boolean);
+// Qloo sometimes adds a product word to a brand's name ("Toad&Co Clothing",
+// "Ibex Outdoor Clothing"); the brand's own site and address use the name alone.
+const NAME_DESCRIPTOR = /\s+(?:outdoor\s+)?(?:clothing|apparel|footwear|shoes|boots)$/i;
+export const coreBrandName = (name) => {
+  const core = String(name ?? "").trim().replace(NAME_DESCRIPTOR, "").trim();
+  return core.length >= 2 ? core : String(name ?? "").trim();
+};
 // The site's own name must contain the brand name as whole words, e.g.
 // "Faherty Brand" for Faherty. The linked Shopify store is the second check.
 export function siteNameMatchesBrand(siteName, brand) {
+  const core = coreBrandName(brand);
+  if (core !== String(brand ?? "").trim() && siteNameMatchesBrand(siteName, core)) return true;
   const target = normalized(businessName(brand));
   if (!target) return false;
   if (normalized(businessName(siteName)) === target) return true;
@@ -287,7 +301,12 @@ const HINT_STOP = new Set(["brand", "brands", "company", "companies", "founded",
   "from", "that", "this", "their", "which", "where", "while", "into", "also", "over", "more",
   "most", "best", "high", "quality", "design", "designs", "designed", "style", "modern",
   "everyday", "range", "variety", "wide", "great", "first", "global", "independent", "created",
-  "creates", "making", "inspired", "world", "people", "customers", "focused", "direct", "consumer"]);
+  "creates", "making", "inspired", "world", "people", "customers", "focused", "direct", "consumer",
+  // Narrative words in Qloo descriptions ("Established in 2014, the brand
+  // specializes in…") say nothing about what the brand sells.
+  "established", "specializes", "specializing", "specialized", "recognized", "renowned", "leading",
+  "prominent", "popular", "premium", "luxury", "luxurious", "since", "years", "decades", "history",
+  "nearly", "over", "operates", "primarily", "serves", "serving", "dedicated", "committed"]);
 export function searchHint(name, description) {
   const nameWords = new Set(String(name ?? "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
   const words = decodeHtmlText(description).toLowerCase().match(/[a-z]{4,}/g) ?? [];
@@ -327,7 +346,9 @@ export async function verifyCommerceBusiness(candidate, {
     if (listed) return listed;
   }
   const suffixes = ["com", ...(COUNTRY_DOMAINS[String(candidate.market ?? "").toUpperCase()] ?? [])];
-  for (const host of [...new Set([normalized(name), normalized(name.replace(/&/g, " and "))])]) {
+  const core = coreBrandName(name);
+  for (const host of [...new Set([name, core].flatMap((value) =>
+    [normalized(value), normalized(value.replace(/&/g, " and "))]))]) {
     if (host.length < 2 || host.length > 50) continue;
     for (const suffix of suffixes) {
       const guessed = await attempt(`https://${host}.${suffix}`);
@@ -338,8 +359,8 @@ export async function verifyCommerceBusiness(candidate, {
     trace?.push({ step: "identity", host: null, reason: signal?.aborted ? "deadline_reached" : "official_website_needed" });
     return null;
   }
-  const hint = searchHint(name, candidate.description);
-  const response = await search(`${name}${hint ? ` ${hint}` : ""} official website`, { focus: name })
+  const hint = searchHint(core, candidate.description);
+  const response = await search(`${core}${hint ? ` ${hint}` : ""} official website`, { focus: core })
     .catch(() => null);
   const usable = (response?.results ?? []).filter((item) => {
     try {
@@ -349,7 +370,7 @@ export async function verifyCommerceBusiness(candidate, {
   });
   // An official store's address almost always contains the brand name
   // (negativeunderwear.com, wearlively.com); prefer that result when present.
-  const brandToken = normalized(name);
+  const brandToken = normalized(core);
   const top = usable.find((item) => brandToken.length >= 3 &&
     normalized(new URL(item.url).hostname).includes(brandToken)) ?? usable[0];
   if (!top) {
@@ -461,7 +482,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   verifyBusiness = verifyCommerceBusiness, researchPair = researchCommercePair,
   discoverStorefront = discoverVerifiedStorefront,
   investigateDirect = investigateDirectCommerceCulture,
-  triageLeads = triageCommerceLeads, knownWebsites = verifiedWebsitesForQlooIds,
+  triageLeads = triageCommerceLeads, chooseGenres = chooseComplementGenres,
+  knownWebsites = verifiedWebsitesForQlooIds,
   recallPartners = recallPartnerMemory, readSeedWearer = null, now = () => Date.now() } = {}) {
   if (!QLOO_UUID.test(seedQlooId ?? "") || !["product_bundle", "cross_sell"].includes(objective)) {
     throw new Error("Verified native brand and commerce objective required.");
@@ -524,11 +546,18 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   }
   let discovery = null;
   let leads;
+  let partnerCategories = [];
   if (specifiedPartner) {
     leads = [{ qlooId: specifiedPartner.qlooId, name: specifiedPartner.name,
       website: specifiedPartner.officialWebsite, description: specifiedPartner.description }];
   } else {
-    discovery = await recommend(ownerUserId, seedQlooId, { limit: NATIVE_LEADS });
+    // The brand-only list and the product's partner categories are asked at
+    // the same time; Qloo is then asked for the brand's partners in those
+    // categories. Both lists stay anchored on the starting brand alone.
+    const anchor = userConstraints.heroProduct?.title ?? "";
+    let genres;
+    [discovery, genres] = await Promise.all([recommend(ownerUserId, seedQlooId, { limit: NATIVE_LEADS }),
+      anchor ? chooseGenres({ seed, objective, anchor, genres: BRAND_GENRES }).catch(() => []) : []]);
     if (!["ok", "partial"].includes(discovery?.envelope?.status)) {
       // A request Qloo refuses outright (not retryable) will not work on a
       // retry: the brand's taste identity is unusable, not briefly unavailable.
@@ -537,6 +566,21 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
         opportunities: { supported: [], needs_verification: [], unsupported: [] } };
     }
     leads = nativeLeads(discovery.envelope, seedQlooId, NATIVE_LEADS);
+    const perGenre = genres.length ? Math.ceil(CATEGORY_LEADS / genres.length) : 0;
+    const byGenre = await Promise.all(genres.map((genre) => recommend(ownerUserId, seedQlooId,
+      { limit: perGenre + 4, includeTag: genre.id }).then((found) => ({ genre, found })).catch(() => null)));
+    const seen = new Set(leads.map((lead) => lead.qlooId));
+    for (const entry of byGenre) {
+      if (!["ok", "partial"].includes(entry?.found?.envelope?.status) || entry.found.sampleData) continue;
+      let added = 0;
+      for (const lead of nativeLeads(entry.found.envelope, seedQlooId, perGenre + 4)) {
+        if (added >= perGenre || seen.has(lead.qlooId)) continue;
+        seen.add(lead.qlooId); added += 1;
+        leads.push({ ...lead, originalOrder: leads.length + 1, category: { genre: entry.genre,
+          envelope: entry.found.envelope, responseId: entry.found.responseId } });
+      }
+    }
+    partnerCategories = genres.map((genre) => genre.name);
     // Prefer an official website a user (or an earlier run) already verified
     // for this Qloo brand over Qloo's own website field, which is often empty.
     const known = await knownWebsites(leads.map((lead) => lead.qlooId)).catch(() => new Map());
@@ -587,8 +631,12 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   const remembered = specifiedPartner ? { ordered: leads, skipped: [] }
     : orderLeadsWithMemory(hintOrder, memoryTiers);
   // Partners this user liked for this brand are researched first (still
-  // verified live); the rest keep the memory and Qloo order.
-  const preferred = new Set(specifiedPartner ? [] : userFeedback?.preferredPartnerQlooIds ?? []);
+  // verified live) unless the hint says they do not suit this product (a
+  // liked partner for a pan, live 27 Oct, went first for a coffee maker);
+  // the rest keep the memory and Qloo order.
+  const preferred = new Set((specifiedPartner ? [] : userFeedback?.preferredPartnerQlooIds ?? [])
+    .filter((id) => { const lead = leads.find((item) => item.qlooId === id);
+      return !lead || fitOf(lead) !== "unlikely"; }));
   const selectedLeads = [...remembered.ordered.filter((lead) => preferred.has(lead.qlooId)),
     ...remembered.ordered.filter((lead) => !preferred.has(lead.qlooId))];
   for (const lead of excludedByUser) {
@@ -622,19 +670,22 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
         { allowSearch: !specifiedPartner }));
     }
   };
-  // Two partners are researched at a time; each still runs its own exact
+  // Three partners are researched at a time; each still runs its own exact
   // pair checks. A rate limit, time limit or exhausted budget stops new
   // partners from starting, and results keep the selected partner order.
   const configuredPartnerConcurrency = Number(process.env.COMMERCE_PARTNER_CONCURRENCY);
   const partnerConcurrency = specifiedPartner ? 1 : Number.isFinite(configuredPartnerConcurrency) &&
-    configuredPartnerConcurrency >= 1 ? Math.min(3, Math.floor(configuredPartnerConcurrency)) : 2;
+    configuredPartnerConcurrency >= 1 ? Math.min(3, Math.floor(configuredPartnerConcurrency)) : 3;
   let stopped = false;
   let reservedCalls = 0;
+  const skippedUnlikely = [];
+  const supportedCount = () => evaluated.filter((item) => item.assessment?.status === "supported").length;
   const stop = (reason) => { if (!stopped) stopReason = reason; stopped = true; };
   const researchLead = async (index, lead) => {
     const candidate = { name: lead.name, qlooId: lead.qlooId,
       originalQlooOrder: lead.originalOrder ?? null, status: "identity_unverified",
       ...(leadFit ? { productFitHint: fitOf(lead) } : {}),
+      ...(lead.category ? { partnerCategory: lead.category.genre.name } : {}),
       ...(memoryTiers.has(lead.qlooId) ? { memoryTier: memoryTiers.get(lead.qlooId).tier } : {}) };
     candidates[index] = candidate;
     for (let next = index; next < index + identityConcurrency; next += 1) startVerification(next);
@@ -659,13 +710,16 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       // Lifestyle and audience tags for the "who both brands appeal to" line.
       const [seedAudience, partnerAudience] = specifiedPartner ? [null, null] : await Promise.all([
         seedAudienceOnce(), audienceTags(ownerUserId, verifiedPartner.qlooId).catch(() => null)]);
+      // A partner from a category request keeps that request as its evidence.
+      const category = specifiedPartner ? null : lead.category ?? null;
       const cultureEvidence = specifiedPartner ? culture.supportProof ?? null : {
         seedQlooId, partnerQlooId: verifiedPartner.qlooId,
-        unconstrained: discovery.sampleData !== true,
-        envelope: discovery.envelope,
+        unconstrained: !category && discovery.sampleData !== true,
+        envelope: category ? category.envelope : discovery.envelope,
+        ...(category ? { categoryTagId: category.genre.id } : {}),
         seedTags: seedTags?.tags ?? [], partnerTags: partnerTags?.tags ?? [],
         seedAudienceTags: seedAudience?.tags ?? [], partnerAudienceTags: partnerAudience?.tags ?? [] };
-      const tagResponseIds = [seedTags?.responseId, partnerTags?.responseId,
+      const tagResponseIds = [category?.responseId, seedTags?.responseId, partnerTags?.responseId,
         seedAudience?.responseId, partnerAudience?.responseId].filter((id) => typeof id === "string");
       const configuredPartnerBudget = Number(process.env.COMMERCE_CATALOG_CALLS_PER_PARTNER);
       const partnerCeiling = Number.isFinite(configuredPartnerBudget) && configuredPartnerBudget > 0
@@ -690,7 +744,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       try {
         result = await researchPair({ seed: verifiedSeed,
           partner: { ...verifiedPartner, description: verifiedPartner.description ?? lead.description },
-          objective, discoveryBasis: specifiedPartner ? "user_specified" : "qloo_native_brand",
+          objective, discoveryBasis: specifiedPartner ? "user_specified"
+            : category ? "qloo_category_brand" : "qloo_native_brand",
           cultureEvidence, market, userConstraints, seedRange, runShared,
           // A partner the user chose to compare is assessed in full.
           userRejectedPairs: specifiedPartner ? [] : userFeedback?.rejectedPairKeys ?? [],
@@ -766,12 +821,25 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
         return;
       }
       const index = nextLead++;
+      // With enough Supported results, partners the hint finds unsuited to
+      // this product are not researched; the run finishes sooner.
+      if (!specifiedPartner && fitOf(selectedLeads[index]) === "unlikely" &&
+          supportedCount() >= ENOUGH_SUPPORTED) {
+        skippedUnlikely.push(selectedLeads[index]);
+        continue;
+      }
       await researchLead(index, selectedLeads[index]);
     }
   };
   await Promise.all(Array.from({ length: Math.min(partnerConcurrency, selectedLeads.length) },
     () => partnerWorker()));
   if (!stopped && remainingResearchMs() <= 0) stopReason = "research_time_limit_reached";
+  if (stopReason === "candidate_pool_exhausted" && skippedUnlikely.length) stopReason = "enough_results";
+  for (const lead of skippedUnlikely) {
+    excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
+      status: "skipped_enough_results", productFitHint: "unlikely",
+      ...(lead.category ? { partnerCategory: lead.category.genre.name } : {}) });
+  }
   if (stopReason === "candidate_pool_exhausted" && specifiedPartner === null &&
       leads.length > selectedLeads.length) {
     stopReason = "candidate_cap_reached";
@@ -781,6 +849,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
     researched.every((item) => ["no_product_value", "identity_unverified"].includes(item.status));
   return { discoveryBasis: specifiedPartner ? "user_specified" : "qloo_native_brand",
     qlooResponseId: discovery?.responseId ?? null, qlooInputHash: discovery?.inputHash ?? null,
+    partnerCategories,
     coverage: evaluated.length ? "partial_assortment" : stopReason === "catalog_rate_limited"
       ? "catalog_rate_limited" : allScreenedOut ? "no_partner_product_fit"
         : "no_verified_product_opportunity",

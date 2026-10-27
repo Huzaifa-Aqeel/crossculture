@@ -10,6 +10,7 @@ type Offer = { status: string; title?: string; url?: string | null;
   message?: string; selectedOptions?: string[]; marketCheck?: { state: string } };
 type Assessment = { policyVersion: string; status: "supported" | "needs_verification" | "unsupported";
   culturalRelationship: string; culturalExplanation: string; culturalTheme?: string | null;
+  culturalCategory?: string | null;
   culturalThemes?: string[]; sharedAudienceTastes?: string[];
   sharedAudienceAppeal?: { people?: string[]; lifestyle?: string[] };
   reasonCodes: string[]; currentOfferReview?: "current" | "changed_since_assessment" | "refresh_unavailable" | "not_checked";
@@ -83,6 +84,8 @@ function culturalLine(score: Assessment, seedName: string, partnerName: string) 
   const lifestyle = score.sharedAudienceAppeal?.lifestyle ?? [];
   const affinity = score.culturalRelationship === "native_recommendation_verified"
     ? `People who like ${seedName} also tend to like ${partnerName}.`
+    : score.culturalRelationship === "category_recommendation_verified" && score.culturalCategory
+      ? `Among ${score.culturalCategory.toLowerCase()} brands, people who like ${seedName} tend to like ${partnerName}.`
     : score.culturalRelationship === "direct_pair_supported"
       ? `People who like ${partnerName} also tend to like ${seedName}.` : "";
   if (!affinity && !themes.length) return "The cultural link between these brands is not confirmed.";

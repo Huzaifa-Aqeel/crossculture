@@ -99,11 +99,17 @@ const CONTEXT_NAMED_TYPES = new Set(["artist", "movie", "tv_show", "book", "vide
   "place", "podcast", "person"]);
 const QLOO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// With includeTag (a Qloo brand category), the same brand-anchored request is
+// limited to brands in that category.
 export async function personalQlooRecommendBrands(ownerUserId, seedQlooId,
-  { provider = qlooCall, now = new Date(), limit = 12 } = {}) {
+  { provider = qlooCall, now = new Date(), limit = 12, includeTag = null } = {}) {
   if (!QLOO_UUID.test(seedQlooId ?? "")) throw new Error("A confirmed cultural brand identifier is required.");
+  if (includeTag !== null && !/^urn:tag:genre:brand:[a-z_:]+$/.test(includeTag)) {
+    throw new Error("A Qloo brand category is required.");
+  }
   const take = Number.isInteger(limit) && limit >= 1 ? Math.min(20, limit) : 12;
-  const context = { target_type: "brand", signals: [seedQlooId], limit: take, explain: true };
+  const context = { target_type: "brand", signals: [seedQlooId],
+    ...(includeTag ? { include_tags: [includeTag] } : {}), limit: take, explain: true };
   const identity = qlooCacheIdentity({ operation: "qloo_recommend", context, ownerUserId });
   const cached = await readQlooCache(identity, { now });
   if (cached.status !== "missing" && !(cached.sampleData && provider === qlooCall)) {

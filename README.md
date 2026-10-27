@@ -33,7 +33,7 @@ Qloo supplies the cultural evidence; Shopify supplies observed product and offer
 | Product decision | Qloo evidence used |
 |---|---|
 | Identify the starting brand | `qloo_describe` resolves the named brand to a Qloo brand entity. |
-| Suggest partners | `qloo_recommend` requests brands using **only the starting brand** as its signal, without product or tag filters. The partner must come from that response. |
+| Suggest partners | `qloo_recommend` requests brands using **only the starting brand** as its signal. At the same time, the app picks up to two Qloo brand categories that suit the chosen product (for a coffee maker, *coffee & tea*) and asks again with the same signal, limited to each category. The partner must come from one of those responses; a category partner is described as liked *among that category's brands*. |
 | Compare two named brands | The app checks an unconstrained recommendation in either direction; if neither returns the pair, it uses `qloo_rank` and specific shared tags corroborated by both brands' public pages. A focused rank alone does not prove a relationship. |
 | Explain the connection | Separate tag-insight requests for each brand can identify shared, sufficiently specific audience or lifestyle associations. |
 | Suggest launch areas | `qloo_where_popular` for each brand identifies metro areas appearing in both result lists within the chosen country. These are suggested areas to investigate, not measured customer overlap. |
@@ -45,7 +45,7 @@ The app uses the pinned `@qloo/qloo-harness` MCP package for its Qloo workflows.
 For the Rumpl example, the relevant choices were:
 
 1. `qloo_describe` resolved **Rumpl** as a brand entity; its identifier is omitted here.
-2. `qloo_recommend` requested up to **12 brand entities**, with Rumpl's entity as the sole signal. United by Blue was among the returned candidates. Products were not sent to Qloo to steer this discovery.
+2. `qloo_recommend` requested up to **12 brand entities**, with Rumpl's entity as the sole signal. United by Blue came from this brand-only list, not from a product category request.
 3. Both brands were queried separately for **lifestyle, customer identity, customer segment, and influencer-appeal tags**. Shared tags were considered only when they were prominent for both brands and not near-universal.
 4. The worker verified United by Blue's store and assessed actual Shopify products. A supported product combination, the Qloo relationship, and the remaining business unknowns were then shown together.
 

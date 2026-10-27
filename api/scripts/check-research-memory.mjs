@@ -3,7 +3,7 @@
 // effect on native discovery. Fixtures only; no database or provider call.
 import assert from "node:assert/strict";
 import { taxonomyCategory, similarCategory, lastingIdentityFailure, partnerMemoryTiers,
-  orderLeadsWithMemory, memoryRowsFromRun, opportunityKeyFor, recallPartnerMemory } from "../src/research-memory.mjs";
+  orderLeadsWithMemory, memoryRowsFromRun, opportunityKeyFor, recallPartnerMemory, MEMORY_VERSION } from "../src/research-memory.mjs";
 import { researchNativeCommerce } from "../src/commerce-native.mjs";
 
 // Storefront products carry Shopify's public taxonomy; Global results do not.
@@ -149,12 +149,22 @@ const withFeedback = await researchNativeCommerce({ ownerUserId: "owner",
 deps(async () => []));
 assert.deepEqual(researched, ["Brand 2", "Brand 0"], "Liked partner first; passed partner skipped");
 assert.ok(withFeedback.candidates.some((item) => item.qlooId === ids[1] && item.status === "excluded_by_user"));
+// A liked partner the hint finds unsuited to this product is not moved first.
+researched = [];
+await researchNativeCommerce({ ownerUserId: "owner",
+  seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,
+  objective: "product_bundle", userFeedback: { excludedPartnerQlooIds: [], rejectedPairKeys: [],
+    preferredPartnerQlooIds: [ids[2]] } },
+{ ...deps(async () => []), triageLeads: async ({ leads }) => leads.map((_, index) => index === 2 ? "unlikely" : "possible") });
+assert.deepEqual(researched, ["Brand 0", "Brand 1", "Brand 2"], "An unsuited liked partner keeps its place");
 researched = [];
 await researchNativeCommerce({ ownerUserId: "owner",
   seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId,
   objective: "product_bundle" }, deps(async () => { throw new Error("database unavailable"); }));
 assert.deepEqual(researched, ["Brand 0", "Brand 1", "Brand 2"], "Unavailable memory keeps the normal order");
 
+// Budget sharing below is written for two partners at a time.
+process.env.COMMERCE_PARTNER_CONCURRENCY = "2";
 // Live case (25 Oct): one partner using its whole allowance stopped the run
 // after 54 of 160 calls. The run continues until its own budget is spent.
 researched = [];
@@ -175,6 +185,7 @@ const spent = await researchNativeCommerce({ ownerUserId: "owner",
       opportunities: { supported: [], needs_verification: [], unsupported: [] } }; } });
 assert.equal(spent.stopReason, "catalog_budget_reached", "The run still stops when its own budget is spent");
 assert.equal(researched.length, 2, "Two allowances of 20 spend a 40-call run");
+delete process.env.COMMERCE_PARTNER_CONCURRENCY;
 
 // The starting brand's homepage wearer is read once and passed to pair research.
 let seedSeen = null;
@@ -186,4 +197,13 @@ await researchNativeCommerce({ ownerUserId: "owner",
       opportunities: { supported: [], needs_verification: [], unsupported: [] } }; } });
 assert.equal(seedSeen.storeWearer, "women");
 
+// An identity failure recorded under older identity rules is not remembered.
+{
+  const old = partnerMemoryTiers([{ partnerQlooId: "p", observedAt: new Date().toISOString(),
+    outcome: "identity_unverified", identityReason: "no_brand_site_result", memoryVersion: "research-memory-v1" }], null);
+  assert.equal(old.get("p").identityFailure, null);
+  const current = partnerMemoryTiers([{ partnerQlooId: "p", observedAt: new Date().toISOString(),
+    outcome: "identity_unverified", identityReason: "no_brand_site_result", memoryVersion: MEMORY_VERSION }], null);
+  assert.equal(current.get("p").identityFailure, "no_brand_site_result");
+}
 console.log("Research memory checks passed.");

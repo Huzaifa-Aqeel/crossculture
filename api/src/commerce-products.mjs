@@ -470,6 +470,24 @@ function careTextNamesOther(seedProduct, partnerProduct, sourceAuthority) {
     names(seedProduct, partnerProduct, sourceAuthority.seedDescription);
 }
 
+// A consumable made for one format (pods, capsules, K-Cups, cartridges,
+// refills) or already finished (instant) works with the starting item only
+// when the starting item's own text names that format, not as "no pods".
+// The judge's formatMismatch answer varied between runs (espresso pods for a
+// drip coffee maker passed once, live 27 Oct), so this is checked here too.
+const PARTNER_FORMAT = /\b(pod|capsule|k ?cup|cartridge|refill)s?\b/;
+// "Instant" only for a drink (an instant tent or pot is not a format).
+const INSTANT_DRINK = /\binstant\b.*\b(?:coffee|tea|espresso|latte|matcha|cocoa|drink|sticks?|packets?)\b|\b(?:coffee|tea|espresso|latte|matcha|cocoa)\b.*\binstant\b/;
+export function unsupportedPartnerFormat(seedProduct, partnerProduct, seedDescriptionTrusted = true) {
+  const title = normalize(partnerProduct?.title);
+  const format = title.match(PARTNER_FORMAT)?.[1] ?? (INSTANT_DRINK.test(title) ? "instant" : null);
+  if (!format) return null;
+  const seedText = normalize([seedProduct?.title, seedDescriptionTrusted ? description(seedProduct) : ""].join(" "));
+  const named = new RegExp(`\\b${format}s?\\b`).test(seedText) &&
+    !new RegExp(`\\b(?:no|without|never|instead of|free)(?: \\w+){0,2} ${format}s?\\b`).test(seedText);
+  return named ? null : format;
+}
+
 export function productMechanism(seedProduct, partnerProduct, objective, proposal = null,
   seedVariant = null, partnerVariant = null,
   sourceAuthority = { seedDescription: true, partnerDescription: true }, rubric = null) {
@@ -524,6 +542,8 @@ export function productMechanism(seedProduct, partnerProduct, objective, proposa
   const requiresCompatibility = careProduct &&
     !exactMerchantCompatibility(seedProduct, partnerProduct, sourceAuthority) &&
     (restrictiveCare || !careTextNamesOther(seedProduct, partnerProduct, sourceAuthority));
+  const formatUnsupported = Boolean(unsupportedPartnerFormat(seedProduct, partnerProduct,
+    sourceAuthority.seedDescription));
   const groundedContext = concreteSharedContext(seedFacts, partnerFacts, occasion);
   // A single ordinary word such as "together" cannot negate a concrete
   // benefit. The isolated rubric and objective challenge judge generic co-use.
@@ -534,7 +554,7 @@ export function productMechanism(seedProduct, partnerProduct, objective, proposa
     // is required only for occasion-based combinations.
     (namedContext || assortmentContribution || kind === "functional_complement") &&
     benefit.length >= 25 && (!claimedCompatibility || compatibilityConfirmed) &&
-    !requiresCompatibility &&
+    !requiresCompatibility && !formatUnsupported &&
     normalize(seedProduct.title) !== normalize(partnerProduct.title) &&
     rubric?.jointUseCoherent === true &&
     (rubric?.reason === "specific_joint_use" ||
@@ -562,7 +582,7 @@ export function productMechanism(seedProduct, partnerProduct, objective, proposa
     benefitNamesBothRoles, namedContext, assortmentContribution,
     benefitHasSubstance: benefit.length >= 25,
     compatibilityClaimed: claimedCompatibility, compatibilityConfirmed,
-    compatibilityEvidenceRequired: requiresCompatibility,
+    compatibilityEvidenceRequired: requiresCompatibility, formatUnsupported,
     selectedTitlesDiffer: normalize(seedProduct.title) !== normalize(partnerProduct.title),
     groundedContext };
   return { mechanism: objective === "cross_sell" ? "assortment_complement" : kind,
@@ -588,6 +608,7 @@ export function productMechanism(seedProduct, partnerProduct, objective, proposa
       ...(rubric?.genericCoUseOnly === true ? ["generic_co_use_only"] : []),
       ...(partnerSpecific && rubric?.partnerSpecificReason === true ? ["partner_specific_product_fact"] : []),
       ...(requiresCompatibility ? ["selected_product_compatibility_unverified"] : []),
+      ...(formatUnsupported ? ["partner_format_unsupported"] : []),
       ...(rubric ? [`rubric_${rubric.reason}`] : ["semantic_rubric_unavailable"])] };
 }
 

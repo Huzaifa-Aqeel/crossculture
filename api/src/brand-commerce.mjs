@@ -3,8 +3,8 @@ import { isValidatedCommerceEvidence } from "./commerce-evidence.mjs";
 // Brand × Brand decisions. The historical v4 scorer is not imported here.
 export const COMMERCE_VERSION = "brand-commerce-v1.1";
 const STATUS_ORDER = { supported: 0, needs_verification: 1, unsupported: 2 };
-const PASSING_CULTURE = new Set(["native_recommendation_verified", "direct_pair_supported",
-  "context_relationship_corroborated"]);
+const PASSING_CULTURE = new Set(["native_recommendation_verified", "category_recommendation_verified",
+  "direct_pair_supported", "context_relationship_corroborated"]);
 const CULTURE = new Set([...PASSING_CULTURE, "direction_only", "unknown", "contradicted"]);
 const EXPLANATION = { specific_theme: 0, broad_theme: 1, no_named_theme: 2 };
 const SUITABILITY = { matches_explicit_focus: 0, clearly_serves_objective: 1, adequately_serves_objective: 2 };
@@ -87,6 +87,9 @@ export function assessCommerceOpportunity(input) {
     // Display and proposal context only; not ranking features (Scoring Engine 3.3).
     culturalThemes: explanation !== "no_named_theme" ? unique((input.culturalThemes ?? [])
       .filter((value) => typeof value === "string")).slice(0, 3).map((value) => value.slice(0, 80)) : [],
+    // The Qloo brand category a category recommendation was limited to.
+    culturalCategory: relationship === "category_recommendation_verified" &&
+      typeof input.culturalCategory === "string" ? input.culturalCategory.slice(0, 60) : null,
     sharedAudienceTastes: unique((input.sharedAudienceTastes ?? []).filter((value) =>
       typeof value === "string")).slice(0, 3).map((value) => value.slice(0, 60)),
     sharedAudienceAppeal: Object.fromEntries(["people", "lifestyle"].map((kind) => [kind,
@@ -157,9 +160,20 @@ export function rankCommerceOpportunities(opportunities) {
     String(a.partnerProductId).localeCompare(String(b.partnerProductId)) ||
     String(a.partnerVariantId).localeCompare(String(b.partnerVariantId)) ||
     String(a.sellerId).localeCompare(String(b.sellerId)));
+  // One pair per product kind from each partner: the best-ranked one (five
+  // near-identical stretch lids for one pan, live 27 Oct, are one result).
+  const shownKinds = new Map();
+  const firstOfKind = (item) => {
+    if (!item.partnerKind) return true;
+    const kinds = shownKinds.get(item.partnerId) ?? new Set();
+    shownKinds.set(item.partnerId, kinds);
+    if (kinds.has(item.partnerKind)) return false;
+    kinds.add(item.partnerKind); return true;
+  };
+  const shown = sorted.filter(firstOfKind);
   return Object.fromEntries(Object.keys(STATUS_ORDER).map((status) => {
     const groups = new Map();
-    for (const item of sorted.filter((entry) => entry.assessment.status === status)) {
+    for (const item of shown.filter((entry) => entry.assessment.status === status)) {
       if (!groups.has(item.partnerId)) groups.set(item.partnerId, []);
       groups.get(item.partnerId).push(item);
     }

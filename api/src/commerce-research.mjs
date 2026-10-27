@@ -14,7 +14,7 @@ import { planAnchorProductSearch, planPartnerProductSearch, proposeCommerceMecha
   evaluateCommerceMechanism, screenPartnerAssortment, pairJudgeVersion } from "./commerce-mechanism.mjs";
 import { catalogClient, discoverVerifiedStorefront } from "./shopify-catalog.mjs";
 import { selectedProductPage } from "./commerce-product-page.mjs";
-import { categoryName, sameRange, productKind } from "./product-taxonomy.mjs";
+import { categoryName, sameRange, productKind, titleKind } from "./product-taxonomy.mjs";
 import { taxonomyCategory, screenKeyFor, recallScreenDecision,
   opportunityKeyFor, productPairKeyFor, recallJudgedRejections, recallProvenProducts } from "./research-memory.mjs";
 
@@ -278,6 +278,18 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   const pairOutcomes = [];
   const memory = () => ({ heroCategory: taxonomyCategory(heroDetail.product),
     partnerShopId: partnerStore.shopId, screen: screenMemory, pairs: pairOutcomes });
+  // A discovered brand whose observed products are largely the same kind as
+  // the chosen product is a competitor, not a partner (Great Jones cookware
+  // for a Caraway pan, live 27 Oct), even when it also sells accessories. A
+  // few such items in a wider range (a blanket at an outdoor clothing store)
+  // do not count.
+  const heroRange = taxonomyCategory(heroDetail.product);
+  if (discoveryBasis !== "user_specified" && heroRange?.includes("-") && broadPartner.length >= 8 &&
+      broadPartner.filter((item) => sameRange(taxonomyCategory(item), heroRange)).length * 4 >= broadPartner.length) {
+    return { opportunities: { supported: [], needs_verification: [], unsupported: [] },
+      coverage: "partner_no_product_value", coverageIssues: ["partner_sells_starting_product_type"], stopReason: null,
+      observedCandidateCount: broadPartner.length, callsUsed: catalog.callsUsed(), memory: memory() };
+  }
   // Discovered partners: stop now if the observed assortment shows nothing that
   // could add value to the chosen product. A failed screen never drops a partner;
   // a user-specified partner is never screened.
@@ -801,7 +813,8 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   }
   // Assess product kinds in turn (dinnerware, bowls, serveware) instead of
   // several items of one kind first; the selector's order is kept within a kind.
-  const kindOf = (product) => productKind(taxonomyCategory(product)) ?? `product:${product?.id}`;
+  const kindOf = (product) => productKind(taxonomyCategory(product)) ?? titleKind(product?.title) ??
+    `product:${product?.id}`;
   {
     const byKind = new Map();
     for (const pair of found) {
@@ -1038,7 +1051,8 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   // Discovery recommends only pairs with a source-grounded joint benefit.
   // Keep weaker/contradictory assessments in the developer evaluation trace;
   // direct comparison still returns its requested pair's honest verdict.
-  const recommendable = discoveryBasis === "qloo_native_brand" ? assessed.filter(groundedBenefit) : assessed;
+  const recommendable = ["qloo_native_brand", "qloo_category_brand"].includes(discoveryBasis)
+    ? assessed.filter(groundedBenefit) : assessed;
   return { opportunities: rankCommerceOpportunities(recommendable),
     coverage: inspected.length ? "partial_assortment" : coverageIssues.has("catalog_rate_limited")
       ? "catalog_rate_limited" : "no_catalog_results",

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/header";
 import { GOALS, MARKETS, marketCurrency, marketName } from "@/lib/markets";
@@ -35,7 +35,7 @@ function Step({ index, label, step, done, reachable, onSelect }: { index: number
     {!current && reachable ? <button type="button" onClick={() => onSelect(index)} aria-label={`Go to ${label}`}>{mark}</button> : mark}</li>;
 }
 
-export default function NewResearchPage() {
+function SetupFlow() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [error, setError] = useState("");
@@ -329,4 +329,18 @@ export default function NewResearchPage() {
 
     {error && <p className="rs-error" role="alert">{error}</p>}
   </main></>;
+}
+
+// Next.js keeps a visited page alive (cacheComponents) and shows it again with
+// its old state; a new search must start empty. Each time the page is shown
+// again, the setup flow starts over, before the screen is painted. A link that
+// continues a project (?project=) is read again by the fresh flow.
+export default function NewResearchPage() {
+  const [visit, setVisit] = useState(0);
+  const firstShow = useRef(true);
+  useLayoutEffect(() => {
+    if (firstShow.current) { firstShow.current = false; return; }
+    setVisit((value) => value + 1);
+  }, []);
+  return <SetupFlow key={visit} />;
 }

@@ -154,6 +154,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
         !decisions.length ? "partial" : "completed",
       JSON.stringify({ sample: false, commerce: true, policyVersion: "brand-commerce-v1.1",
         discoveryBasis: result.discoveryBasis, coverage: result.coverage,
+        ...(result.partnerCategories?.length ? { partnerCategories: result.partnerCategories } : {}),
         ...(result.contextStages ? { contextStages: result.contextStages } : {}),
         ...(result.seedIdentityDiagnostics?.length
           ? { seedIdentityDiagnostics: result.seedIdentityDiagnostics } : {}),

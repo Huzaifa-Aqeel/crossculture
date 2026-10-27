@@ -1,5 +1,6 @@
 import { observedProductType, productMechanism, verifiedMechanismFacts,
   mechanismFactSourceKinds, productDescriptionText } from "./commerce-products.mjs";
+import { brandGenre } from "./brand-genres.mjs";
 
 const QLOO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Qloo's brand-attribute tags: what a brand stands for and who it serves
@@ -160,14 +161,25 @@ export function validateCommerceEvidence(raw) {
   let culturalThemes = [];
   let audienceTastes = [];
   let audienceAppeal = { people: [], lifestyle: [] };
-  if (raw.discoveryBasis === "qloo_native_brand" &&
-      QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
-      cultureEvidence.seedQlooId === seed.qlooId && cultureEvidence.partnerQlooId === partner.qlooId &&
-      cultureEvidence.unconstrained === true &&
-      ["ok", "partial"].includes(cultureEvidence.envelope?.status) &&
-      Array.isArray(cultureEvidence.envelope.results) &&
-      cultureEvidence.envelope.results.some((item) => item.entity_id === partner.qlooId)) {
-    culturalRelationship = "native_recommendation_verified";
+  let culturalCategory = null;
+  const brandAnchored = QLOO_ID.test(seed?.qlooId ?? "") && QLOO_ID.test(partner?.qlooId ?? "") &&
+    cultureEvidence.seedQlooId === seed.qlooId && cultureEvidence.partnerQlooId === partner.qlooId &&
+    ["ok", "partial"].includes(cultureEvidence.envelope?.status) &&
+    Array.isArray(cultureEvidence.envelope.results) &&
+    cultureEvidence.envelope.results.some((item) => item.entity_id === partner.qlooId);
+  // A category request: the starting brand was its only signal (Qloo's own
+  // explainability) and the request was limited to exactly that category.
+  const categoryAnchored = raw.discoveryBasis === "qloo_category_brand" && brandAnchored &&
+    cultureEvidence.unconstrained === false && brandGenre(cultureEvidence.categoryTagId) &&
+    anchoredOn(cultureEvidence.envelope, seed.qlooId) &&
+    (cultureEvidence.envelope.provenance?.requests ?? []).some((request) => {
+      const tags = request?.query?.["filter.tags"];
+      return Array.isArray(tags) && tags.length === 1 && tags[0] === cultureEvidence.categoryTagId;
+    });
+  if (raw.discoveryBasis === "qloo_native_brand" && brandAnchored &&
+      cultureEvidence.unconstrained === true || categoryAnchored) {
+    culturalRelationship = categoryAnchored ? "category_recommendation_verified" : "native_recommendation_verified";
+    if (categoryAnchored) culturalCategory = brandGenre(cultureEvidence.categoryTagId).name;
     // A specific Qloo taste tag carried by both brands names a broad theme;
     // the same tag in the selected products' own text corroborates a specific
     // one (Scoring Engine 3.3). It explains the relationship; it is not a gate.
@@ -342,7 +354,7 @@ export function validateCommerceEvidence(raw) {
   };
   const input = { objective: raw.objective, discoveryBasis: raw.discoveryBasis,
     identity, culturalRelationship, culturalExplanation, culturalTheme,
-    culturalThemes, sharedAudienceTastes: audienceTastes, sharedAudienceAppeal: audienceAppeal,
+    culturalThemes, culturalCategory, sharedAudienceTastes: audienceTastes, sharedAudienceAppeal: audienceAppeal,
     seedOffer: selectedSeedValid ? "supported" : "unknown",
     partnerOffer: selectedPartnerValid ? "supported" : "unknown",
     seedAssortment: selectedSeedValid && raw.assortmentScope?.observedFamilies?.length &&

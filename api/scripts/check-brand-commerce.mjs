@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { catalogClient, catalogEndpoint, discoverVerifiedStorefront, PROFILE_EXAMPLE,
   verifyCatalogOffer } from "../src/shopify-catalog.mjs";
 import { productPairKeyFor } from "../src/research-memory.mjs";
-import { productKind } from "../src/product-taxonomy.mjs";
+import { productKind, titleKind } from "../src/product-taxonomy.mjs";
 import { assessCommerceOpportunity, durableCommerceDecision,
   rankCommerceOpportunities, customerText } from "../src/brand-commerce.mjs";
 import { validateCommerceEvidence, hasExplicitThirdPartyCoBrand } from "../src/commerce-evidence.mjs";
@@ -10,7 +10,7 @@ import { chooseProductCombinations, isCommerceMerchandise, observedProductQuerie
   transientProductFacts, validatePartnerSearchPlan, prioritizeObservedPartnerProducts,
   prioritizePartnerResearchProducts, mergeRefinedSearchPlans,
   commerceRoleKey, prioritizeUnexploredRole,
-  usefulCollectionSearch, searchResultMatchesQuery, productWearer, brandWearer } from "../src/commerce-products.mjs";
+  usefulCollectionSearch, searchResultMatchesQuery, productWearer, brandWearer, unsupportedPartnerFormat } from "../src/commerce-products.mjs";
 import { parseCommerceMechanismProposal, parseCommerceMechanismRubric,
   parsePartnerProductSearchPlan, parsePartnerProductSelection, withoutUnstatedOccasion } from "../src/commerce-mechanism.mjs";
 import { researchCommercePair } from "../src/commerce-research.mjs";
@@ -414,6 +414,32 @@ assert.throws(() => assessCommerceOpportunity({ identity: "supported",
   culturalRelationship: "native_recommendation_verified", objectiveSuitability: "matches_explicit_focus" }),
 /Server-validated commerce evidence required/);
 assert.equal(assessFixture().status, "supported");
+// A partner from a Qloo category request passes only when the starting brand
+// was the only signal and the request was limited to that one category.
+const coffeeTag = "urn:tag:genre:brand:food_and_beverage:drinks:coffee_and_tea";
+const categoryEnvelope = (tags = [coffeeTag], signal = seedQlooId) => ({ status: "ok",
+  results: [{ entity_id: partnerQlooId }],
+  explainability: { "signal.interests.entities": { effect_on_all_recs: [{ entity_id: signal }] } },
+  provenance: { requests: [{ query: { "filter.tags": tags } }] } });
+const categoryFixture = (envelope = categoryEnvelope(), tagId = coffeeTag) => assessFixture({
+  discoveryBasis: "qloo_category_brand", cultureEvidence: { seedQlooId, partnerQlooId,
+    unconstrained: false, categoryTagId: tagId, envelope } });
+const byCategory = categoryFixture();
+assert.equal(byCategory.culturalRelationship, "category_recommendation_verified");
+assert.equal(byCategory.culturalCategory, "coffee & tea");
+assert.equal(byCategory.status, "supported");
+assert.match(commerceProposal({ seedName: "Caraway", partnerName: "Four Sigmatic",
+  objective: "product_bundle", assessment: byCategory }),
+/Among coffee & tea brands, people who like Caraway tend to like Four Sigmatic\./);
+assert.equal(categoryFixture(categoryEnvelope([coffeeTag, "urn:tag:genre:brand:household"])).culturalRelationship,
+  "unknown", "A request limited to other categories too is not this category's evidence");
+assert.equal(categoryFixture(categoryEnvelope([coffeeTag], partnerQlooId)).culturalRelationship, "unknown",
+  "The starting brand must be the request's signal");
+assert.equal(categoryFixture(categoryEnvelope(["urn:tag:genre:brand:automotive"]), "urn:tag:genre:brand:automotive")
+  .culturalRelationship, "unknown", "Only product categories count");
+assert.equal(assessFixture({ cultureEvidence: { seedQlooId, partnerQlooId, unconstrained: false,
+  envelope: categoryEnvelope() } }).culturalRelationship, "unknown",
+"A category request is never read as the brand-only recommendation");
 // A stray character from another writing system cuts a displayed reason back
 // to its last complete sentence (live 26 Oct: "… without needing另").
 assert.equal(customerText("The blanket keeps you warm. The kit collects litter without needing另"),
@@ -539,6 +565,24 @@ const ranked = rankCommerceOpportunities([better, more, other, better], { object
 assert.equal(ranked.supported.length, 2);
 assert.equal(ranked.supported[0].otherOpportunities.length, 1);
 assert.equal(ranked.supported[1].otherOpportunities.length, 0);
+// One pair per product kind from each partner (five stretch lids for one pan,
+// live 27 Oct); another partner's item of that kind is still shown.
+const lid = (id, partnerId = "partner-a") => ({ ...better, partnerId, partnerProductId: id,
+  partnerKind: titleKind(id), assessment: assessFixture() });
+const oneLid = rankCommerceOpportunities([lid("Rectangle 9x13 Stretch Lid"), lid("Circle Stretch Lids 4-Pack"),
+  lid("Kitchen Sponge 3-Pack"), lid("Square 8x8 Stretch Lid", "partner-b")]);
+assert.deepEqual(oneLid.supported.map((group) => [group.best, ...group.otherOpportunities].length), [2, 1]);
+assert.equal(titleKind("Focus Whole Bean Coffee - Dark (20oz)"), "title:bean coffee");
+assert.notEqual(titleKind("Focus Whole Bean Coffee - Dark"), titleKind("Focus Ground Coffee - Dark"));
+// A format the starting item does not use: pods or an instant drink for a drip
+// coffee maker (live 27 Oct), unless its own text names that format.
+const coffeeMaker = { title: "10-Cup Coffee Maker", description: "Brew a full pot of drip coffee. No pods needed." };
+assert.equal(unsupportedPartnerFormat(coffeeMaker, { title: "Focus Medium Roast Espresso Pods (10ct)" }), "pod");
+assert.equal(unsupportedPartnerFormat(coffeeMaker, { title: "Low Acid Coffee Instant Sticks" }), "instant");
+assert.equal(unsupportedPartnerFormat(coffeeMaker, { title: "Focus Ground Coffee - Dark" }), null);
+assert.equal(unsupportedPartnerFormat({ title: "Single Serve Brewer", description: "Works with K-Cup pods." },
+  { title: "Breakfast Blend K-Cups" }), null);
+assert.equal(unsupportedPartnerFormat({ title: "Puffy Blanket" }, { title: "Instant Camp Shelter" }), null);
 const rankedByPurpose = rankCommerceOpportunities([
   { ...other, assessment: assessFixture() },
   { ...better, assessment: assessFixture({ userConstraints: {
@@ -878,8 +922,11 @@ assert.equal(htmlPreference.opportunities.supported[0].best.assessment.rankingFe
   .verifiedMatchedPreferencesCount, 1);
 // One partner stops early: after three Supported pairs, or after eight
 // assessed pairs with nothing worth showing.
+// Distinct product kinds (categories): titles of one kind ("Bath mat 1",
+// "Bath mat 2") without a category count once.
 const manyMats = Array.from({ length: 12 }, (_, index) => ({ ...mat, id: `gid://shopify/Product/mat${index}`,
-  title: `Bath mat ${index}`, variants: [{ id: `gid://shopify/ProductVariant/mat${index}` }] }));
+  title: `Bath mat ${index}`, categories: [{ value: `gid://shopify/TaxonomyCategory/hg-13-${index + 1}` }],
+  variants: [{ id: `gid://shopify/ProductVariant/mat${index}` }] }));
 const manyCatalog = () => ({ ...researchDeps.createCatalog(),
   search: async (domain) => domain.startsWith("seed") ? [towel] : manyMats,
   detail: async (domain, id) => productWithOffer(domain.startsWith("seed") ? towel
@@ -1001,6 +1048,27 @@ const secondPageKept = await researchCommercePair(pairInput, { ...researchDeps, 
     return { addsValue: partnerProducts.some((item) => item.id === mat.id), exampleTitles: [] }; } });
 assert.deepEqual(screenSamples, [2, 3], "Dropped only after one more page also shows nothing");
 assert.notEqual(secondPageKept.coverage, "partner_no_product_value");
+// A discovered brand selling mostly the starting product's kind is a
+// competitor (Great Jones cookware for a Caraway pan, live 27 Oct); a few
+// such items in a wider range do not stop research.
+const inCategory = (product, id) => ({ ...product, categories: [{ value: `gid://shopify/TaxonomyCategory/${id}` }] });
+const pan = inCategory(towel, "hg-11-2-3");
+const shelfOf = (cookware) => Array.from({ length: 8 }, (_, index) => inCategory({ ...mat,
+  id: `gid://shopify/Product/shelf-${index}`, variants: [{ id: `gid://shopify/ProductVariant/shelf-${index}` }] },
+index < cookware ? "hg-11-2-5" : "hg-11-10-1"));
+const competitorCheck = (cookware, input = pairInput) => researchCommercePair(input, { ...researchDeps, productQueries: null,
+  screenPartner: async () => ({ addsValue: true, exampleTitles: [] }),
+  createCatalog: () => ({ ...researchDeps.createCatalog(),
+    detail: async (domain) => productWithOffer(domain.startsWith("seed") ? pan : mat),
+    searchPage: async (domain) => ({ products: domain.startsWith("seed") ? [pan] : shelfOf(cookware),
+      pagination: { cursor: null, hasNextPage: false } }) }) });
+const competitor = await competitorCheck(2);
+assert.equal(competitor.coverage, "partner_no_product_value");
+assert.deepEqual(competitor.coverageIssues, ["partner_sells_starting_product_type"]);
+assert.ok(!(await competitorCheck(1)).coverageIssues?.includes("partner_sells_starting_product_type"),
+  "One item in eight is a wider range, not a competitor");
+assert.ok(!(await competitorCheck(2, { ...pairInput, discoveryBasis: "user_specified" }))
+  .coverageIssues?.includes("partner_sells_starting_product_type"), "A user-chosen partner is never dropped");
 const specifiedNotScreened = await researchCommercePair({ ...pairInput, discoveryBasis: "user_specified" },
   { ...researchDeps, productQueries: null,
     screenPartner: async () => { throw new Error("A user-chosen partner is never screened"); } });
@@ -1630,6 +1698,8 @@ const nativeTimeLimit = await researchNativeCommerce({ ownerUserId: "owner",
 assert.equal(nativeTimeLimit.stopReason, "research_time_limit_reached");
 assert.equal(nativeTimeLimit.candidates.length, 0);
 const zeroCallPartners = [];
+// Budget sharing below is written for two partners at a time.
+process.env.COMMERCE_PARTNER_CONCURRENCY = "2";
 const noPhantomCatalogSpend = await researchNativeCommerce({ ownerUserId: "owner",
   seed: { name: "Seed", officialWebsite: "https://seed.example.com" },
   seedQlooId: seedId, objective: "product_bundle", maxCatalogCalls: 22 }, {
@@ -1647,6 +1717,7 @@ const noPhantomCatalogSpend = await researchNativeCommerce({ ownerUserId: "owner
 assert.equal(zeroCallPartners.length, 4);
 assert.equal(noPhantomCatalogSpend.catalogCallsUsed, 0);
 assert.equal(noPhantomCatalogSpend.stopReason, "candidate_pool_exhausted");
+delete process.env.COMMERCE_PARTNER_CONCURRENCY;
 const afterRateLimit = [];
 const stoppedAtRateLimit = await researchNativeCommerce({ ownerUserId: "owner",
   seed: { name: "Seed", officialWebsite: "https://seed.example.com" },
@@ -1662,8 +1733,8 @@ const stoppedAtRateLimit = await researchNativeCommerce({ ownerUserId: "owner",
       opportunities: { supported: [], needs_verification: [], unsupported: [] } };
   },
 });
-// Two partners run at a time; after a rate limit no further partner starts.
-assert.ok(afterRateLimit.length <= 2 && afterRateLimit[0] === firstId);
+// Three partners run at a time; after a rate limit no further partner starts.
+assert.ok(afterRateLimit.length <= 3 && afterRateLimit[0] === firstId);
 assert.equal(stoppedAtRateLimit.stopReason, "catalog_rate_limited");
 assert.equal(stoppedAtRateLimit.coverage, "catalog_rate_limited");
 assert.equal(stoppedAtRateLimit.candidates[0].status, "catalog_rate_limited");

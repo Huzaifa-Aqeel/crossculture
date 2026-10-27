@@ -25,6 +25,8 @@ export function culturalSummary(assessment, seedName, partnerName) {
   const lifestyle = (appeal.lifestyle ?? []).map((item) => line(item, 60));
   const affinity = assessment?.culturalRelationship === "native_recommendation_verified"
     ? `People who like ${seedName} also tend to like ${partnerName}.`
+    : assessment?.culturalRelationship === "category_recommendation_verified" && assessment.culturalCategory
+      ? `Among ${line(assessment.culturalCategory, 40).toLowerCase()} brands, people who like ${seedName} tend to like ${partnerName}.`
     : assessment?.culturalRelationship === "direct_pair_supported" ? `People who like ${partnerName} also tend to like ${seedName}.` : "";
   if (!affinity && !themes.length) return "";
   return [affinity, themes.length ? `Both brands are known for ${listText(themes)}.` : "",
