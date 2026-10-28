@@ -3,7 +3,8 @@ import { withWebSearch, officialDomainOf } from "./web-research.mjs";
 import { researchCommercePair } from "./commerce-research.mjs";
 import { chooseComplementGenres, triageCommerceLeads } from "./commerce-mechanism.mjs";
 import { BRAND_GENRES } from "./brand-genres.mjs";
-import { verifiedWebsitesForQlooIds } from "./catalog.mjs";
+import { categoryPath } from "./product-taxonomy.mjs";
+import { verifiedWebsitesForQlooIds, recentCommerceIdentities, rememberCommerceIdentity } from "./catalog.mjs";
 import { recallPartnerMemory, partnerMemoryTiers, orderLeadsWithMemory } from "./research-memory.mjs";
 import { brandWearer } from "./commerce-products.mjs";
 import { rankCommerceOpportunities } from "./brand-commerce.mjs";
@@ -484,6 +485,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   investigateDirect = investigateDirectCommerceCulture,
   triageLeads = triageCommerceLeads, chooseGenres = chooseComplementGenres,
   knownWebsites = verifiedWebsitesForQlooIds,
+  recallIdentities = recentCommerceIdentities, rememberIdentity = rememberCommerceIdentity,
   recallPartners = recallPartnerMemory, readSeedWearer = null, now = () => Date.now() } = {}) {
   if (!QLOO_UUID.test(seedQlooId ?? "") || !["product_bundle", "cross_sell"].includes(objective)) {
     throw new Error("Verified native brand and commerce objective required.");
@@ -557,7 +559,9 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
     const anchor = userConstraints.heroProduct?.title ?? "";
     let genres;
     [discovery, genres] = await Promise.all([recommend(ownerUserId, seedQlooId, { limit: NATIVE_LEADS }),
-      anchor ? chooseGenres({ seed, objective, anchor, genres: BRAND_GENRES }).catch(() => []) : []]);
+      anchor ? chooseGenres({ seed, objective, anchor, genres: BRAND_GENRES,
+        productCategory: categoryPath(userConstraints.heroProduct?.categoryId ?? null, 3) ?? "" })
+        .catch(() => []) : []]);
     if (!["ok", "partial"].includes(discovery?.envelope?.status)) {
       // A request Qloo refuses outright (not retryable) will not work on a
       // retry: the brand's taste identity is unusable, not briefly unavailable.
@@ -566,15 +570,18 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
         opportunities: { supported: [], needs_verification: [], unsupported: [] } };
     }
     leads = nativeLeads(discovery.envelope, seedQlooId, NATIVE_LEADS);
-    const perGenre = genres.length ? Math.ceil(CATEGORY_LEADS / genres.length) : 0;
-    const byGenre = await Promise.all(genres.map((genre) => recommend(ownerUserId, seedQlooId,
-      { limit: perGenre + 4, includeTag: genre.id }).then((found) => ({ genre, found })).catch(() => null)));
+    // The best-fitting category gets most places (6 of 8 with two categories):
+    // an even split left a coffee maker with four coffee brands, 27 Oct.
+    const quotas = genres.length > 1 ? [CATEGORY_LEADS - 2, 2] : [CATEGORY_LEADS];
+    const byGenre = await Promise.all(genres.map((genre, index) => recommend(ownerUserId, seedQlooId,
+      { limit: quotas[index] + 4, includeTag: genre.id })
+      .then((found) => ({ genre, found, quota: quotas[index] })).catch(() => null)));
     const seen = new Set(leads.map((lead) => lead.qlooId));
     for (const entry of byGenre) {
       if (!["ok", "partial"].includes(entry?.found?.envelope?.status) || entry.found.sampleData) continue;
       let added = 0;
-      for (const lead of nativeLeads(entry.found.envelope, seedQlooId, perGenre + 4)) {
-        if (added >= perGenre || seen.has(lead.qlooId)) continue;
+      for (const lead of nativeLeads(entry.found.envelope, seedQlooId, entry.quota + 4)) {
+        if (added >= entry.quota || seen.has(lead.qlooId)) continue;
         seen.add(lead.qlooId); added += 1;
         leads.push({ ...lead, originalOrder: leads.length + 1, category: { genre: entry.genre,
           envelope: entry.found.envelope, responseId: entry.found.responseId } });
@@ -658,7 +665,16 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   // the starting brand does; research still re-checks its store and products.
   const partnerProof = specifiedPartner ? recentConfirmedSeed({ ...specifiedPartner,
     id: specifiedPartner.entityId }, specifiedPartner.qlooId) : null;
+  // A partner verified in the last week reuses that proof; a fresh proof is
+  // kept for later runs. Only the real identity check is reused or stored.
+  const liveIdentity = verifyBusiness === verifyCommerceBusiness && !specifiedPartner;
+  const knownIdentities = liveIdentity ? await recallIdentities(selectedLeads.map((lead) => lead.qlooId))
+    .catch(() => new Map()) : new Map();
   const startVerification = (index) => {
+    const known = index < selectedLeads.length ? knownIdentities.get(selectedLeads[index].qlooId) : null;
+    if (known && !verifications.has(index)) {
+      verifications.set(index, Promise.resolve({ identity: known, trace: [], reused: true }));
+    }
     if (index < selectedLeads.length && !verifications.has(index) && partnerProof) {
       verifications.set(index, Promise.resolve({ identity: { ...partnerProof,
         id: specifiedPartner.qlooId, shopId: partnerProof.verifiedShopId }, trace: [] }));
@@ -689,8 +705,11 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       ...(memoryTiers.has(lead.qlooId) ? { memoryTier: memoryTiers.get(lead.qlooId).tier } : {}) };
     candidates[index] = candidate;
     for (let next = index; next < index + identityConcurrency; next += 1) startVerification(next);
-    const { identity: verifiedPartner, trace: identityTrace } = await verifications.get(index);
+    const { identity: verifiedPartner, trace: identityTrace, reused } = await verifications.get(index);
     if (!verifiedPartner) candidate.identityDiagnostics = identityTrace;
+    if (verifiedPartner && liveIdentity && !reused) {
+      rememberIdentity(verifiedPartner, lead.description).catch(() => {});
+    }
     if (!verifiedPartner || verifiedPartner.id === verifiedSeed.id) return;
     candidate.status = "identity_verified";
     candidate.officialWebsite = verifiedPartner.officialWebsite;

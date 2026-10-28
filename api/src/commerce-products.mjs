@@ -238,9 +238,12 @@ export function mergeRefinedSearchPlans(plans, currentIndex, refinedPlans) {
   return plans;
 }
 
+// Store-wide collections ("Uncategorized", "Best Sellers", "Sale") name no
+// kind of product, so searching them finds nothing specific.
+const STORE_WIDE_COLLECTION = /^(?:uncategori[sz]ed|all|shop all|all products|products|frontpage|home page|homepage|best ?sellers?|new|new arrivals?|just in|sale|on sale|clearance|featured|gifts?|gift guide|bundles?|collections?|last chance|final sale|outlet|trending|popular|exclusives?)$/i;
 export function usefulCollectionSearch(title) {
   const value = bounded(title, 80);
-  return value.length >= 3 && !/^all\s+/i.test(value) &&
+  return value.length >= 3 && !/^all\s+/i.test(value) && !STORE_WIDE_COLLECTION.test(value) &&
     !/\b(?:size|sizes)\s*(?:\d|xx?s|[smlx]{1,4}\b)/i.test(value);
 }
 

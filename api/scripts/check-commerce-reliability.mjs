@@ -465,6 +465,8 @@ const brewTask = { verdict: "joint_task", sameProductType: false, directFunction
   practicalResult: true, separateUsers: false };
 assert.equal(objectiveJudgmentOutcome("product_bundle", { ...brewTask, formatMismatch: false }).passed, true);
 assert.equal(objectiveJudgmentOutcome("product_bundle", { ...brewTask, formatMismatch: true }).passed, false);
+assert.equal(objectiveJudgmentOutcome("product_bundle", { ...brewTask, partnerUseStated: false }).passed, false,
+  "A use the partner item's own text does not support (water carafe for coffee) fails");
 assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sameProductType: false,
   practicalNeed: true, formatMismatch: true }).passed, false);
 
@@ -474,7 +476,7 @@ const rubricYes = { seedRoleGroundedInSelectedItem: true, partnerRoleGroundedInS
   jointUseCoherent: true, incrementalBenefit: true, genericCoUseOnly: false,
   distinctConcreteJointValue: false, partnerSpecificReason: false, reason: "specific_joint_use" };
 const judgmentBase = { seedJob: "brews", partnerJob: "grinds", sameProductType: false, bothWornOrCarried: false,
-  careProductForOther: false, formatMismatch: false, combinedOutcome: "fresh coffee", practicalResult: true,
+  careProductForOther: false, formatMismatch: false, partnerUseStated: true, combinedOutcome: "fresh coffee", practicalResult: true,
   seedActivityWords: "", partnerActivityWords: "", withoutPartner: "grinding", servesStatedOccasion: false,
   preferenceQuotes: [], verdict: "joint_task" };
 const answers = [rubricYes, { ...judgmentBase, directFunction: false, sameObject: false, separateUsers: false },

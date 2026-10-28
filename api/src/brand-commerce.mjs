@@ -9,6 +9,10 @@ const CULTURE = new Set([...PASSING_CULTURE, "direction_only", "unknown", "contr
 const EXPLANATION = { specific_theme: 0, broad_theme: 1, no_named_theme: 2 };
 const SUITABILITY = { matches_explicit_focus: 0, clearly_serves_objective: 1, adequately_serves_objective: 2 };
 const QUALITY = { distinct_concrete_joint_value: 0, credible_joint_value: 1 };
+// A partner item that acts on the starting item (a bag that carries the
+// blanket) is a stronger Bundle than two items handling one thing, and that
+// is stronger than a shared activity (a headlamp for the same camping trip).
+const LINK = { direct: 0, same_thing: 1, added_need: 1, shared_activity: 2 };
 const DIFFERENTIATION = { evidenced_partner_specific_reason: 0, generic_category_reason: 1 };
 const COVERAGE = { good: 0, limited: 1, poor: 2 };
 const MECHANISMS = new Set(["functional_complement", "occasion_complement", "assortment_complement",
@@ -42,6 +46,8 @@ export function assessCommerceOpportunity(input) {
     ? "contradicted" : checks.every((item) => item.state === "supported") &&
       !["unproven", "duplicate_or_substitute"].includes(input.mechanism) ? "supported" : "unknown";
   const productMechanism = { kind: input.mechanism, attributeEvidence, jointUseCoherence, incrementalValue,
+    // How directly the products are linked (Scoring Engine §7 2a); null when unjudged.
+    link: Object.hasOwn(LINK, input.productLink) ? input.productLink : null,
     gate: check(mechanismState, "product_mechanism", input.productRefs ?? []),
     roles: { seedRole: String(input.seedRole ?? ""), partnerRole: String(input.partnerRole ?? "") },
     boundedRationale: customerText(input.rationale).slice(0, 500),
@@ -67,6 +73,7 @@ export function assessCommerceOpportunity(input) {
       ? input.objectiveSuitability : "adequately_serves_objective",
     productQuality: Object.hasOwn(QUALITY, input.productQuality)
       ? input.productQuality : "credible_joint_value",
+    productLink: Object.hasOwn(LINK, input.productLink) ? input.productLink : "shared_activity",
     culturalExplanation: explanation,
     partnerDifferentiation: Object.hasOwn(DIFFERENTIATION, input.partnerDifferentiation)
       ? input.partnerDifferentiation : "generic_category_reason",
@@ -132,7 +139,8 @@ export function customerText(value) {
 function compareSupported(a, b) {
   const left = a.assessment.rankingFeatures;
   const right = b.assessment.rankingFeatures;
-  for (const [order, field] of [[SUITABILITY, "objectiveSuitability"], [QUALITY, "productQuality"],
+  for (const [order, field] of [[SUITABILITY, "objectiveSuitability"], [LINK, "productLink"],
+    [QUALITY, "productQuality"],
     [EXPLANATION, "culturalExplanation"], [DIFFERENTIATION, "partnerDifferentiation"]]) {
     const difference = (order[left?.[field]] ?? 9) - (order[right?.[field]] ?? 9);
     if (difference) return difference;

@@ -47,7 +47,7 @@ const UNKNOWN_LABELS: Record<string, string> = {
 };
 const RUN_NOTES: Record<string, string> = {
   no_partner_product_fit: "None of the suggested brands sell products that add value to this product for your goal. Try another product or the other goal.",
-  no_verified_product_opportunity: "No opportunity could be confirmed in this review.",
+  no_verified_product_opportunity: "No strong product match was found for this product. Try another product or the other goal.",
   seed_storefront_unverified: "Your store could not be reached for this review.",
   seed_identity_unverified: "Your brand could not be confirmed for this review.",
   selected_seed_product_unverified: "Your chosen product could not be confirmed. Start a new search and pick it again.",

@@ -43,6 +43,46 @@ export async function verifiedWebsitesForQlooIds(qlooIds) {
   return new Map(result.rows.map((row) => [row.qlooId, row.website]));
 }
 
+// Partners whose website and Shopify store passed the identity check recently
+// (from any run). Reusing the proof skips another homepage visit; stores
+// rate-limit repeated visits (HTTP 429 on 15 of 20 partners in one run, 27 Oct).
+// Product research still checks the live store and exact products.
+export async function recentCommerceIdentities(qlooIds, maxAgeDays = 7) {
+  const ids = [...new Set((qlooIds ?? []).filter((id) => typeof id === "string"))];
+  if (!ids.length || !process.env.DATABASE_URL) return new Map();
+  const result = await database().query(`select i.external_id as "qlooId", e.canonical_name as name,
+      e.description, coalesce(e.official_website,e.canonical_url) as website,
+      e.facts_json->>'commerceShopId' as "shopId",
+      e.facts_json->>'commerceIdentitySourceUrl' as "identitySourceUrl",
+      e.facts_json->>'commerceStorefrontProofUrl' as "storefrontProofUrl",
+      e.facts_json->>'commerceStoreWearer' as "storeWearer"
+    from catalog.entity_identifiers i join catalog.entities e on e.id=i.entity_id
+    where i.provider='qloo' and i.status='confirmed' and i.external_id=any($1::text[])
+      and e.kind='brand' and e.identity_status='verified'
+      and e.facts_json->>'commerceQlooId'=i.external_id
+      and e.facts_json->>'commerceOfficialWebsite'=coalesce(e.official_website,e.canonical_url)
+      and (e.facts_json->>'commerceConfirmedAt')::timestamptz > now()-make_interval(days=>$2)`,
+  [ids, maxAgeDays]);
+  return new Map(result.rows.filter((row) => /^gid:\/\/shopify\/Shop\/[0-9]+$/.test(row.shopId ?? "") &&
+    /^https:\/\//.test(row.website ?? "") && /^https:\/\//.test(row.storefrontProofUrl ?? ""))
+    .map((row) => [row.qlooId, { id: row.qlooId, qlooId: row.qlooId, name: row.name,
+      officialWebsite: new URL(row.website).origin, identityStatus: "verified",
+      identitySourceUrl: row.identitySourceUrl, storefrontProofUrl: row.storefrontProofUrl,
+      shopId: row.shopId, storeWearer: row.storeWearer ?? null,
+      productHints: String(row.description ?? "").slice(0, 600) }]));
+}
+
+// Keep a partner's fresh identity proof for later runs (see above).
+export async function rememberCommerceIdentity(identity, description = null) {
+  if (!identity?.qlooId || !identity.officialWebsite || !identity.shopId) return;
+  await persistSelectedBrand({ identityStatus: "verified",
+    qloo: { id: identity.qlooId, name: identity.name, website: identity.officialWebsite,
+      description: typeof description === "string" ? description.slice(0, 400) : null },
+    commerceProof: { qlooId: identity.qlooId, officialWebsite: identity.officialWebsite,
+      shopId: identity.shopId, identitySourceUrl: identity.identitySourceUrl,
+      storefrontProofUrl: identity.storefrontProofUrl, storeWearer: identity.storeWearer ?? null } });
+}
+
 export async function persistSelectedBrand(selection) {
   const connection = await database().connect();
   const canonicalUrl = selection.qloo.website;
@@ -62,6 +102,8 @@ export async function persistSelectedBrand(selection) {
     commerceIdentitySourceUrl: commerceProof.identitySourceUrl,
     commerceStorefrontProofUrl: commerceProof.storefrontProofUrl,
     commerceConfirmedAt: new Date().toISOString(),
+    ...(typeof commerceProof.storeWearer === "string" && commerceProof.storeWearer.length <= 40
+      ? { commerceStoreWearer: commerceProof.storeWearer } : {}),
   }) : null;
   try {
     await connection.query("begin");

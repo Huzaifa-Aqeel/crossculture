@@ -168,7 +168,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
           : result.stopReason === "research_time_limit_reached"
             ? "Product research reached its time limit. Reviewed opportunities are partial."
           : decisions.length ? "Product opportunities assessed. Refresh offers before use."
-            : "No verified product opportunity was found within this research budget." })]);
+            : "No strong product match was found for this product." })]);
     await connection.query("commit");
   } catch (error) { await connection.query("rollback"); throw error; }
   finally { connection.release(); }

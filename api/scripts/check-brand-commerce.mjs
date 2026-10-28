@@ -25,7 +25,7 @@ import { vetCommerceShortlist } from "../src/commerce-vetting.mjs";
 import { commerceProposal, culturalSummary } from "../src/proposal-template.mjs";
 import { isDomain } from "../src/web-research.mjs";
 import { normalizeQlooBrands } from "../src/brand-resolution.mjs";
-import { productSearchInput } from "../src/commerce-preview.mjs";
+import { productSearchInput, exactProductName } from "../src/commerce-preview.mjs";
 
 function fixtureResponse(data) { return { ok: true, status: 200, json: async () => ({ result: data }) }; }
 assert.equal(isDomain("https://hanselfrombasel.com/pages/about", "hanselfrombasel.com"), true);
@@ -185,6 +185,12 @@ for (const [siteName, shopId, officialHost] of [
 }
 const calls = [];
 const productStore = { domain: "shop.example.com", endpointHost: "shop.example.com" };
+// A typed product's own name (with or without a variant suffix) is that one
+// product; a longer name is a different product (Petite Cooker, 27 Oct).
+assert.ok(exactProductName("Petite Cooker - Navy", "petite cooker"));
+assert.ok(exactProductName("Sauté Pan", "saute pan"));
+assert.ok(!exactProductName("Petite Cooker Set", "Petite Cooker"));
+assert.ok(!exactProductName("Mini Petite Cooker", "Petite Cooker"));
 assert.deepEqual(productSearchInput("  Bath towel  ", "https://seed.example.com", productStore),
   { query: "Bath towel", exactHandle: null });
 assert.deepEqual(productSearchInput("https://seed.example.com/products/bath-towel?variant=11",
@@ -565,6 +571,14 @@ const ranked = rankCommerceOpportunities([better, more, other, better], { object
 assert.equal(ranked.supported.length, 2);
 assert.equal(ranked.supported[0].otherOpportunities.length, 1);
 assert.equal(ranked.supported[1].otherOpportunities.length, 0);
+// Among Supported pairs, an item acting on the starting item ranks before one
+// handling the same thing, and that before a shared activity (headlamp).
+const linked = (id, productLink) => ({ ...better, partnerProductId: id,
+  assessment: assessFixture({ rubricVerification: { ...bathRubric, productLink } }) });
+const byLink = rankCommerceOpportunities([linked("headlamp", "shared_activity"), linked("carryall", "direct"),
+  linked("strainer", "same_thing")]);
+assert.deepEqual([byLink.supported[0].best, ...byLink.supported[0].otherOpportunities].map((item) => item.partnerProductId),
+  ["carryall", "strainer", "headlamp"]);
 // One pair per product kind from each partner (five stretch lids for one pan,
 // live 27 Oct); another partner's item of that kind is still shown.
 const lid = (id, partnerId = "partner-a") => ({ ...better, partnerId, partnerProductId: id,
@@ -786,6 +800,9 @@ assert.deepEqual(rolePlans.map((plan) => plan.partnerQuery),
   ["burr grinder", "pour-over brewer", "coffee mill"]);
 assert.equal(usefulCollectionSearch("All Men's Shoes"), false);
 assert.equal(usefulCollectionSearch("Men's Size 8"), false);
+assert.equal(usefulCollectionSearch("Uncategorized"), false, "A store-wide collection names no product kind");
+assert.equal(usefulCollectionSearch("Best Sellers"), false);
+assert.equal(usefulCollectionSearch("Cutting Boards"), true);
 assert.equal(usefulCollectionSearch("Camp hardware"), true);
 assert.equal(searchResultMatchesQuery({ title: "Camp cord", product_type: "Hardware" },
   "camp cord"), true);
@@ -1022,6 +1039,16 @@ assert.equal(partnerDown.coverage, "partner_catalog_unavailable");
 assert.equal(partnerDown.stopReason, null);
 await assert.rejects(researchCommercePair(pairInput, { ...researchDeps, createCatalog: timingOut("seed") }),
   (error) => error.code === "catalog_unavailable");
+// Discovery recommends strong pairs only; a shared activity alone (a headlamp
+// for a blanket on the same trip) is not shown. A direct comparison keeps it.
+const activityOnly = { ...researchDeps, verifyMechanism: async () => ({ ...bathRubric, productLink: "shared_activity" }) };
+const discoveredActivity = await researchCommercePair({ ...pairInput, discoveryBasis: "qloo_native_brand" }, activityOnly);
+assert.equal(Object.values(discoveredActivity.opportunities).flat().length, 0);
+const comparedActivity = await researchCommercePair({ ...pairInput, discoveryBasis: "user_specified" }, activityOnly);
+assert.ok(Object.values(comparedActivity.opportunities).flat().length > 0);
+const discoveredDirect = await researchCommercePair({ ...pairInput, discoveryBasis: "qloo_native_brand" },
+  { ...researchDeps, verifyMechanism: async () => ({ ...bathRubric, productLink: "direct" }) });
+assert.equal(discoveredDirect.opportunities.supported[0].best.assessment.productMechanism.link, "direct");
 // A discovered partner whose catalog sample adds no value stops before deep search.
 let screenedSample = null;
 const screenedOut = await researchCommercePair(pairInput, { ...researchDeps, productQueries: null,

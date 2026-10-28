@@ -34,6 +34,18 @@ export function productSearchInput(input, officialWebsite, store) {
   return { query: handle.replace(/[-_]+/g, " ").slice(0, 100), exactHandle: handle.toLowerCase() };
 }
 
+// The typed name is this product's own name: the same words, or those words
+// followed by a variant suffix ("Petite Cooker - Navy", "Petite Cooker (Cream)").
+const plainName = (value) => String(value ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()
+  .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+// A product's name without its variant suffix (" | Black", " - Dusk Fade").
+const baseName = (title) => plainName(String(title ?? "").split(/\s[-–—|:]\s|\s?\(/)[0]);
+export function exactProductName(title, typed) {
+  const name = plainName(typed);
+  if (name.length < 3) return false;
+  return plainName(title) === name || baseName(title) === name;
+}
+
 const productHandle = (url) => {
   try { return new URL(url).pathname.match(/\/products\/([^/]+)\/?$/i)?.[1]?.toLowerCase() ?? null; }
   catch { return null; }
@@ -88,6 +100,7 @@ export async function previewStartingBrandProducts(seedEntityId, market = "US", 
   }
   if (!scope) return { products: [], coverage: "catalog_capability_unavailable" };
   const queries = [searchInput.query];
+  let exactMatch = Boolean(searchInput.exactHandle);
   const products = [];
   const seenProducts = new Set();
   for (const query of queries) {
@@ -99,8 +112,21 @@ export async function previewStartingBrandProducts(seedEntityId, market = "US", 
         inspectedQueries: queries, market };
       continue;
     }
+    // A typed name that is a product's own name means that product only: one
+    // product, one variant, instead of every loosely matching item. An
+    // in-stock match goes first; with no exact match all results are shown.
+    const exact = searchInput.exactHandle ? [] : hits.filter((hit) => exactProductName(hit.title, query));
+    if (exact.length) {
+      exactMatch = true;
+      hits = exact.sort((left, right) => Number((right.variants ?? []).some((variant) => variant.availability?.available !== false)) -
+        Number((left.variants ?? []).some((variant) => variant.availability?.available !== false)));
+    }
     for (const hit of hits) {
       if (seenProducts.has(hit.id)) continue;
+      if (exactMatch && products.some((item) => !item.outOfStock)) break;
+      // Stores that list each colour as its own product ("The ReNew Transit
+      // Backpack | Black", "| Slate Grey") show that product once.
+      if (products.some((item) => !item.outOfStock && baseName(item.title) === baseName(hit.title))) continue;
       if (searchInput.exactHandle && productHandle(hit.url) !== searchInput.exactHandle) continue;
       // Shopify returns sold-out products in search but not in exact detail, so
       // research cannot start from one. Show it as out of stock instead of
@@ -142,6 +168,13 @@ export async function previewStartingBrandProducts(seedEntityId, market = "US", 
     }
     if (products.length >= 12) break;
   }
-  return { products, coverage: products.some((item) => !item.outOfStock) ? "observed_sample"
-    : products.length ? "only_out_of_stock" : "no_verified_product_offer", inspectedQueries: queries, market };
+  // An exact match shows its one in-stock product (or the sold-out one alone).
+  // A sold-out listing is dropped when the same product is in stock in another listing.
+  const listed = products.filter((item) => !item.outOfStock || !products.some((other) =>
+    !other.outOfStock && baseName(other.title) === baseName(item.title)));
+  const shown = exactMatch && listed.some((item) => !item.outOfStock)
+    ? [listed.find((item) => !item.outOfStock)] : exactMatch ? listed.slice(0, 1) : listed;
+  return { products: shown, exact: exactMatch && shown.length === 1,
+    coverage: shown.some((item) => !item.outOfStock) ? "observed_sample"
+      : shown.length ? "only_out_of_stock" : "no_verified_product_offer", inspectedQueries: queries, market };
 }

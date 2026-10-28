@@ -360,8 +360,12 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
           ? "catalog_guided" : "fallback";
   }
   if (timeLimitReached()) coverageIssues.add("research_time_limit_reached");
+  // Searches for the partner's own sampled items are a fallback for when no
+  // planned search exists; next to planned searches they spent calls on
+  // unrelated families (bath sets and cleaning kits for a cooker, 27 Oct).
+  const planned = anchorPlan.queries.length > 0 || retrievalPlan.queries.length > 0;
   const focusedFallbackQueries = [...new Set([
-    ...observedProductQueries(broadPartner, 4),
+    ...(planned ? [] : observedProductQueries(broadPartner, 4)),
     ...broadPartner.filter((product) => isCommerceMerchandise(product) &&
       retrievalPlan.observedProductIds.includes(product.id)).flatMap((product) =>
       (product.collections ?? [])
@@ -1012,11 +1016,16 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     return { item: assessedItem, evaluationEvent };
   };
   // A pair worth showing has a source-grounded joint benefit.
-  const groundedBenefit = (item) => item.assessment.status === "supported" ||
+  // Discovery recommends strong pairs only: one item acts on the other or both
+  // handle one thing. Two items that only share an activity (a headlamp and a
+  // blanket for camping) stay in the developer trace (user decision, 27 Oct).
+  const discovered = ["qloo_native_brand", "qloo_category_brand"].includes(discoveryBasis);
+  const strongLink = (item) => !discovered || item.assessment.productMechanism?.link !== "shared_activity";
+  const groundedBenefit = (item) => strongLink(item) && (item.assessment.status === "supported" ||
     (item.assessment.status === "needs_verification" &&
       item.assessment.productMechanism.attributeEvidence.state === "supported" &&
       item.assessment.productMechanism.jointUseCoherence.state === "supported" &&
-      item.assessment.productMechanism.incrementalValue.state === "supported");
+      item.assessment.productMechanism.incrementalValue.state === "supported"));
   // Stop one partner early so the run's budget reaches more partners: enough
   // Supported pairs found, or a fair sample assessed with nothing worth showing.
   const ENOUGH_SUPPORTED = 3;

@@ -4,9 +4,11 @@
 // Qloo has no category for outdoor gear, cookware or pet supplies; those
 // products rely on the brand-only recommendation. Home accessories (decor
 // brands) are left out: decor only adds ambience, never a Bundle's task.
+// Appliances are left out: for a kitchen product their brands (blenders, air
+// purifiers, home security) were substitutes or unrelated, never partners.
 const PREFIX = "urn:tag:genre:brand:";
 const PATHS = [
-  "electronics", "electronics:appliances", "electronics:camera_and_video",
+  "electronics", "electronics:camera_and_video",
   "electronics:computer_accessories", "electronics:gaming", "electronics:headphones",
   "electronics:home_theater", "electronics:music_instruments", "electronics:phones_and_tablets",
   "fashion:accessories", "fashion:accessories:bags_and_leather", "fashion:accessories:eyewear",

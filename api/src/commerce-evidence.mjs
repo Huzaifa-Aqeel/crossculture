@@ -375,6 +375,7 @@ export function validateCommerceEvidence(raw) {
     objectiveSuitability: matchesFocus ? "matches_explicit_focus" : clearObjectiveContribution
       ? "clearly_serves_objective" : "adequately_serves_objective",
     productQuality: mechanism.quality, partnerDifferentiation: mechanism.partnerDifferentiation,
+    productLink: raw.rubricVerification?.productLink,
     verifiedMatchedPreferencesCount: matchedPreferences.length,
     unresolvedPreferencesCount: preferences.length - matchedPreferences.length,
     preferenceRationale: matchedPreferences.map((value) => `Selected product text confirms ${value}`),

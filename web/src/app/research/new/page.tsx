@@ -164,6 +164,9 @@ function SetupFlow() {
     setBusy(null);
     if (!response.ok) { setError(payload.message ?? "Your store could not be searched right now."); return; }
     setProducts(payload.products ?? []);
+    // The exact product the user named is chosen for them.
+    const only = payload.exact && payload.products?.length === 1 ? payload.products[0] : null;
+    if (only && only.variantId && !only.outOfStock) setProductChoice(only.productId);
     if (payload.coverage === "only_out_of_stock") setProductNote(productCoverage.only_out_of_stock);
     else if (!(payload.products ?? []).length) setProductNote(productCoverage[payload.coverage] ??
       "No matching products were found. Try a different name or paste the product page link.");
