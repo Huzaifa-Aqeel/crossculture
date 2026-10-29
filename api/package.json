@@ -2,6 +2,7 @@
   "name": "crossculture-api",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=../.env.local --watch src/server.mjs",

@@ -3,7 +3,7 @@ import { validateCommerceEvidence } from "./commerce-evidence.mjs";
 import { chooseProductCombinations, productMechanism, verifiedMechanismFacts,
   mechanismFactSourceKinds,
   observedProductType, observedProductQueries, transientProductFacts,
-  validatePartnerSearchPlan, mergeRefinedSearchPlans, usefulCollectionSearch,
+  validatePartnerSearchPlan, mergeRefinedSearchPlans, usefulCollectionSearch, collectionMatchesPlan,
   commerceRoleKey, prioritizeUnexploredRole,
   searchResultMatchesQuery, isCommerceMerchandise,
   prioritizeObservedPartnerProducts,
@@ -22,8 +22,8 @@ import { taxonomyCategory, screenKeyFor, recallScreenDecision,
 // The caller supplies only independently verified brand identities and Qloo evidence.
 export async function researchCommercePair({ seed, partner, objective, cultureEvidence = null,
   discoveryBasis, market = "US", userConstraints = {}, maxCatalogCalls = 28, seedRange = null,
-  runShared = null, userRejectedPairs = [],
-  maxResearchMs = Number(process.env.COMMERCE_PARTNER_RESEARCH_MS) || 120_000 }, {
+  runShared = null, userRejectedPairs = [], userLikedProductIds = [],
+  maxResearchMs = Number(process.env.COMMERCE_PARTNER_RESEARCH_MS) || 60_000 }, {
   createCatalog = () => catalogClient({ maxCalls: maxCatalogCalls }), discoverStorefront = discoverVerifiedStorefront,
   productQueries = null, planAnchorSearch = planAnchorProductSearch,
   planPartnerSearch = planPartnerProductSearch,
@@ -555,6 +555,8 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         const collectionTerms = [...new Set(newlyObserved.flatMap((item) =>
           (item.collections ?? []).map((collection) => collection.title)))]
           .filter((title) => typeof title === "string" && usefulCollectionSearch(title) &&
+            collectionMatchesPlan(title, plans.flatMap((plan) => [plan.partnerQuery, plan.role])
+              .filter((value) => typeof value === "string" && value !== "products")) &&
             !broadFacetKeys.has(`collection:${title.toLowerCase().trim()}`)).slice(0, 3);
         for (const title of collectionTerms) {
           const key = `${title.toLowerCase().trim()}|`;
@@ -743,8 +745,10 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     // product before are re-checked first, from live detail, so a good pair
     // does not depend on being rediscovered (it is still judged again).
     const remembered = [];
-    const rememberedIds = await recallProducts({ partnerQlooId: partner.qlooId, objective,
-      heroCategory: taxonomyCategory(heroDetail.product) ?? heroCategoryId }).catch(() => []);
+    // Products the user rated Good fit with this exact starting product come first.
+    const rememberedIds = [...new Set([...userLikedProductIds, ...await recallProducts({
+      partnerQlooId: partner.qlooId, objective,
+      heroCategory: taxonomyCategory(heroDetail.product) ?? heroCategoryId }).catch(() => [])])];
     for (const id of rememberedIds) {
       if (timeLimitReached() || catalog.callsUsed() >= maxCatalogCalls - 12) break;
       const observed = enrichedCandidates.find((item) => item.id === id);
@@ -777,8 +781,11 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     seed: { productId: pair.seedProduct.id, variantId: pair.seedVariant.id, sellerId: seedStore.shopId },
     partner: { productId: pair.partnerProduct.id, variantId: pair.partnerVariant.id, sellerId: partnerStore.shopId } });
   const rejected = await recallRejections(found.map(keyOf), pairJudgeVersion()).catch(() => new Set());
-  const pairsSkippedFromMemory = found.filter((pair) => rejected.has(keyOf(pair))).length;
-  found = found.filter((pair) => !rejected.has(keyOf(pair)));
+  // A pair the user rated Good fit is always judged again.
+  const liked = new Set(userLikedProductIds);
+  const skipRemembered = (pair) => rejected.has(keyOf(pair)) && !liked.has(pair.partnerProduct.id);
+  const pairsSkippedFromMemory = found.filter(skipRemembered).length;
+  found = found.filter((pair) => !skipRemembered(pair));
   // Two products this user marked "Not a fit" are not shown to them again,
   // in any colour or size.
   const passed = new Set(userRejectedPairs);
@@ -960,6 +967,7 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
         ...([seedOffer, partnerOffer].some((offer) => offer.state !== "supported")
           ? ["market_shipping_unverified"] : [])] }));
     const assessedItem = { partnerId: partner.id, partnerKind: kindOf(partnerDetail.product),
+      ...(userLikedProductIds.includes(pair.partnerProduct.id) ? { userLiked: true } : {}),
       seedProductId: pair.seedProduct.id,
       seedVariantId: pair.seedVariant.id, partnerProductId: pair.partnerProduct.id,
       partnerVariantId: pair.partnerVariant.id, sellerId: partnerStore.shopId,

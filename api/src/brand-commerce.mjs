@@ -160,6 +160,7 @@ export function rankCommerceOpportunities(opportunities) {
   }
   const sorted = [...byOffer.values()].sort((a, b) =>
     (STATUS_ORDER[a.assessment.status] ?? 9) - (STATUS_ORDER[b.assessment.status] ?? 9) ||
+    Number(b.userLiked === true) - Number(a.userLiked === true) ||
     (a.assessment.status === "supported" ? compareSupported(a, b) : 0) ||
     String(a.partnerId).localeCompare(String(b.partnerId)) ||
     String(a.seedProductId).localeCompare(String(b.seedProductId)) ||
@@ -171,8 +172,9 @@ export function rankCommerceOpportunities(opportunities) {
   // One pair per product kind from each partner: the best-ranked one (five
   // near-identical stretch lids for one pan, live 27 Oct, are one result).
   const shownKinds = new Map();
+  // A pair the user rated Good fit is always shown.
   const firstOfKind = (item) => {
-    if (!item.partnerKind) return true;
+    if (!item.partnerKind || item.userLiked) return true;
     const kinds = shownKinds.get(item.partnerId) ?? new Set();
     shownKinds.set(item.partnerId, kinds);
     if (kinds.has(item.partnerKind)) return false;

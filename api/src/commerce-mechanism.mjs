@@ -316,15 +316,15 @@ bleach, polish, conditioner, protector, treatment or other care product meant
 to be applied to the other item. formatMismatch: true when the partner item only works with a specific
 format, machine, size or system (pods or capsules, a cartridge, a filter, part
 or refill for one model) that the starting item's own text does not show it
-uses, or when the partner item is already finished and needs nothing the
-starting item does (instant coffee or a ready-to-drink can for a coffee maker,
-a ready-to-eat meal for a cooker). False when no such format applies (ground
-coffee for a drip coffee maker). partnerUseStated: true when the job the
+uses (ink for a different printer model, blades for another razor handle), or
+when the partner item is already finished and needs nothing the starting item
+does (instant soup for a stockpot, a ready-made smoothie for a blender). False
+when no such format applies (loose-leaf tea for a teapot). partnerUseStated: true when the job the
 partner item does in this pair is its own kind of job, as its title or
 description shows: a bag or container carries or stores things, a cleaner
-cleans, a bowl serves food, coffee is brewed. False only when the pair needs a
-different job than the item is made for (a belt "securing" a T-shirt, a
-decorative vase used for cooking, a bedside water carafe for hot coffee). combinedOutcome: the
+cleans, a bowl serves food, tea is steeped. False only when the pair needs a
+different job than the item is made for (a scarf used as a leash, a decorative
+vase used for cooking, a candle holder used as a cup). combinedOutcome: the
 specific result of using both in one task or occasion. practicalResult: true
 only when that result is practical or physical (something prepared, brewed,
 cooked, dried, kept cold or dry, carried, protected, cleaned, stored, attached
@@ -367,14 +367,14 @@ bleach, polish, conditioner, protector, treatment or other care product meant
 to be applied to the other item. formatMismatch: true when the partner item only works with a specific
 format, machine, size or system (pods or capsules, a cartridge, a filter, part
 or refill for one model) that the starting item's own text does not show it
-uses, or when the partner item is already finished and needs nothing the
-starting item does (instant coffee or a ready-to-drink can for a coffee maker,
-a ready-to-eat meal for a cooker). False when no such format applies (ground
-coffee for a drip coffee maker). partnerUseStated: true when the partner item's
+uses (ink for a different printer model, blades for another razor handle), or
+when the partner item is already finished and needs nothing the starting item
+does (instant soup for a stockpot, a ready-made smoothie for a blender). False
+when no such format applies (loose-leaf tea for a teapot). partnerUseStated: true when the partner item's
 own title or description names or plainly implies the need it meets for this
-customer (sunscreen "for UV protection" meets a daily sun-protection need);
-false when that need requires a use its text does not support (a belt
-"securing" a T-shirt, a water carafe holding coffee). practicalNeed: true only when that need is a
+customer (a lint roller that "removes pet hair" meets a clothing-care need);
+false when that need requires a use its text does not support (a scarf used as
+a leash, a candle holder used as a cup). practicalNeed: true only when that need is a
 practical task or use (protecting, organizing, carrying, preparing, lighting,
 insulating, preventing an injury, cleaning up and similar); false when it is a
 mood, scent, ambience, decoration, relaxation or style. Then choose verdict:
@@ -428,8 +428,8 @@ different plausible complementary functions or stages, grounded in the item's
 title, actual description and the stated objective. For a Bundle, seek a
 specific combined task or occasion, and make the first query an item that acts
 directly on the starting item itself: holds, carries, stores, protects, cleans
-or is prepared or brewed in it (a carry bag for a blanket, ground coffee for a
-drip coffee maker, a lid for a pan); for Cross-Sell, seek an additional need.
+or is prepared or brewed in it (a case for headphones, loose-leaf tea for a
+teapot, a cover for a grill); for Cross-Sell, seek an additional need.
 The role describes the partner item's function relative to the starting item,
 such as "grind coffee" or "brew coffee". Use the SAME role phrase for two
 queries that seek the same function, even when their product words differ.

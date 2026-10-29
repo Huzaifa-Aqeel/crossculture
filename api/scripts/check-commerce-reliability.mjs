@@ -168,6 +168,7 @@ assert.equal(searchHint("Negative", "Established in 2014, the brand specializes 
 // name ("Toad&Co Clothing" is toadandco.com, "Toad&Co | Sustainable Clothing").
 assert.equal(coreBrandName("Toad&Co Clothing"), "Toad&Co");
 assert.equal(coreBrandName("Ibex Outdoor Clothing"), "Ibex");
+assert.equal(coreBrandName("Coleman USA"), "Coleman", "A country Qloo adds to a name is dropped too");
 assert.equal(coreBrandName("Clothing"), "Clothing", "A name that is only the product word stays");
 assert.ok(siteNameMatchesBrand("Toad&Co | Sustainable Clothing", "Toad&Co Clothing"));
 assert.ok(!siteNameMatchesBrand("Patagonia", "Ibex Outdoor Clothing"));
@@ -305,7 +306,7 @@ await researchNativeCommerce({ ownerUserId: "owner",
       opportunities: { supported: [], needs_verification: [], unsupported: [] } }; },
 });
 assert.equal(peakPartners, 3);
-assert.ok(partnerTimes.every((ms) => ms > 100_000 && ms <= 120_000),
+assert.ok(partnerTimes.every((ms) => ms > 50_000 && ms <= 60_000),
   "Each partner gets the full per-partner time while the run has time left");
 
 // Taste tags are fetched once for the starting brand and once per partner and

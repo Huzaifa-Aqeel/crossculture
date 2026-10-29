@@ -42,7 +42,7 @@ const nameWords = (value) => businessName(value).toLowerCase().normalize("NFKD")
   .replace(/[\u0300-\u036f'’]/g, "").replace(/&/g, " and ").split(/[^a-z0-9]+/).filter(Boolean);
 // Qloo sometimes adds a product word to a brand's name ("Toad&Co Clothing",
 // "Ibex Outdoor Clothing"); the brand's own site and address use the name alone.
-const NAME_DESCRIPTOR = /\s+(?:outdoor\s+)?(?:clothing|apparel|footwear|shoes|boots)$/i;
+const NAME_DESCRIPTOR = /\s+(?:(?:outdoor\s+)?(?:clothing|apparel|footwear|shoes|boots)|usa|us|america)$/i;
 export const coreBrandName = (name) => {
   const core = String(name ?? "").trim().replace(NAME_DESCRIPTOR, "").trim();
   return core.length >= 2 ? core : String(name ?? "").trim();
@@ -477,7 +477,9 @@ export function selectNativeCommerceLeads(leads, limit = 6) {
 export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, objective,
   specifiedPartner = null, market = "US", userConstraints = {}, maxCatalogCalls = 160,
   userFeedback = null,
-  maxResearchMs = Number(process.env.COMMERCE_RUN_RESEARCH_MS) || 300_000 }, {
+  // Two and a half minutes: a live Rumpl run spent over four minutes on partners
+  // that added nothing (29 Oct); proven and liked pairs are re-checked first.
+  maxResearchMs = Number(process.env.COMMERCE_RUN_RESEARCH_MS) || 150_000 }, {
   recommend = personalQlooRecommendBrands, entityTags = personalQlooEntityTags,
   audienceTags = personalQlooAudienceTags,
   verifyBusiness = verifyCommerceBusiness, researchPair = researchCommercePair,
@@ -757,7 +759,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
       // Most partners stop within seconds at the catalog screen, so time is not
       // pre-split by partner count; two partners run at a time instead, each up
       // to the per-partner limit and the run's remaining time.
-      const partnerTimeLimit = Number(process.env.COMMERCE_PARTNER_RESEARCH_MS) || 120_000;
+      const partnerTimeLimit = Number(process.env.COMMERCE_PARTNER_RESEARCH_MS) || 60_000;
       const partnerTime = Math.min(remainingResearchMs(), partnerTimeLimit);
       let result;
       try {
@@ -768,6 +770,9 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
           cultureEvidence, market, userConstraints, seedRange, runShared,
           // A partner the user chose to compare is assessed in full.
           userRejectedPairs: specifiedPartner ? [] : userFeedback?.rejectedPairKeys ?? [],
+          userLikedProductIds: (userFeedback?.likedPairs ?? []).filter((pair) =>
+            pair.partnerQlooId === verifiedPartner.qlooId &&
+            pair.seedProductId === userConstraints.heroProduct?.productId).map((pair) => pair.partnerProductId),
           maxCatalogCalls: candidateBudget, maxResearchMs: partnerTime });
       } finally { reservedCalls -= candidateBudget; }
       // A storefront or capability failure can return before making any
@@ -840,9 +845,9 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
         return;
       }
       const index = nextLead++;
-      // With enough Supported results, partners the hint finds unsuited to
-      // this product are not researched; the run finishes sooner.
-      if (!specifiedPartner && fitOf(selectedLeads[index]) === "unlikely" &&
+      // With enough Supported results, only partners the hint rates likely
+      // for this product are still researched; the run finishes sooner.
+      if (!specifiedPartner && fitOf(selectedLeads[index]) !== "likely" &&
           supportedCount() >= ENOUGH_SUPPORTED) {
         skippedUnlikely.push(selectedLeads[index]);
         continue;
@@ -856,7 +861,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   if (stopReason === "candidate_pool_exhausted" && skippedUnlikely.length) stopReason = "enough_results";
   for (const lead of skippedUnlikely) {
     excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
-      status: "skipped_enough_results", productFitHint: "unlikely",
+      status: "skipped_enough_results", productFitHint: fitOf(lead),
       ...(lead.category ? { partnerCategory: lead.category.genre.name } : {}) });
   }
   if (stopReason === "candidate_pool_exhausted" && specifiedPartner === null &&

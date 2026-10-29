@@ -238,12 +238,20 @@ export function mergeRefinedSearchPlans(plans, currentIndex, refinedPlans) {
   return plans;
 }
 
-// Store-wide collections ("Uncategorized", "Best Sellers", "Sale") name no
-// kind of product, so searching them finds nothing specific.
-const STORE_WIDE_COLLECTION = /^(?:uncategori[sz]ed|all|shop all|all products|products|frontpage|home page|homepage|best ?sellers?|new|new arrivals?|just in|sale|on sale|clearance|featured|gifts?|gift guide|bundles?|collections?|last chance|final sale|outlet|trending|popular|exclusives?)$/i;
+// A collection found on a product is searched only when its name shares a
+// word with a planned search or role for the starting product ("Coffee
+// Filters" for "paper coffee filter"). Store-wide and back-office collections
+// ("Uncategorized", "Allow Discounts", "PLP Data - Laundry Care") share none,
+// so no list of collection names is needed.
+const stems = (value) => normalize(value).split(" ").filter((word) => word.length >= 4)
+  .map((word) => word.slice(0, 5));
+export function collectionMatchesPlan(title, planned = []) {
+  const plannedStems = new Set(planned.flatMap(stems));
+  return stems(title).some((stem) => plannedStems.has(stem));
+}
 export function usefulCollectionSearch(title) {
   const value = bounded(title, 80);
-  return value.length >= 3 && !/^all\s+/i.test(value) && !STORE_WIDE_COLLECTION.test(value) &&
+  return value.length >= 3 && !/^all\s+/i.test(value) &&
     !/\b(?:size|sizes)\s*(?:\d|xx?s|[smlx]{1,4}\b)/i.test(value);
 }
 

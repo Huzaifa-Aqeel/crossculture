@@ -29,7 +29,13 @@ assert.ok(effects.rejectedPairKeys.includes(productPairKeyFor("product_bundle", 
 assert.deepEqual(effects.excludedPartnerQlooIds, ["q2"], "Partner reasons apply to the same starting brand");
 assert.deepEqual(effects.preferredPartnerQlooIds, ["q5"], "Liked partners for this brand; an excluded partner is never preferred");
 assert.deepEqual(feedbackEffects(null, "brandA"),
-  { rejectedPairKeys: [], excludedPartnerQlooIds: [], preferredPartnerQlooIds: [] });
+  { rejectedPairKeys: [], excludedPartnerQlooIds: [], preferredPartnerQlooIds: [], likedPairs: [] });
+// Exact pairs rated Good fit are kept for the same starting brand, so a later
+// run for the same product re-checks them first (Rumpl, 29 Oct).
+const gid = (n) => `gid://shopify/Product/${n}`;
+const liked = feedbackEffects([event("save", null, "brandA", ref(gid(1), gid(2)), "q5"),
+  event("save", null, "brandB", ref(gid(3), gid(4)), "q6")], "brandA");
+assert.deepEqual(liked.likedPairs, [{ partnerQlooId: "q5", seedProductId: gid(1), partnerProductId: gid(2) }]);
 
 // Review samples: judged, not recommended, not already shown; at most two;
 // identifiers only.

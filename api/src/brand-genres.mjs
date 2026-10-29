@@ -2,18 +2,16 @@
 // could sell, from Qloo's own tag list (27 Oct 2026). The starting product
 // picks from this closed list, so a category is always a real Qloo tag.
 // Qloo has no category for outdoor gear, cookware or pet supplies; those
-// products rely on the brand-only recommendation. Home accessories (decor
-// brands) are left out: decor only adds ambience, never a Bundle's task.
-// Appliances are left out: for a kitchen product their brands (blenders, air
-// purifiers, home security) were substitutes or unrelated, never partners.
+// products rely on the brand-only recommendation. The picker, not this list,
+// decides which categories suit a product.
 const PREFIX = "urn:tag:genre:brand:";
 const PATHS = [
-  "electronics", "electronics:camera_and_video",
+  "electronics", "electronics:appliances", "electronics:camera_and_video",
   "electronics:computer_accessories", "electronics:gaming", "electronics:headphones",
   "electronics:home_theater", "electronics:music_instruments", "electronics:phones_and_tablets",
   "fashion:accessories", "fashion:accessories:bags_and_leather", "fashion:accessories:eyewear",
   "fashion:accessories:jewelry", "fashion:accessories:watch", "fashion:athletic", "fashion:casual",
-  "fashion:footwear", "fashion:footwear:sneakers", "fashion:formalwear",
+  "fashion:footwear", "fashion:footwear:sneakers", "fashion:formalwear", "fashion:home_accessories",
   "fashion:jeans", "fashion:lingerie_and_sleepwear", "fashion:swimwear",
   "food_and_beverage:drinks", "food_and_beverage:drinks:coffee_and_tea",
   "food_and_beverage:drinks:energy_drink", "food_and_beverage:drinks:juice",

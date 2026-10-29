@@ -138,7 +138,7 @@ const evolvingSource = cases[1];
 const evolving = fixture(evolvingSource);
 const createEvolvingCatalog = evolving.dependencies.createCatalog;
 const scoutA = item("scout-a", "Camp cord", "Cord for camp setup", "Camp hardware",
-  "Hardware essentials");
+  "Camp Cord Essentials");
 const scoutB = item("scout-b", "Tent clip", "Clip for camp setup", "Camp hardware");
 evolving.dependencies.createCatalog = () => {
   const client = createEvolvingCatalog();
@@ -185,7 +185,9 @@ const evolvingResult = await researchCommercePair({ seed, partner,
       results: [{ entity_id: partner.id }] } } }, evolving.dependencies);
 assert.equal(catalogPlans, 2);
 assert.ok(evolving.stats.searches.some((entry) => entry.query === evolvingSource.query));
-assert.ok(evolving.stats.searches.some((entry) => entry.query === "Hardware essentials"));
+assert.ok(!evolving.stats.searches.some((entry) => entry.query === "Hardware essentials"),
+  "A collection unrelated to the planned searches is not searched");
+assert.ok(evolving.stats.searches.some((entry) => entry.query === "Camp Cord Essentials"));
 assert.ok(evolving.stats.assessed.includes(evolvingSource.target.id));
 assert.ok(evolvingResult.observedCandidateCount >= 18);
 

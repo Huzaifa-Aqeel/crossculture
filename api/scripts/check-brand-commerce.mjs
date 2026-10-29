@@ -10,7 +10,7 @@ import { chooseProductCombinations, isCommerceMerchandise, observedProductQuerie
   transientProductFacts, validatePartnerSearchPlan, prioritizeObservedPartnerProducts,
   prioritizePartnerResearchProducts, mergeRefinedSearchPlans,
   commerceRoleKey, prioritizeUnexploredRole,
-  usefulCollectionSearch, searchResultMatchesQuery, productWearer, brandWearer, unsupportedPartnerFormat } from "../src/commerce-products.mjs";
+  usefulCollectionSearch, collectionMatchesPlan, searchResultMatchesQuery, productWearer, brandWearer, unsupportedPartnerFormat } from "../src/commerce-products.mjs";
 import { parseCommerceMechanismProposal, parseCommerceMechanismRubric,
   parsePartnerProductSearchPlan, parsePartnerProductSelection, withoutUnstatedOccasion } from "../src/commerce-mechanism.mjs";
 import { researchCommercePair } from "../src/commerce-research.mjs";
@@ -586,6 +586,11 @@ const lid = (id, partnerId = "partner-a") => ({ ...better, partnerId, partnerPro
 const oneLid = rankCommerceOpportunities([lid("Rectangle 9x13 Stretch Lid"), lid("Circle Stretch Lids 4-Pack"),
   lid("Kitchen Sponge 3-Pack"), lid("Square 8x8 Stretch Lid", "partner-b")]);
 assert.deepEqual(oneLid.supported.map((group) => [group.best, ...group.otherOpportunities].length), [2, 1]);
+// A pair the user rated Good fit is shown first and never hidden as a repeat kind.
+const likedLids = rankCommerceOpportunities([lid("Rectangle 9x13 Stretch Lid"),
+  { ...lid("Circle Stretch Lids 4-Pack"), userLiked: true }]);
+assert.deepEqual([likedLids.supported[0].best, ...likedLids.supported[0].otherOpportunities].map((item) => item.partnerProductId),
+  ["Circle Stretch Lids 4-Pack", "Rectangle 9x13 Stretch Lid"]);
 assert.equal(titleKind("Focus Whole Bean Coffee - Dark (20oz)"), "title:bean coffee");
 assert.notEqual(titleKind("Focus Whole Bean Coffee - Dark"), titleKind("Focus Ground Coffee - Dark"));
 // A format the starting item does not use: pods or an instant drink for a drip
@@ -800,9 +805,13 @@ assert.deepEqual(rolePlans.map((plan) => plan.partnerQuery),
   ["burr grinder", "pour-over brewer", "coffee mill"]);
 assert.equal(usefulCollectionSearch("All Men's Shoes"), false);
 assert.equal(usefulCollectionSearch("Men's Size 8"), false);
-assert.equal(usefulCollectionSearch("Uncategorized"), false, "A store-wide collection names no product kind");
-assert.equal(usefulCollectionSearch("Best Sellers"), false);
-assert.equal(usefulCollectionSearch("Cutting Boards"), true);
+// A collection is searched only when it relates to a planned search or role;
+// no list of collection names (a "filter" word list once blocked Coffee Filters).
+const coffeePlans = ["paper coffee filter", "brew coffee", "ground coffee"];
+assert.ok(collectionMatchesPlan("Coffee Filters", coffeePlans));
+for (const title of ["Uncategorized", "Best Sellers", "Allow Discounts", "PLP Data - Laundry Care"]) {
+  assert.ok(!collectionMatchesPlan(title, coffeePlans), title);
+}
 assert.equal(usefulCollectionSearch("Camp hardware"), true);
 assert.equal(searchResultMatchesQuery({ title: "Camp cord", product_type: "Hardware" },
   "camp cord"), true);

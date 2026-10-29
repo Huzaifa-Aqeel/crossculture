@@ -26,6 +26,9 @@ export function feedbackEffects(latest, seedEntityId) {
   const rejectedPairKeys = new Set();
   const excludedPartnerQlooIds = new Set();
   const preferredPartnerQlooIds = new Set();
+  // Exact product pairs the user rated Good fit, so later research for the
+  // same starting product re-checks them first instead of rediscovering them.
+  const likedPairs = new Map();
   for (const event of latest ?? []) {
     const sameBrand = Boolean(seedEntityId) && event?.seedEntityId === seedEntityId && event.partnerQlooId;
     if (event?.action === "reject") {
@@ -33,12 +36,23 @@ export function feedbackEffects(latest, seedEntityId) {
         rejectedPairKeys.add(productPairKeyFor(event.objective, event.references));
       }
       if (sameBrand && PARTNER_REASONS.has(event.reasonCode)) excludedPartnerQlooIds.add(event.partnerQlooId);
-    } else if (event?.action === "save" && sameBrand) preferredPartnerQlooIds.add(event.partnerQlooId);
+    } else if (event?.action === "save" && sameBrand) {
+      preferredPartnerQlooIds.add(event.partnerQlooId);
+      const seedProductId = event.references?.seed?.productId;
+      const partnerProductId = event.references?.partner?.productId;
+      if (/^gid:\/\/shopify\/Product\/[0-9]+$/.test(seedProductId ?? "") &&
+          /^gid:\/\/shopify\/Product\/[0-9]+$/.test(partnerProductId ?? "")) {
+        likedPairs.set(`${seedProductId}|${partnerProductId}`, { partnerQlooId: event.partnerQlooId,
+          seedProductId, partnerProductId });
+      }
+    }
   }
   for (const id of excludedPartnerQlooIds) preferredPartnerQlooIds.delete(id);
   return { rejectedPairKeys: [...rejectedPairKeys].slice(0, 1000),
     excludedPartnerQlooIds: [...excludedPartnerQlooIds].slice(0, 100),
-    preferredPartnerQlooIds: [...preferredPartnerQlooIds].slice(0, 20) };
+    preferredPartnerQlooIds: [...preferredPartnerQlooIds].slice(0, 20),
+    likedPairs: [...likedPairs.values()].filter((pair) => !excludedPartnerQlooIds.has(pair.partnerQlooId))
+      .slice(0, 50) };
 }
 
 // A few judged pairs the research did not recommend, so the reviewer also sees
