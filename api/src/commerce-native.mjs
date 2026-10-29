@@ -335,12 +335,12 @@ export async function verifyCommerceBusiness(candidate, {
   const name = String(candidate?.name ?? "").trim();
   if (!QLOO_UUID.test(candidate?.qlooId ?? "") || name.length < 2) return null;
   const tried = new Set();
-  const attempt = async (website) => {
+  const attempt = async (website, asName = name) => {
     let origin;
     try { origin = new URL(website).origin; } catch { return null; }
     if (tried.has(origin) || signal?.aborted) return null;
     tried.add(origin);
-    return firstParty({ ...candidate, website: origin }, { signal, trace }).catch(() => null);
+    return firstParty({ ...candidate, name: asName, website: origin }, { signal, trace }).catch(() => null);
   };
   if (candidate.website) {
     const listed = await attempt(candidate.website);
@@ -353,6 +353,17 @@ export async function verifyCommerceBusiness(candidate, {
     if (host.length < 2 || host.length > 50) continue;
     for (const suffix of suffixes) {
       const guessed = await attempt(`https://${host}.${suffix}`);
+      if (guessed) return guessed;
+    }
+  }
+  // Qloo sometimes appends what a brand sells ("Uncle Nearest Premium
+  // Whiskey"); its own site is the first two words (unclenearest.com). That
+  // site must still name the brand by those words and link its own store.
+  const words = core.split(/\s+/).filter(Boolean);
+  if (words.length >= 3) {
+    const short = words.slice(0, 2).join(" ");
+    for (const host of [...new Set([normalized(short), normalized(short.replace(/&/g, " and "))])]) {
+      const guessed = await attempt(`https://${host}.com`, short);
       if (guessed) return guessed;
     }
   }

@@ -48,7 +48,7 @@ export async function completeBrandLookup(id, userId, result, { client = db() } 
 
 export async function openBrandLookup(id, userId, { client = db() } = {}) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id ?? ""))) return null;
-  const result = await client.query(`select purpose,result_json as result from private.brand_lookups
+  const result = await client.query(`select purpose,query,result_json as result from private.brand_lookups
     where id=$1 and user_id=$2 and result_json is not null and consumed_at is null
       and created_at>now()-interval '${RESULT_CONFIRM_WINDOW}'`, [id, userId]);
   return result.rows[0] ?? null;

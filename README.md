@@ -22,7 +22,7 @@ CrossCulture answers both questions in one research run:
 1. **Choose your brand, market, goal (Bundle or Cross-sell) and starting product.** The app confirms your brand and its Shopify store.
 2. **Find partners.** Qloo recommends brands from your brand's taste profile, across categories. The app also asks Qloo for brands your audience likes within categories that suit your product, for example coffee brands for a coffee maker.
 3. **Check real products.** For each partner, the app confirms its official store, searches its live catalog for items that work with your product, and assesses exact products and variants.
-4. **Keep only strong pairs.** A pair is recommended only when one item works directly with the other (a bag carries the blanket, a strainer drains what the pot cooked) and both products are verified. Competitors and look-alike products are filtered out.
+4. **Keep only strong pairs.** A **bundle** is recommended only when the two items do one job together (a bag carries the blanket, a strainer drains what the pot cooked). A **cross-sell** must meet a separate practical need, or complete the same routine, scent or look that both products' own descriptions name (a conditioner after a shampoo, a body oil in the same scent as a perfume). Both products are verified, and competitors, look-alikes and mood-only pairings are filtered out.
 5. **Review and act.** Each result shows why the products fit, the cultural connection, cities where both audiences are strong, current prices, and open questions. A result can become an editable partnership proposal.
 6. **Rate the results.** Your ratings shape your next runs for the same brand.
 
@@ -94,7 +94,7 @@ Open `http://localhost:3000`, sign in, and try a US brand that sells on Shopify.
 ## Limits
 
 - Results are a starting point for a partnership conversation. Qloo affinities and city popularity are aggregate signals: they do not identify shared customers, predict sales, or show that a partner is interested.
-- Your brand must be in Qloo, and partners must sell on Shopify with a verifiable store. Some stores block automated checks.
+- Your brand must be in Qloo, and partners must sell on Shopify with a verifiable store.
 - Each run reviews a time-limited sample of partners and products, not every catalog in full. Qloo's categories are broad, so some products (for example cookware, pet or outdoor gear) rely on the brand-wide partner list.
 ## License
 

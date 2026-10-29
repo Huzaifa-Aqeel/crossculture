@@ -20,6 +20,12 @@ const productCoverage: Record<string, string> = {
   only_out_of_stock: "These products are out of stock right now, so they can't be researched. Try another product.",
 };
 
+function brandLookupMessage(status: string) {
+  return status === "ok" || status === "needs_input"
+    ? "We couldn't find this brand in our cultural data. Check the spelling or try its full name."
+    : "Brand lookup is unavailable right now. Please try again shortly.";
+}
+
 async function post(path: string, body: unknown) {
   const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify(body) });
@@ -254,7 +260,7 @@ function SetupFlow() {
           disabled={busy !== null || !brandChoice || (websiteNeeded && !website.trim())}
           data-busy={busy === "confirm-brand"} data-unavailable={!brandChoice || (websiteNeeded && !website.trim())}>
           {busy === "confirm-brand" ? "Checking…" : "Continue"}</button></div>
-      </> : <p className="rs-hint" style={{ marginTop: 16 }}>No brand matched. Check the spelling or try the full brand name.</p>)}
+      </> : <p className="rs-error" role="alert">{brandLookupMessage(resolution.qloo.status)}</p>)}
     </section>}
 
     {step === 2 && <section className="rs-card"><h2>Your goal</h2>
@@ -282,7 +288,7 @@ function SetupFlow() {
             <div><button className="rs-button-quiet" type="button" disabled={busy !== null || !partnerChoice}
               data-busy={busy === "confirm-partner"} data-unavailable={!partnerChoice}
               onClick={confirmPartner}>{busy === "confirm-partner" ? "Checking…" : "Use this brand"}</button></div></>
-            : <p className="rs-hint">No brand matched. Check the spelling or try the full brand name.</p>)}
+            : <p className="rs-error" role="alert">{brandLookupMessage(partnerResolution.qloo.status)}</p>)}
         </>}
       </div>}
       <div className="rs-actions"><button className="rs-button" type="button" onClick={continueToProduct}

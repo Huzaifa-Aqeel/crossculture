@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { invokeResearchWorker } from "./research-dispatch.mjs";
 import { verifiedUser } from "./auth.mjs";
-import { normalizeQlooBrands } from "./brand-resolution.mjs";
+import { normalizeQlooBrands, matchingQlooBrandCandidates } from "./brand-resolution.mjs";
 import { persistSelectedBrand, persistVerifiedCommerceSite,
   recentConfirmedCommerceBrand, verifiedWebsitesForQlooIds } from "./catalog.mjs";
 import { personalQlooDescribe } from "./personal-qloo.mjs";
@@ -175,14 +175,16 @@ export const httpServer = createServer(async (request, response) => {
         }
       }
       const cached = await cachedBrandLookup(user.id, purpose, query);
-      if (cached) return send(response, 200, cached);
+      if (cached) return send(response, 200, { ...cached, qloo: { ...cached.qloo,
+        candidates: matchingQlooBrandCandidates(cached.qloo?.candidates, query) } });
       const lookupId = await reserveBrandLookup(user.id, purpose, query);
       if (!lookupId) return send(response, 429, { message: "Too many brand lookups. Try again later." });
       // Ask Qloo for brands only; without a type it matches any entity
       // ("Graza" resolved to a person, 27 Oct).
       const envelope = await personalQlooDescribe(user.id, { entity: query, type: "brand" });
       const result = { id: lookupId, query,
-        qloo: { status: envelope.status, candidates: normalizeQlooBrands(envelope) },
+        qloo: { status: envelope.status,
+          candidates: matchingQlooBrandCandidates(normalizeQlooBrands(envelope), query) },
         message: "Choose the cultural brand that matches the business you mean." };
       await completeBrandLookup(lookupId, user.id, result);
       return send(response, 200, result);
@@ -206,7 +208,8 @@ export const httpServer = createServer(async (request, response) => {
       if (!record) return send(response, 404, { message: "This brand search has expired. Search again." });
       if (purpose !== record.purpose) return send(response, 400,
         { message: "Choose a cultural brand for this commerce project." });
-      const candidate = record.result.qloo.candidates.find((item) => item.id === qlooId);
+      const candidate = matchingQlooBrandCandidates(record.result.qloo?.candidates,
+        record.query).find((item) => item.id === qlooId);
       if (!candidate) return send(response, 400, { message: "Choose a brand from these results." });
       const identityTrace = [];
       // A website another user already verified for this Qloo brand is the

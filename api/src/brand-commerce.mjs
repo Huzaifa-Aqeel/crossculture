@@ -12,7 +12,7 @@ const QUALITY = { distinct_concrete_joint_value: 0, credible_joint_value: 1 };
 // A partner item that acts on the starting item (a bag that carries the
 // blanket) is a stronger Bundle than two items handling one thing, and that
 // is stronger than a shared activity (a headlamp for the same camping trip).
-const LINK = { direct: 0, same_thing: 1, added_need: 1, shared_activity: 2 };
+const LINK = { direct: 0, same_thing: 1, added_need: 1, routine: 2, shared_activity: 3 };
 const DIFFERENTIATION = { evidenced_partner_specific_reason: 0, generic_category_reason: 1 };
 const COVERAGE = { good: 0, limited: 1, poor: 2 };
 const MECHANISMS = new Set(["functional_complement", "occasion_complement", "assortment_complement",

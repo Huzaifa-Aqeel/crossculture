@@ -178,6 +178,14 @@ assert.ok(!siteNameMatchesBrand("Patagonia", "Ibex Outdoor Clothing"));
     tried.push(candidate.website); return null; } });
   assert.ok(tried.includes("https://toadandco.com"), "The address guess also uses the name alone");
 }
+{
+  // A Qloo name that appends what the brand sells ("Uncle Nearest Premium
+  // Whiskey") also tries its first two words, which the site must then name.
+  const tried = [];
+  await verifyCommerceBusiness({ qlooId, name: "Uncle Nearest Premium Whiskey" }, { firstParty: async (candidate) => {
+    tried.push([candidate.website, candidate.name]); return null; } });
+  assert.ok(tried.some(([site, name]) => site === "https://unclenearest.com" && name === "Uncle Nearest"));
+}
 searches.length = 0;
 await verifyCommerceBusiness({ qlooId, name: "Negative",
   description: "Negative makes underwear and lingerie for women." },
@@ -460,6 +468,19 @@ assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sam
   practicalNeed: true }).passed, false, "Two items of the same type are substitutes");
 assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sameProductType: false,
   practicalNeed: false }).passed, false);
+// A Cross-Sell may complete the same routine, scent profile or look, but only
+// when both items' own text names it (checked in code); a mood never counts.
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "completes_routine", sameProductType: false,
+  practicalNeed: false, bothPassagesNameRoutine: true }).passed, true);
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "completes_routine", sameProductType: false,
+  practicalNeed: false, bothPassagesNameRoutine: false }).passed, false, "An unconfirmed routine fails");
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "completes_routine", sameProductType: true,
+  practicalNeed: false, bothPassagesNameRoutine: true }).passed, false, "Another candle is still a substitute");
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "completes_routine", sameProductType: false,
+  practicalNeed: true, bothPassagesNameRoutine: false }).passed, true,
+"A practical need passes whichever label the judgment used (yoga mat and blocks)");
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sameProductType: false,
+  practicalNeed: false, bothPassagesNameRoutine: false }).passed, false, "Neither a practical need nor a confirmed routine");
 // Coffee pods for a drip coffee maker (live 27 Oct): another format cannot be
 // used with the starting item, whatever the verdict says.
 const brewTask = { verdict: "joint_task", sameProductType: false, directFunction: true, sameObject: true,

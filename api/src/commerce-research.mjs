@@ -363,6 +363,10 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   // Searches for the partner's own sampled items are a fallback for when no
   // planned search exists; next to planned searches they spent calls on
   // unrelated families (bath sets and cleaning kits for a cooker, 27 Oct).
+  // A collection is searched only when it relates to a planned search or role
+  // ("Shop All" and "Best Sellers" were searched for a candle, 29 Oct).
+  const plannedTerms = [...(anchorPlan.directions ?? []), ...(retrievalPlan.directions ?? [])]
+    .flatMap(({ query, role }) => [query, role]).filter((value) => typeof value === "string");
   const planned = anchorPlan.queries.length > 0 || retrievalPlan.queries.length > 0;
   const focusedFallbackQueries = [...new Set([
     ...(planned ? [] : observedProductQueries(broadPartner, 4)),
@@ -370,7 +374,8 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
       retrievalPlan.observedProductIds.includes(product.id)).flatMap((product) =>
       (product.collections ?? [])
       .map((collection) => collection.title)).filter((title) =>
-      typeof title === "string" && usefulCollectionSearch(title)).slice(0, 5),
+      typeof title === "string" && usefulCollectionSearch(title) &&
+      (!plannedTerms.length || collectionMatchesPlan(title, plannedTerms))).slice(0, 5),
   ])];
   const guidedQueries = [];
   {

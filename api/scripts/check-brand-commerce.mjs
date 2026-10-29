@@ -24,7 +24,7 @@ import { currentCommerceAssessment, refreshCommerceOffers } from "../src/commerc
 import { vetCommerceShortlist } from "../src/commerce-vetting.mjs";
 import { commerceProposal, culturalSummary } from "../src/proposal-template.mjs";
 import { isDomain } from "../src/web-research.mjs";
-import { normalizeQlooBrands } from "../src/brand-resolution.mjs";
+import { normalizeQlooBrands, matchingQlooBrandCandidates } from "../src/brand-resolution.mjs";
 import { productSearchInput, exactProductName } from "../src/commerce-preview.mjs";
 
 function fixtureResponse(data) { return { ok: true, status: 200, json: async () => ({ result: data }) }; }
@@ -63,6 +63,16 @@ const disambiguated = normalizeQlooBrands({ status: "needs_input", results: [],
 assert.equal(disambiguated.length, 1);
 assert.equal(disambiguated[0].id, businessId);
 assert.equal(disambiguated[0].description, "Leather goods");
+// Live Qloo lookup for P.F. Candle Co. returned the unrelated Harlem Candle Co.
+// as a semantic brand resolution. A valid brand type alone cannot make it a
+// selectable identity for the searched business.
+const semanticNeighbour = normalizeQlooBrands({ status: "ok",
+  results: [{ entity_id: businessId, name: "Harlem Candle Co.",
+    subtype: "urn:entity:brand" }] });
+assert.equal(matchingQlooBrandCandidates(semanticNeighbour, "P.F. Candle Co.").length, 0);
+assert.equal(matchingQlooBrandCandidates(semanticNeighbour, "Harlem Candle Co.").length, 1);
+assert.equal(matchingQlooBrandCandidates([{ name: "PF Candle Company" }],
+  "P.F. Candle Co.").length, 1, "Punctuation and Co./Company spelling are equivalent");
 // Brand search results omit the type; Qloo's resolution states it. A person
 // named like a brand is never offered as the brand (Graza, a Polish colorist,
 // 27 Oct), and a result whose type is unknown is not offered either.

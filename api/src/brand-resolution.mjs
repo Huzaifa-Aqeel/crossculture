@@ -9,6 +9,23 @@ function safeWebUrl(value) {
   } catch { return null; }
 }
 
+// Qloo can return a semantic neighbour even when asked for a brand by name.
+// A person choosing that neighbour must not accidentally attach its Qloo ID
+// to the business they searched for. Allow punctuation and common legal-name
+// spelling differences, but no fuzzy or category-based substitution.
+function comparableBrandName(value) {
+  return String(value ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[&+]/g, " and ")
+    .replace(/\bcompany\b/g, "co").replace(/[^a-z0-9]/g, "");
+}
+
+export function matchingQlooBrandCandidates(candidates, query) {
+  const searched = comparableBrandName(query);
+  if (!searched) return [];
+  return (Array.isArray(candidates) ? candidates : [])
+    .filter((candidate) => comparableBrandName(candidate?.name) === searched);
+}
+
 export function normalizeQlooBrands(envelope) {
   const seen = new Set();
   const qlooId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
