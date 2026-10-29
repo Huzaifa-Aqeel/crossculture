@@ -42,6 +42,16 @@ Ratings are personal: they change your own runs, not other users' results.
 
 In a US Bundle run for Rumpl's *Original Puffy Blanket – Grand Teton*, Qloo's recommendations for Rumpl included **United by Blue**. The app verified United by Blue's store and found three supported combinations, including the **(R)evolution™ 55L Carry-On Duffle**, which carries and protects the blanket on a trip, and the **Reusable DIY Cleanup Kit**. Separately, Qloo's audience tags placed *environmental advocates* and *sustainability advocates* in the top half of both brands' lists, which is the cultural connection shown with the result.
 
+## Screenshots
+
+**Partnership recommendations** — a completed Caraway product-bundle search with product pairs, cultural context, and next steps.
+
+<img src="docs/screenshots/recommendations.png" alt="CrossCulture recommendations for Caraway, showing product pairs with Public Goods and Brightland" width="760">
+
+**Editable proposal** — the saved draft for a selected pairing, with product links and the evidence behind it.
+
+<img src="docs/screenshots/proposal-studio.png" alt="CrossCulture proposal editor for a Caraway and Public Goods product bundle" width="760">
+
 ## Why Qloo
 
 Qloo is what makes the partner list worth checking. Without it, the choice is between category search, which returns competitors, and guesswork. Qloo connects brands through the tastes of the people who like them, so it surfaces non-competing brands in other categories that share your audience: a blanket brand's audience leads to bag and outdoor brands, a cookware brand's audience to tableware and pantry brands.
@@ -56,19 +66,6 @@ Qloo is what makes the partner list worth checking. Without it, the choice is be
 | Where to launch | `qloo_where_popular` for each brand | Cities where both audiences are strong, as a starting point for local campaigns. |
 
 Qloo calls go through the pinned `@qloo/qloo-harness` MCP package. The audience-tag query calls the gateway's read-only `/v2/insights` endpoint directly with the same server-side credential, because the harness does not expose the tag-type filter. Qloo responses are cached privately per user, and credentials never reach the browser.
-
-## How it runs
-
-```text
-Next.js on Vercel → authenticated API on AWS Lambda → run record in Supabase
-                                                    ↘ research Lambda → Qloo, Shopify Catalog,
-                                                                        Amazon Bedrock, Tavily (limited)
-                                                      → results and proposals in Supabase Postgres
-```
-
-The API queues a run and returns; a separate Lambda performs the research and writes the results. A run typically takes one and a half to two and a half minutes. Qloo, model and database credentials stay server-side, and user records are protected by row-level security.
-
-Implementation details: [architecture](CrossCulture_Brand_Brand_Architecture_v2.2_Clarified.md), [assessment rules](CrossCulture_Brand_Brand_Scoring_Engine_v1.1.md), [AWS deployment](infra/aws/README.md).
 
 ## Run it locally
 
@@ -99,8 +96,6 @@ Open `http://localhost:3000`, sign in, and try a US brand that sells on Shopify.
 - Results are a starting point for a partnership conversation. Qloo affinities and city popularity are aggregate signals: they do not identify shared customers, predict sales, or show that a partner is interested.
 - Your brand must be in Qloo, and partners must sell on Shopify with a verifiable store. Some stores block automated checks.
 - Each run reviews a time-limited sample of partners and products, not every catalog in full. Qloo's categories are broad, so some products (for example cookware, pet or outdoor gear) rely on the brand-wide partner list.
-- Testing has focused on US brands.
-
 ## License
 
 [MIT](LICENSE) © 2026 Huzaifa Aqeel.
