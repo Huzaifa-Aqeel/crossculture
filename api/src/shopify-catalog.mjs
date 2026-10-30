@@ -338,3 +338,21 @@ export function catalogClient({ profileUrl = process.env.SHOPIFY_UCP_PROFILE_URL
 }
 
 export { PROFILE_EXAMPLE };
+
+// Shopify's own record of who sells a brand's products: each Global Catalog
+// result names its seller's shop ID, shop name and main website. Used to
+// confirm a brand's store when its homepage blocks automated visits.
+export async function globalCatalogSellers(query, { createCatalog = () => catalogClient({ maxCalls: 3 }),
+  market = "US" } = {}) {
+  const catalog = createCatalog();
+  const tools = await catalog.tools("global");
+  if (!tools?.has("search_catalog")) return [];
+  const products = await catalog.search("global", String(query ?? "").slice(0, 100), tools, { market, shops: [] });
+  const sellers = new Map();
+  for (const product of products ?? []) for (const variant of product.variants ?? []) {
+    const seller = variant.seller;
+    if (seller?.id && !sellers.has(seller.id)) sellers.set(seller.id,
+      { id: seller.id, name: seller.name ?? null, url: seller.url ?? null, domain: seller.domain ?? null });
+  }
+  return [...sellers.values()];
+}

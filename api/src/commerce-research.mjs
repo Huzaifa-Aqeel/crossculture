@@ -61,7 +61,10 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
     now() - startedAt >= maxResearchMs;
   const [seedStore, partnerStore] = await Promise.all([
     once("seedStore", () => discoverStorefront(seed.officialWebsite), (store) => Boolean(store?.shopId)),
-    discoverStorefront(partner.officialWebsite),
+    // A partner confirmed through Shopify's catalog is researched there,
+    // filtered to its own shop, without visiting its blocked website.
+    partner.verifiedBy === "shopify_global_catalog" && /^gid:\/\/shopify\/Shop\/[0-9]+$/.test(partner.shopId ?? "")
+      ? Promise.resolve({ shopId: partner.shopId }) : discoverStorefront(partner.officialWebsite),
   ]);
   if (!seedStore?.shopId || !partnerStore?.shopId || seedStore.shopId === partnerStore.shopId) {
     return { opportunities: { supported: [], needs_verification: [], unsupported: [] },
@@ -278,14 +281,13 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   const pairOutcomes = [];
   const memory = () => ({ heroCategory: taxonomyCategory(heroDetail.product),
     partnerShopId: partnerStore.shopId, screen: screenMemory, pairs: pairOutcomes });
-  // A discovered brand whose observed products are largely the same kind as
-  // the chosen product is a competitor, not a partner (Great Jones cookware
-  // for a Caraway pan, live 27 Oct), even when it also sells accessories. A
-  // few such items in a wider range (a blanket at an outdoor clothing store)
-  // do not count.
+  // A discovered brand whose observed products are mostly the same kind as the
+  // chosen product is a competitor, not a partner (Great Jones cookware for a
+  // Caraway pan, live 27 Oct). A mixed store (some candles among glassware and
+  // decor) is researched, and its same-kind items are rejected pair by pair.
   const heroRange = taxonomyCategory(heroDetail.product);
   if (discoveryBasis !== "user_specified" && heroRange?.includes("-") && broadPartner.length >= 8 &&
-      broadPartner.filter((item) => sameRange(taxonomyCategory(item), heroRange)).length * 4 >= broadPartner.length) {
+      broadPartner.filter((item) => sameRange(taxonomyCategory(item), heroRange)).length * 2 >= broadPartner.length) {
     return { opportunities: { supported: [], needs_verification: [], unsupported: [] },
       coverage: "partner_no_product_value", coverageIssues: ["partner_sells_starting_product_type"], stopReason: null,
       observedCandidateCount: broadPartner.length, callsUsed: catalog.callsUsed(), memory: memory() };

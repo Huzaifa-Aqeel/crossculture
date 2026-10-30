@@ -155,6 +155,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
       JSON.stringify({ sample: false, commerce: true, policyVersion: "brand-commerce-v1.1",
         discoveryBasis: result.discoveryBasis, coverage: result.coverage,
         ...(result.partnerCategories?.length ? { partnerCategories: result.partnerCategories } : {}),
+        ...(result.researchCoverage ? { researchCoverage: result.researchCoverage } : {}),
         ...(result.contextStages ? { contextStages: result.contextStages } : {}),
         ...(result.seedIdentityDiagnostics?.length
           ? { seedIdentityDiagnostics: result.seedIdentityDiagnostics } : {}),
@@ -168,7 +169,7 @@ export async function processCommerceRun(run, workerId, { research = researchNat
           : result.stopReason === "research_time_limit_reached"
             ? "Product research reached its time limit. Reviewed opportunities are partial."
           : decisions.length ? "Product opportunities assessed. Refresh offers before use."
-            : "No strong product match was found for this product." })]);
+            : "No strong product match was found among the partners checked." })]);
     await connection.query("commit");
   } catch (error) { await connection.query("rollback"); throw error; }
   finally { connection.release(); }

@@ -1,6 +1,6 @@
 import pg from "pg";
 import { getProject } from "./projects.mjs";
-import { observedProductType, fitSized } from "./commerce-products.mjs";
+import { observedProductType, fitSized, productDescriptionText } from "./commerce-products.mjs";
 import { catalogClient, discoverVerifiedStorefront } from "./shopify-catalog.mjs";
 import { taxonomyCategory } from "./research-memory.mjs";
 
@@ -154,6 +154,7 @@ export async function previewStartingBrandProducts(seedEntityId, market = "US", 
           if (!family) continue;
           products.push({ productId: detail.product.id, variantId: detail.variant.id,
             title: detail.product.title, url: detail.product.url ?? null, family,
+            summary: productDescriptionText(detail.product).replace(/\s+/g, " ").trim().slice(0, 400),
             categoryId: taxonomyCategory(detail.product), sized: fitSized(detail.product) });
           seenProducts.add(hit.id);
           break;

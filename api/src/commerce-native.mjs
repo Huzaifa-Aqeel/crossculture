@@ -10,7 +10,7 @@ import { brandWearer } from "./commerce-products.mjs";
 import { rankCommerceOpportunities } from "./brand-commerce.mjs";
 import { investigateDirectCommerceCulture } from "./commerce-culture.mjs";
 import { discoverVerifiedStorefront, secureCatalogFetch, fetchFailureCode,
-  TRANSIENT_FETCH_FAILURES } from "./shopify-catalog.mjs";
+  TRANSIENT_FETCH_FAILURES, globalCatalogSellers } from "./shopify-catalog.mjs";
 
 const QLOO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Qloo native brand leads read per run. Affinity is nearly flat across them
@@ -62,6 +62,20 @@ export function siteNameMatchesBrand(siteName, brand) {
     if (words.every((word, offset) => site[start + offset] === word)) return true;
   }
   return false;
+}
+// A Shopify seller is the brand only when its shop name is the brand's name,
+// allowing a company-style ending ("McBride Sisters Wine Company", "OAK + FORT
+// USA"). Containing the name is not enough: "Lively Living" (an Australian
+// homewares shop) is not Lively (30 Oct).
+const SELLER_NAME_ENDING = new Set(["company", "co", "inc", "llc", "ltd", "usa", "us", "official", "shop", "store"]);
+export function sellerNamesBrand(sellerName, brand) {
+  const seller = nameWords(sellerName);
+  while (seller.length && SELLER_NAME_ENDING.has(seller.at(-1))) seller.pop();
+  const key = (words) => words.join(" ");
+  return [brand, coreBrandName(brand)].some((value) => {
+    const words = nameWords(businessName(value));
+    return words.length > 0 && key(seller) === key(words);
+  });
 }
 const seedIdentityCache = new Map();
 const SEED_IDENTITY_TTL_MS = 10 * 60 * 1000;
@@ -322,15 +336,17 @@ const COUNTRY_DOMAINS = { GB: ["co.uk"], IE: ["ie"], CA: ["ca"], AU: ["com.au"],
 // Social, marketplace and reference sites are never a brand's own store.
 const NOT_BRAND_SITES = /(?:^|\.)(?:instagram|facebook|tiktok|twitter|x|youtube|pinterest|linkedin|threads|reddit|wikipedia|amazon|etsy|ebay|walmart|target|nordstrom|yelp|crunchbase|bloomberg|trustpilot|glassdoor|bbb|sitejabber|reviews|prnewswire|businesswire|globenewswire|medium|substack)\.[a-z.]+$/i;
 
-// Brand identity: the website Qloo gives (or a saved or user-entered one), then
-// brandname.com (also "and" for "&"). The first site whose own name contains
-// the brand name and which has its own Shopify store is the brand. Only a
-// Qloo-suggested partner (allowSearch) falls back to one web search, taking the
-// first result that is not a social, marketplace or reference site. A starting
-// brand or a user-chosen partner never searches: the user enters the website.
+// Brand identity. A Qloo-suggested partner (allowSearch) is first looked up in
+// Shopify's own catalog record (below). Otherwise: the website Qloo gives (or a
+// saved or user-entered one), then brandname.com (also "and" for "&"). The
+// first site whose own name contains the brand name and which has its own
+// Shopify store is the brand. A partner then falls back to one web search,
+// taking the first result that is not a social, marketplace or reference site.
+// A starting brand or a user-chosen partner never searches: the user enters the
+// website.
 export async function verifyCommerceBusiness(candidate, {
   firstParty = verifyFirstPartyCommerceBusiness, signal = null, trace = null,
-  allowSearch = false, search = withWebSearch,
+  allowSearch = false, search = withWebSearch, globalSellers = globalCatalogSellers,
 } = {}) {
   const name = String(candidate?.name ?? "").trim();
   if (!QLOO_UUID.test(candidate?.qlooId ?? "") || name.length < 2) return null;
@@ -342,12 +358,37 @@ export async function verifyCommerceBusiness(candidate, {
     tried.add(origin);
     return firstParty({ ...candidate, name: asName, website: origin }, { signal, trace }).catch(() => null);
   };
+  // A Qloo-suggested partner is first looked up in Shopify's own record: a
+  // Global Catalog seller whose shop name is the brand's and whose website
+  // carries the brand's name is the brand's store. It took 1-2 s and found
+  // 74 of 78 brands already verified through their homepages (30 Oct), while
+  // blocked homepages (HTTP 403/429) could take 45 s to fail. Resellers carry
+  // another name. The homepage check below remains for brands it misses.
+  const core = coreBrandName(name);
+  if (allowSearch && !signal?.aborted) {
+    const words = core.replace(/[&+]/g, " and ").split(/\s+/).filter(Boolean);
+    const brandHosts = [...new Set([normalized(core), normalized(core.replace(/[&+]/g, " and ")),
+      ...(words.length >= 3 ? [normalized(words.slice(0, 2).join(" "))] : [])])]
+      .filter((host) => host.length >= 3);
+    const own = (await globalSellers(core, { signal }).catch(() => [])).find((seller) => {
+      let url;
+      try { url = new URL(seller.url); } catch { return false; }
+      return /^gid:\/\/shopify\/Shop\/[0-9]+$/.test(seller.id ?? "") && url.protocol === "https:" &&
+        sellerNamesBrand(seller.name, name) &&
+        brandHosts.some((brand) => normalized(url.hostname).includes(brand));
+    });
+    if (own) {
+      return { id: candidate.qlooId, qlooId: candidate.qlooId, name, officialWebsite: new URL(own.url).origin,
+        identityStatus: "verified", productHints: String(candidate.description ?? "").slice(0, 600),
+        identitySourceUrl: `${new URL(own.url).origin}/`, shopId: own.id, verifiedBy: "shopify_global_catalog" };
+    }
+    trace?.push({ step: "global_catalog", host: null, reason: "no_matching_seller" });
+  }
   if (candidate.website) {
     const listed = await attempt(candidate.website);
     if (listed) return listed;
   }
   const suffixes = ["com", ...(COUNTRY_DOMAINS[String(candidate.market ?? "").toUpperCase()] ?? [])];
-  const core = coreBrandName(name);
   for (const host of [...new Set([name, core].flatMap((value) =>
     [normalized(value), normalized(value.replace(/&/g, " and "))]))]) {
     if (host.length < 2 || host.length > 50) continue;
@@ -488,9 +529,9 @@ export function selectNativeCommerceLeads(leads, limit = 6) {
 export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, objective,
   specifiedPartner = null, market = "US", userConstraints = {}, maxCatalogCalls = 160,
   userFeedback = null,
-  // Two and a half minutes: a live Rumpl run spent over four minutes on partners
-  // that added nothing (29 Oct); proven and liked pairs are re-checked first.
-  maxResearchMs = Number(process.env.COMMERCE_RUN_RESEARCH_MS) || 150_000 }, {
+  // Three minutes: a live Rumpl run spent over four minutes on partners that
+  // added nothing (29 Oct); proven and liked pairs are re-checked first.
+  maxResearchMs = Number(process.env.COMMERCE_RUN_RESEARCH_MS) || 180_000 }, {
   recommend = personalQlooRecommendBrands, entityTags = personalQlooEntityTags,
   audienceTags = personalQlooAudienceTags,
   verifyBusiness = verifyCommerceBusiness, researchPair = researchCommercePair,
@@ -573,6 +614,7 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
     let genres;
     [discovery, genres] = await Promise.all([recommend(ownerUserId, seedQlooId, { limit: NATIVE_LEADS }),
       anchor ? chooseGenres({ seed, objective, anchor, genres: BRAND_GENRES,
+        productSummary: userConstraints.heroProduct?.summary ?? "",
         productCategory: categoryPath(userConstraints.heroProduct?.categoryId ?? null, 3) ?? "" })
         .catch(() => []) : []]);
     if (!["ok", "partial"].includes(discovery?.envelope?.status)) {
@@ -583,9 +625,9 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
         opportunities: { supported: [], needs_verification: [], unsupported: [] } };
     }
     leads = nativeLeads(discovery.envelope, seedQlooId, NATIVE_LEADS);
-    // The best-fitting category gets most places (6 of 8 with two categories):
-    // an even split left a coffee maker with four coffee brands, 27 Oct.
-    const quotas = genres.length > 1 ? [CATEGORY_LEADS - 2, 2] : [CATEGORY_LEADS];
+    // Two categories share the places evenly: which one holds the partners
+    // with usable products is only known after their stores are checked.
+    const quotas = genres.length > 1 ? [CATEGORY_LEADS / 2, CATEGORY_LEADS / 2] : [CATEGORY_LEADS];
     const byGenre = await Promise.all(genres.map((genre, index) => recommend(ownerUserId, seedQlooId,
       { limit: quotas[index] + 4, includeTag: genre.id })
       .then((found) => ({ genre, found, quota: quotas[index] })).catch(() => null)));
@@ -720,7 +762,9 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
     for (let next = index; next < index + identityConcurrency; next += 1) startVerification(next);
     const { identity: verifiedPartner, trace: identityTrace, reused } = await verifications.get(index);
     if (!verifiedPartner) candidate.identityDiagnostics = identityTrace;
-    if (verifiedPartner && liveIdentity && !reused) {
+    // A store confirmed only through Shopify's catalog has no storefront proof
+    // to keep; it is confirmed again next time.
+    if (verifiedPartner && liveIdentity && !reused && !verifiedPartner.verifiedBy) {
       rememberIdentity(verifiedPartner, lead.description).catch(() => {});
     }
     if (!verifiedPartner || verifiedPartner.id === verifiedSeed.id) return;
@@ -882,9 +926,21 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   const researched = candidates.filter(Boolean);
   const allScreenedOut = !evaluated.length && researched.some((item) => item.status === "no_product_value") &&
     researched.every((item) => ["no_product_value", "identity_unverified"].includes(item.status));
+  // How far this run got, so an empty result says what was actually checked:
+  // "no match" among partners whose products were examined is not the same as
+  // partners never reached.
+  const store = (item) => !["identity_unverified", "identity_unverified_recently", "excluded_by_user"]
+    .includes(item.status);
+  const researchCoverage = { partners: leads.length + excludedByUser.length,
+    storeUnverified: [...researched, ...excludedTrace].filter((item) => !store(item) &&
+      item.status !== "excluded_by_user").length,
+    productsChecked: researched.filter((item) => store(item)).length,
+    pairsJudged: researched.reduce((total, item) => total + (item.assessedCount ?? 0), 0),
+    notReached: Math.max(0, selectedLeads.length - researched.length) +
+      excludedTrace.filter((item) => item.status === "skipped_enough_results").length };
   return { discoveryBasis: specifiedPartner ? "user_specified" : "qloo_native_brand",
     qlooResponseId: discovery?.responseId ?? null, qlooInputHash: discovery?.inputHash ?? null,
-    partnerCategories,
+    partnerCategories, researchCoverage,
     coverage: evaluated.length ? "partial_assortment" : stopReason === "catalog_rate_limited"
       ? "catalog_rate_limited" : allScreenedOut ? "no_partner_product_fit"
         : "no_verified_product_opportunity",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { discoverVerifiedStorefront, fetchFailureCode } from "../src/shopify-catalog.mjs";
 import { fetchBusinessHomepage, verifyFirstPartyCommerceBusiness,
   verifySelectedCommerceBrand, researchNativeCommerce, verifyCommerceBusiness,
-  decodeHtmlText, searchHint, siteNameMatchesBrand, coreBrandName } from "../src/commerce-native.mjs";
+  decodeHtmlText, searchHint, siteNameMatchesBrand, coreBrandName, sellerNamesBrand } from "../src/commerce-native.mjs";
 import { researchCommercePair } from "../src/commerce-research.mjs";
 import { runFailurePlan } from "../src/personal-research.mjs";
 import { sharedLaunchAreas } from "../src/commerce-launch.mjs";
@@ -185,6 +185,35 @@ assert.ok(!siteNameMatchesBrand("Patagonia", "Ibex Outdoor Clothing"));
   await verifyCommerceBusiness({ qlooId, name: "Uncle Nearest Premium Whiskey" }, { firstParty: async (candidate) => {
     tried.push([candidate.website, candidate.name]); return null; } });
   assert.ok(tried.some(([site, name]) => site === "https://unclenearest.com" && name === "Uncle Nearest"));
+}
+{
+  // Shopify's own catalog record confirms a store whose homepage blocks the
+  // check: the seller named like the brand on its own website, never a reseller.
+  const sellers = [{ id: "gid://shopify/Shop/6188564564", name: "GoBros.com", url: "https://www.gobros.com" },
+    { id: "gid://shopify/Shop/9517126", name: "Brooklinen", url: "https://www.brooklinen.com" }];
+  let searched = 0;
+  const viaCatalog = await verifyCommerceBusiness({ qlooId, name: "Brooklinen" }, { allowSearch: true,
+    firstParty: async () => null, globalSellers: async () => sellers,
+    search: async () => { searched += 1; return { results: [] }; } });
+  assert.equal(viaCatalog.shopId, "gid://shopify/Shop/9517126");
+  assert.equal(viaCatalog.officialWebsite, "https://www.brooklinen.com");
+  assert.equal(viaCatalog.verifiedBy, "shopify_global_catalog");
+  assert.equal(searched, 0, "No web search once Shopify's record confirms the store");
+  let homepageVisits = 0;
+  await verifyCommerceBusiness({ qlooId, name: "McBride Sisters Wine", website: "https://www.mcbridesisters.com" },
+    { allowSearch: true, firstParty: async () => { homepageVisits += 1; return null; },
+      globalSellers: async () => [{ id: "gid://shopify/Shop/1", name: "McBride Sisters Wine Company",
+        url: "https://www.mcbridesisters.com" }], search: async () => ({ results: [] }) })
+    .then((identity) => assert.equal(identity?.verifiedBy, "shopify_global_catalog",
+      "A shop named for the brand on a site named by its first two words"));
+  assert.equal(homepageVisits, 0, "Shopify's record is checked before any homepage visit");
+  assert.ok(sellerNamesBrand("OAK + FORT USA", "Oak + Fort"));
+  assert.ok(!sellerNamesBrand("Lively Living", "Lively"), "A shop whose name only contains the brand is another business");
+  assert.ok(!sellerNamesBrand("Lively from Best Buy Health", "Lively"));
+  const resellersOnly = await verifyCommerceBusiness({ qlooId, name: "Smartwool" }, { allowSearch: true,
+    firstParty: async () => null, globalSellers: async () => sellers.slice(0, 1),
+    search: async () => ({ results: [] }) });
+  assert.equal(resellersOnly, null, "A reseller is never the brand's store");
 }
 searches.length = 0;
 await verifyCommerceBusiness({ qlooId, name: "Negative",
@@ -470,17 +499,21 @@ assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sam
   practicalNeed: false }).passed, false);
 // A Cross-Sell may complete the same routine, scent profile or look, but only
 // when both items' own text names it (checked in code); a mood never counts.
-assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "completes_routine", sameProductType: false,
-  practicalNeed: false, bothPassagesNameRoutine: true }).passed, true);
-assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "completes_routine", sameProductType: false,
-  practicalNeed: false, bothPassagesNameRoutine: false }).passed, false, "An unconfirmed routine fails");
-assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "completes_routine", sameProductType: true,
-  practicalNeed: false, bothPassagesNameRoutine: true }).passed, false, "Another candle is still a substitute");
-assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "completes_routine", sameProductType: false,
-  practicalNeed: true, bothPassagesNameRoutine: false }).passed, true,
-"A practical need passes whichever label the judgment used (yoga mat and blocks)");
+// A Cross-Sell passes on a practical need, or on a pairing idea the separate
+// review confirmed; the verdict label alone decides nothing, and a substitute
+// never passes.
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "pairs_together", sameProductType: false,
+  practicalNeed: false, pairingConfirmed: true }).passed, true);
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "pairs_together", sameProductType: false,
+  practicalNeed: false, pairingConfirmed: false }).passed, false, "An unconfirmed pairing fails");
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "pairs_together", sameProductType: true,
+  practicalNeed: false, pairingConfirmed: true }).passed, false, "Another candle is still a substitute");
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "pairs_together", sameProductType: false,
+  practicalNeed: true }).passed, true, "A practical need passes whichever label the judgment used");
 assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sameProductType: false,
-  practicalNeed: false, bothPassagesNameRoutine: false }).passed, false, "Neither a practical need nor a confirmed routine");
+  practicalNeed: false }).passed, false, "Neither a practical need nor a confirmed pairing");
+assert.equal(objectiveJudgmentOutcome("cross_sell", { verdict: "added_need", sameProductType: false,
+  practicalNeed: true, alreadyIncluded: true }).passed, false, "A filter the brewer already includes adds nothing");
 // Coffee pods for a drip coffee maker (live 27 Oct): another format cannot be
 // used with the starting item, whatever the verdict says.
 const brewTask = { verdict: "joint_task", sameProductType: false, directFunction: true, sameObject: true,
@@ -498,7 +531,7 @@ const rubricYes = { seedRoleGroundedInSelectedItem: true, partnerRoleGroundedInS
   jointUseCoherent: true, incrementalBenefit: true, genericCoUseOnly: false,
   distinctConcreteJointValue: false, partnerSpecificReason: false, reason: "specific_joint_use" };
 const judgmentBase = { seedJob: "brews", partnerJob: "grinds", sameProductType: false, bothWornOrCarried: false,
-  careProductForOther: false, formatMismatch: false, partnerUseStated: true, combinedOutcome: "fresh coffee", practicalResult: true,
+  careProductForOther: false, formatMismatch: false, partnerUseStated: true, alreadyIncluded: false, combinedOutcome: "fresh coffee", practicalResult: true,
   seedActivityWords: "", partnerActivityWords: "", withoutPartner: "grinding", servesStatedOccasion: false,
   preferenceQuotes: [], verdict: "joint_task" };
 const answers = [rubricYes, { ...judgmentBase, directFunction: false, sameObject: false, separateUsers: false },
@@ -512,6 +545,33 @@ const rechecked = await verifyCommerceMechanismRubric({ objective: "product_bund
   classify: async () => JSON.stringify(answers.shift()) });
 assert.ok(recheckTrace.some((step) => step.stage === "judgment_recheck"));
 assert.equal(rechecked.jointUseCoherent, true, "The consistent second answer decides");
+
+// A Cross-Sell pairing idea passes only when the separate review confirms it;
+// the review sees the two products and the idea, never the verdict.
+{
+  const crossJudgment = { seedJob: "scents a room", partnerJob: "a white wine", sameProductType: false,
+    addedCustomerNeed: "none", careProductForOther: false, formatMismatch: false, partnerUseStated: true,
+    alreadyIncluded: false, practicalNeed: false, pairingIdea: "An evening at home: the candle scents the room while the wine is poured.",
+    servesStatedOccasion: false, preferenceQuotes: [], verdict: "pairs_together" };
+  const run = (review) => {
+    const seen = [];
+    return verifyCommerceMechanismRubric({ objective: "cross_sell",
+      proposal: { kind: "assortment_complement", seedRole: "candle", partnerRole: "wine", occasion: "evening",
+        benefit: "A candle and a wine for one evening at home.", partnerSpecificFact: "" },
+      seedFacts: ["candle"], partnerFacts: ["wine"],
+      seedSelectedItem: { title: "Luxury Candle", description: "Bergamot, rose and jasmine." },
+      partnerSelectedItem: { title: "Sauvignon Blanc", description: "Citrus and white flowers." },
+      classify: async (system, input) => { seen.push(input);
+        return JSON.stringify(system.startsWith("Classify") ? rubricYes
+          : system.startsWith("Review") ? review : crossJudgment); } })
+      .then((result) => ({ result, seen }));
+  };
+  const yes = await run({ specific: true, distinctRoles: true, factsFromText: true, merchantWouldPitch: true, reason: "ok" });
+  assert.equal(yes.result.jointUseCoherent, true, "A confirmed pairing passes");
+  assert.ok(!JSON.stringify(yes.seen.at(-1)).includes("pairs_together"), "The review never sees the verdict");
+  const no = await run({ specific: false, distinctRoles: true, factsFromText: true, merchantWouldPitch: true, reason: "mood only" });
+  assert.equal(no.result.jointUseCoherent, false, "A pairing the review finds generic fails");
+}
 
 // Activity quotes are checked against each item's own text.
 const journal = { title: "Evening Reflection Journal", description: "Guided prompts to help you wind down and reflect before bed." };

@@ -10,7 +10,7 @@ type Candidate = { id: string; name: string; description: string | null; website
 type Resolution = { id: string; qloo: { status: string; candidates: Candidate[] } };
 type Brand = { id: string; name: string; website?: string | null };
 type Product = { productId: string; variantId: string | null; title: string; url?: string | null; categoryId?: string | null;
-  sized?: boolean; outOfStock?: boolean };
+  sized?: boolean; outOfStock?: boolean; summary?: string };
 
 const productCoverage: Record<string, string> = {
   selected_seed_product_unverified: "That product could not be confirmed. Try its product page link.",
@@ -207,7 +207,8 @@ function SetupFlow() {
         ...(softPreferences.length ? { softPreferences } : {}),
         ...(priceCap.trim() ? { priceLimit: { amountMinor: Math.round(Number(priceCap) * 10 ** digits), currencyCode: currency } } : {}),
         heroProduct: { productId: hero.productId, variantId: hero.variantId, title: hero.title,
-          ...(hero.categoryId ? { categoryId: hero.categoryId } : {}) } },
+          ...(hero.categoryId ? { categoryId: hero.categoryId } : {}),
+          ...(hero.summary ? { summary: hero.summary } : {}) } },
       idempotencyKey: crypto.randomUUID() });
     if (!ok) { setBusy(null); setError(payload.message ?? "Research could not start right now."); return; }
     router.push(`/projects/${runProjectId}?run=${payload.runId}`);

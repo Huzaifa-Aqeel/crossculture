@@ -1094,9 +1094,9 @@ const secondPageKept = await researchCommercePair(pairInput, { ...researchDeps, 
     return { addsValue: partnerProducts.some((item) => item.id === mat.id), exampleTitles: [] }; } });
 assert.deepEqual(screenSamples, [2, 3], "Dropped only after one more page also shows nothing");
 assert.notEqual(secondPageKept.coverage, "partner_no_product_value");
-// A discovered brand selling mostly the starting product's kind is a
-// competitor (Great Jones cookware for a Caraway pan, live 27 Oct); a few
-// such items in a wider range do not stop research.
+// A discovered brand selling mostly (half or more) the starting product's kind
+// is a competitor (Great Jones cookware for a Caraway pan, live 27 Oct); a
+// mixed store is still researched.
 const inCategory = (product, id) => ({ ...product, categories: [{ value: `gid://shopify/TaxonomyCategory/${id}` }] });
 const pan = inCategory(towel, "hg-11-2-3");
 const shelfOf = (cookware) => Array.from({ length: 8 }, (_, index) => inCategory({ ...mat,
@@ -1108,12 +1108,12 @@ const competitorCheck = (cookware, input = pairInput) => researchCommercePair(in
     detail: async (domain) => productWithOffer(domain.startsWith("seed") ? pan : mat),
     searchPage: async (domain) => ({ products: domain.startsWith("seed") ? [pan] : shelfOf(cookware),
       pagination: { cursor: null, hasNextPage: false } }) }) });
-const competitor = await competitorCheck(2);
+const competitor = await competitorCheck(4);
 assert.equal(competitor.coverage, "partner_no_product_value");
 assert.deepEqual(competitor.coverageIssues, ["partner_sells_starting_product_type"]);
-assert.ok(!(await competitorCheck(1)).coverageIssues?.includes("partner_sells_starting_product_type"),
-  "One item in eight is a wider range, not a competitor");
-assert.ok(!(await competitorCheck(2, { ...pairInput, discoveryBasis: "user_specified" }))
+assert.ok(!(await competitorCheck(3)).coverageIssues?.includes("partner_sells_starting_product_type"),
+  "A mixed store (three in eight) is researched; its same-kind items are rejected pair by pair");
+assert.ok(!(await competitorCheck(4, { ...pairInput, discoveryBasis: "user_specified" }))
   .coverageIssues?.includes("partner_sells_starting_product_type"), "A user-chosen partner is never dropped");
 const specifiedNotScreened = await researchCommercePair({ ...pairInput, discoveryBasis: "user_specified" },
   { ...researchDeps, productQueries: null,

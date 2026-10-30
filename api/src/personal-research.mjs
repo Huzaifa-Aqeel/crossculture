@@ -84,6 +84,10 @@ export async function startPersonalRun(userId, input) {
       // exact product and variant are re-read from the store during research.
       ...(typeof requestedHero.title === "string" && requestedHero.title.trim()
         ? { title: requestedHero.title.trim().slice(0, 160) } : {}),
+      // A short description only helps choose partner categories (an era or
+      // tradition the product names); research re-reads the product itself.
+      ...(typeof requestedHero.summary === "string" && requestedHero.summary.trim()
+        ? { summary: requestedHero.summary.replace(/\s+/g, " ").trim().slice(0, 400) } : {}),
       // The product's public taxonomy category only orders research by earlier
       // results for similar products; research reads the product itself.
       ...(typeof requestedHero.categoryId === "string" &&
