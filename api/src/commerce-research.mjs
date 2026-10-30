@@ -22,7 +22,7 @@ import { taxonomyCategory, screenKeyFor, recallScreenDecision,
 // The caller supplies only independently verified brand identities and Qloo evidence.
 export async function researchCommercePair({ seed, partner, objective, cultureEvidence = null,
   discoveryBasis, market = "US", userConstraints = {}, maxCatalogCalls = 28, seedRange = null,
-  runShared = null, userRejectedPairs = [], userLikedProductIds = [],
+  runShared = null, userRejectedPairs = [], userLikedProductIds = [], skipScreen = false,
   maxResearchMs = Number(process.env.COMMERCE_PARTNER_RESEARCH_MS) || 60_000 }, {
   createCatalog = () => catalogClient({ maxCalls: maxCatalogCalls }), discoverStorefront = discoverVerifiedStorefront,
   productQueries = null, planAnchorSearch = planAnchorProductSearch,
@@ -295,7 +295,9 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
   // Discovered partners: stop now if the observed assortment shows nothing that
   // could add value to the chosen product. A failed screen never drops a partner;
   // a user-specified partner is never screened.
-  if (discoveryBasis !== "user_specified" && broadPartner.length) {
+  // A partner the run's quick look already rated against its real products is
+  // not screened again here.
+  if (discoveryBasis !== "user_specified" && broadPartner.length && !skipScreen) {
     const runScreen = (products) => screenPartner({ seedProduct: heroDetail.product,
       seedVariant: heroDetail.variant, objective, partnerProducts: products,
       occasion: userConstraints.occasion ?? "", preferences: userConstraints.softPreferences ?? [],
@@ -1095,4 +1097,29 @@ export async function researchCommercePair({ seed, partner, objective, cultureEv
           ? "assessment_capacity_reached" : coverageIssues.has("search_novelty_exhausted")
             ? "search_novelty_exhausted" : "query_plan_exhausted",
     productSearchPlanning, productSelectionPlanning, callsUsed: catalog.callsUsed(), memory: memory() };
+}
+
+// The run's quick look at one partner: its store and one page of its products,
+// so every suggested partner is rated on what it really sells before deep
+// research is spent on the best ones. Two or three Catalog calls.
+export async function quickPartnerSample({ partner, market = "US" }, {
+  createCatalog = () => catalogClient({ maxCalls: 4 }), discoverStorefront = discoverVerifiedStorefront } = {}) {
+  const store = partner?.verifiedBy === "shopify_global_catalog" &&
+    /^gid:\/\/shopify\/Shop\/[0-9]+$/.test(partner.shopId ?? "")
+    ? { shopId: partner.shopId } : await discoverStorefront(partner?.officialWebsite).catch(() => null);
+  if (!store?.shopId) return { status: "no_store", products: [], callsUsed: 0 };
+  const catalog = createCatalog();
+  const usable = (tools) => tools?.has("search_catalog");
+  let products = null;
+  for (const domain of [...new Set([store.domain, store.endpointHost].filter(Boolean))]) {
+    const tools = await catalog.tools(domain).catch(() => null);
+    if (usable(tools)) { products = await catalog.search(domain, "products", tools, { market, shops: [] }); break; }
+  }
+  if (!products) {
+    const tools = await catalog.tools("global").catch(() => null);
+    if (usable(tools)) products = (await catalog.search("global", "products", tools, { market, shops: [store.shopId] }))
+      .filter((product) => (product.variants ?? []).some((variant) => variant.seller?.id === store.shopId));
+  }
+  return { status: products ? "ok" : "catalog_unavailable",
+    products: (products ?? []).filter(isCommerceMerchandise).slice(0, 24), callsUsed: catalog.callsUsed() };
 }

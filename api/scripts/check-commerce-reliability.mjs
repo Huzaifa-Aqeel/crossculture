@@ -693,4 +693,31 @@ assert.deepEqual(ukTried, ["https://hiutdenim.com", "https://hiutdenim.co.uk"]);
   assert.equal(enough.stopReason, "enough_results");
   assert.equal(enough.candidates.filter((item) => item.status === "skipped_enough_results").length, 2);
 }
+// Quick look: every partner gets its store check and one product sample before
+// deep research; the order comes from those samples, and only the eight most
+// promising confirmed partners are researched, without a second store screen.
+{
+  const ids = Array.from({ length: 10 }, (_, index) => `${index}a${index}a${index}a${index}a-2222-4222-8222-222222222222`);
+  const sampled = []; let triageSamples = null; const deep = [];
+  const looked = await researchNativeCommerce({ ownerUserId: "owner",
+    seed: { name: "Seed", officialWebsite: "https://seed.example.com" }, seedQlooId: qlooId,
+    objective: "cross_sell", userConstraints: { heroProduct: { productId: "p", variantId: "v", title: "Candle" } } }, {
+    quickLook: true,
+    recommend: async () => ({ envelope: { status: "ok", results: ids.map((id, index) => ({ entity_id: id,
+      name: `Store ${index}`, properties: { website: `https://store${index}.example.com` } })) } }),
+    verifyBusiness: async (candidate) => ({ id: candidate.qlooId, qlooId: candidate.qlooId, name: candidate.name,
+      officialWebsite: candidate.website ?? "https://seed.example.com", identityStatus: "verified" }),
+    samplePartner: async ({ partner }) => { sampled.push(partner.name);
+      return { status: "ok", callsUsed: 2, products: [{ id: `gid://shopify/Product/${partner.name.length}`, title: `${partner.name} item` }] }; },
+    triageLeads: async ({ leads, samples }) => { triageSamples = samples; return leads.map((_, index) => index === 9 ? "likely" : "possible"); },
+    entityTags: async () => null, audienceTags: async () => null,
+    researchPair: async (input) => { deep.push([input.partner.name, input.skipScreen]);
+      return { coverage: "no_catalog_results", callsUsed: 0, opportunities: { supported: [], needs_verification: [], unsupported: [] } }; } });
+  assert.equal(sampled.length, 10, "Every partner gets a quick look");
+  assert.ok(triageSamples?.every((sample) => Array.isArray(sample) && sample.length === 1), "The order is set from real products");
+  assert.equal(deep.length, 8, "Only the eight most promising are researched in depth");
+  assert.equal(deep[0][0], "Store 9", "The partner the quick look rated likely goes first");
+  assert.ok(deep.every(([, skip]) => skip === true), "No second store screen after the quick look");
+  assert.equal(looked.candidates.filter((item) => item.status === "not_selected_after_quick_look").length, 2);
+}
 console.log("Commerce entry and run reliability checks passed: redirects, retries, deadlines, pair batching and retry policy.");

@@ -1,6 +1,6 @@
 import { personalQlooRecommendBrands, personalQlooEntityTags, personalQlooAudienceTags } from "./personal-qloo.mjs";
 import { withWebSearch, officialDomainOf } from "./web-research.mjs";
-import { researchCommercePair } from "./commerce-research.mjs";
+import { researchCommercePair, quickPartnerSample } from "./commerce-research.mjs";
 import { chooseComplementGenres, triageCommerceLeads } from "./commerce-mechanism.mjs";
 import { BRAND_GENRES } from "./brand-genres.mjs";
 import { categoryPath } from "./product-taxonomy.mjs";
@@ -20,6 +20,8 @@ const NATIVE_LEADS = 12;
 const CATEGORY_LEADS = 8;
 // Supported results after which partners rated unlikely for the product are skipped.
 const ENOUGH_SUPPORTED = 3;
+// Partners researched in depth after the quick look.
+const DEEP_PARTNERS = 8;
 const normalized = (value) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const businessName = (value) => String(value ?? "").trim()
@@ -540,7 +542,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   triageLeads = triageCommerceLeads, chooseGenres = chooseComplementGenres,
   knownWebsites = verifiedWebsitesForQlooIds,
   recallIdentities = recentCommerceIdentities, rememberIdentity = rememberCommerceIdentity,
-  recallPartners = recallPartnerMemory, readSeedWearer = null, now = () => Date.now() } = {}) {
+  recallPartners = recallPartnerMemory, samplePartner = quickPartnerSample, quickLook = null,
+  readSeedWearer = null, now = () => Date.now() } = {}) {
   if (!QLOO_UUID.test(seedQlooId ?? "") || !["product_bundle", "cross_sell"].includes(objective)) {
     throw new Error("Verified native brand and commerce objective required.");
   }
@@ -551,8 +554,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   // run's remaining time instead of checking the clock only between steps,
   // and by its own limit, so one stuck website cannot hold a research slot
   // for the rest of the run (checks normally finish within seconds).
-  const verifyWithinDeadline = (candidate, { allowSearch = false } = {}) => {
-    const remaining = Math.min(remainingResearchMs(), IDENTITY_CHECK_MS);
+  const verifyWithinDeadline = (candidate, { allowSearch = false, capMs = IDENTITY_CHECK_MS } = {}) => {
+    const remaining = Math.min(remainingResearchMs(), capMs);
     const controller = Number.isFinite(remaining) ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), Math.max(1, remaining)) : null;
     const signal = controller?.signal ?? null;
@@ -666,11 +669,53 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   // before any identity check or Catalog call: a partner judged to add no value
   // is not researched. Likely fits go first. If the filter is unavailable, the
   // Qloo order is kept. A user-specified partner is never filtered.
+  // Earlier research on these same partners (from any run) moves proven
+  // partners forward, unpromising ones back, and skips lasting identity failures.
+  const memoryTiers = specifiedPartner ? new Map() : partnerMemoryTiers(
+    await recallPartners({ qlooIds: leads.map((lead) => lead.qlooId), objective, market })
+      .catch(() => []), userConstraints.heroProduct?.categoryId ?? null);
+  // A partner verified in the last week reuses that proof; a fresh proof is
+  // kept for later runs. Only the real identity check is reused or stored.
+  const liveIdentity = verifyBusiness === verifyCommerceBusiness && !specifiedPartner;
+  const knownIdentities = liveIdentity ? await recallIdentities(leads.map((lead) => lead.qlooId))
+    .catch(() => new Map()) : new Map();
+  // Quick look (30 Oct): before any deep research, every suggested partner gets
+  // its store check and one page of its products, eight at a time, so the
+  // order below comes from what each store really sells rather than a short
+  // brand description, and deep research goes only to the most promising.
+  const identityByQloo = new Map();
+  const sampleByQloo = new Map();
+  const lookFirst = !specifiedPartner && leads.length > 0 && (quickLook ?? liveIdentity);
+  if (lookFirst) {
+    const queue = leads.filter((lead) => !(memoryTiers.get(lead.qlooId)?.identityFailure &&
+      lead.websiteSource !== "verified_record"));
+    const configuredLooks = Number(process.env.COMMERCE_QUICK_LOOK_CONCURRENCY);
+    const looks = Number.isFinite(configuredLooks) && configuredLooks >= 1 ? Math.min(10, Math.floor(configuredLooks)) : 8;
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(looks, queue.length) }, async () => {
+      while (next < queue.length && remainingResearchMs() > 0) {
+        const lead = queue[next++];
+        const known = knownIdentities.get(lead.qlooId);
+        const check = known ? Promise.resolve({ identity: known, trace: [], reused: true })
+          : verifyWithinDeadline({ ...lead, market }, { allowSearch: true, capMs: 15_000 });
+        identityByQloo.set(lead.qlooId, check);
+        const { identity } = await check;
+        if (!identity) continue;
+        const sample = await samplePartner({ partner: identity, market }).catch(() => null);
+        if (sample) {
+          catalogCallsUsed += sample.callsUsed ?? 0;
+          if (sample.products?.length) sampleByQloo.set(lead.qlooId, sample.products);
+        }
+      }
+    }));
+  }
   let leadFit = null;
   if (!specifiedPartner && leads.length) {
     leadFit = await triageLeads({ seed, leads, objective,
-      anchor: userConstraints.heroProduct?.title ?? "", occasion: userConstraints.occasion ?? "",
-      preferences: userConstraints.softPreferences ?? [] }).catch(() => null);
+      anchor: userConstraints.heroProduct?.title ?? "", anchorSummary: userConstraints.heroProduct?.summary ?? "",
+      occasion: userConstraints.occasion ?? "", preferences: userConstraints.softPreferences ?? [],
+      ...(lookFirst ? { samples: leads.map((lead) => sampleByQloo.get(lead.qlooId) ?? null) } : {}) })
+      .catch(() => null);
   }
   const fitOf = (lead) => leadFit?.[leads.indexOf(lead)] ?? "possible";
   // Brand descriptions are too thin to drop a partner (a "furniture retailer"
@@ -685,11 +730,6 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   const rank = { likely: 0, possible: 1, unlikely: 2 };
   const hintOrder = [...leads].sort((a, b) =>
     rank[fitOf(a)] - rank[fitOf(b)] || (a.originalOrder ?? 0) - (b.originalOrder ?? 0));
-  // Earlier research on these same partners (from any run) then moves proven
-  // partners forward, unpromising ones back, and skips lasting identity failures.
-  const memoryTiers = specifiedPartner ? new Map() : partnerMemoryTiers(
-    await recallPartners({ qlooIds: leads.map((lead) => lead.qlooId), objective, market })
-      .catch(() => []), userConstraints.heroProduct?.categoryId ?? null);
   const remembered = specifiedPartner ? { ordered: leads, skipped: [] }
     : orderLeadsWithMemory(hintOrder, memoryTiers);
   // Partners this user liked for this brand are researched first (still
@@ -699,11 +739,33 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   const preferred = new Set((specifiedPartner ? [] : userFeedback?.preferredPartnerQlooIds ?? [])
     .filter((id) => { const lead = leads.find((item) => item.qlooId === id);
       return !lead || fitOf(lead) !== "unlikely"; }));
-  const selectedLeads = [...remembered.ordered.filter((lead) => preferred.has(lead.qlooId)),
+  let selectedLeads = [...remembered.ordered.filter((lead) => preferred.has(lead.qlooId)),
     ...remembered.ordered.filter((lead) => !preferred.has(lead.qlooId))];
+  // After the quick look, deep research goes to the eight most promising
+  // partners whose store was confirmed; partners without a store are listed
+  // with that result, and the rest were looked at but not researched further.
+  const notSelected = [];
+  if (lookFirst) {
+    const confirmed = new Set();
+    for (const lead of selectedLeads) {
+      if ((await identityByQloo.get(lead.qlooId))?.identity) confirmed.add(lead.qlooId);
+    }
+    let deep = 0;
+    // A partner the quick look did not reach is researched as before; one
+    // whose store was not confirmed is reported from its quick check.
+    selectedLeads = selectedLeads.filter((lead) => {
+      if (!confirmed.has(lead.qlooId)) return true;
+      if (deep < DEEP_PARTNERS) { deep += 1; return true; }
+      notSelected.push(lead); return false;
+    });
+  }
   for (const lead of excludedByUser) {
     excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
       status: "excluded_by_user" });
+  }
+  for (const lead of notSelected) {
+    excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
+      status: "not_selected_after_quick_look", productFitHint: fitOf(lead) });
   }
   for (const lead of remembered.skipped) {
     excludedTrace.push({ name: lead.name, qlooId: lead.qlooId, originalQlooOrder: lead.originalOrder ?? null,
@@ -720,12 +782,9 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
   // the starting brand does; research still re-checks its store and products.
   const partnerProof = specifiedPartner ? recentConfirmedSeed({ ...specifiedPartner,
     id: specifiedPartner.entityId }, specifiedPartner.qlooId) : null;
-  // A partner verified in the last week reuses that proof; a fresh proof is
-  // kept for later runs. Only the real identity check is reused or stored.
-  const liveIdentity = verifyBusiness === verifyCommerceBusiness && !specifiedPartner;
-  const knownIdentities = liveIdentity ? await recallIdentities(selectedLeads.map((lead) => lead.qlooId))
-    .catch(() => new Map()) : new Map();
   const startVerification = (index) => {
+    const looked = index < selectedLeads.length ? identityByQloo.get(selectedLeads[index].qlooId) : null;
+    if (looked && !verifications.has(index)) verifications.set(index, looked);
     const known = index < selectedLeads.length ? knownIdentities.get(selectedLeads[index].qlooId) : null;
     if (known && !verifications.has(index)) {
       verifications.set(index, Promise.resolve({ identity: known, trace: [], reused: true }));
@@ -828,7 +887,8 @@ export async function researchNativeCommerce({ ownerUserId, seed, seedQlooId, ob
           userLikedProductIds: (userFeedback?.likedPairs ?? []).filter((pair) =>
             pair.partnerQlooId === verifiedPartner.qlooId &&
             pair.seedProductId === userConstraints.heroProduct?.productId).map((pair) => pair.partnerProductId),
-          maxCatalogCalls: candidateBudget, maxResearchMs: partnerTime });
+          maxCatalogCalls: candidateBudget, maxResearchMs: partnerTime,
+          skipScreen: lookFirst && sampleByQloo.has(lead.qlooId) && fitOf(lead) !== "unlikely" });
       } finally { reservedCalls -= candidateBudget; }
       // A storefront or capability failure can return before making any
       // Catalog call. Charge only observed calls, never the whole allowance.
