@@ -16,7 +16,7 @@ function projectStatus(project: Project): [string, string] {
     case "queued": case "running": return ["Researching", "rs-pill-check"];
     case "failed": return ["Couldn't finish", "rs-pill-no"];
     default: return project.recommendedPartners
-      ? [`${project.recommendedPartners} recommended`, "rs-pill-good"] : ["No recommendation yet", "rs-pill-draft"];
+      ? [`${project.recommendedPartners} recommended`, "rs-pill-good"] : ["No recommendation", "rs-pill-draft"];
   }
 }
 

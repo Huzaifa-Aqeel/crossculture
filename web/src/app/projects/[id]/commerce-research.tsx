@@ -396,7 +396,7 @@ export function CommerceResearch({ projectId }: { projectId: string }) {
     {failedMessage && <div className="rs-status"><strong>{failedMessage}</strong></div>}
 
     {run && !working && !failedMessage && <>
-      <div className="rs-summary"><strong>{counts.supported ? `${counts.supported} recommended ${counts.supported === 1 ? "partner" : "partners"}` : "No recommended partner yet"}</strong>
+      <div className="rs-summary"><strong>{counts.supported ? `${counts.supported} recommended ${counts.supported === 1 ? "partner" : "partners"}` : "No recommended partner"}</strong>
         {counts.checking ? <span>{counts.checking} worth checking</span> : null}</div>
       {note && <p className="rs-quiet">{note}</p>}
       {run.result?.stopReason === "research_time_limit_reached" && counts.supported + counts.checking > 0 &&

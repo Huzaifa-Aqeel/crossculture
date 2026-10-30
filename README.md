@@ -4,7 +4,7 @@
 
 CrossCulture helps a consumer brand plan product bundles and cross-sells with another brand. You pick one of your products. The app uses Qloo to find brands your audience already likes, checks those brands' live Shopify stores for products that genuinely work with yours, and shows the strongest pairs with the reasons behind them. You can also name a brand you already have in mind and compare the two directly.
 
-**[Try the live app](https://culture-circle.vercel.app/)** · Sign-in is required; judge access is provided privately with the hackathon submission.
+**[Try the live app](https://culture-circle.vercel.app/)**
 
 ## The problem
 
@@ -59,7 +59,7 @@ Qloo is what makes the partner list worth checking. Without it, the choice is be
 | Step | Qloo request | Why |
 |---|---|---|
 | Identify your brand | `qloo_describe` (brand type only) | Anchors everything to the right Qloo brand entity, not a person or product with the same name. |
-| Suggest partners | `qloo_recommend` with your brand as the only signal (up to 12 brands) | Brands your audience likes, across categories. These partners are described as "People who like A also tend to like B." |
+| Suggest partners | `qloo_recommend` with your brand as the only signal (up to 12 brands) | Brands your audience likes, a`cross` categories. These partners are described as "People who like A also tend to like B." |
 | Partners for your product | `qloo_recommend` with your brand as the only signal, limited to up to two Qloo brand categories chosen for your product | Finds complements the brand-wide list misses, such as coffee brands for a coffee maker. Described as liked "among coffee & tea brands." |
 | Compare two named brands | `qloo_recommend` in both directions, then `qloo_rank` with specific shared tags confirmed on both brands' own sites | A brand you name is not assumed to fit; the cultural link must be found. |
 | Explain the connection | Audience and lifestyle tags for each brand (`/v2/insights`, tag types filtered) | Names who both brands resonate with, using tags prominent for both and not near-universal. |
@@ -96,6 +96,9 @@ Open `http://localhost:3000`, sign in, and try a US brand that sells on Shopify.
 - Results are a starting point for a partnership conversation. Qloo affinities and city popularity are aggregate signals: they do not identify shared customers, predict sales, or show that a partner is interested.
 - Your brand must be in Qloo, and partners must sell on Shopify with a verifiable store.
 - Each run reviews a time-limited sample of partners and products, not every catalog in full. Qloo's categories are broad, so some products (for example cookware, pet or outdoor gear) rely on the brand-wide partner list.
+
+- Some runs finish without a recommendation: Qloo may return no product-relevant partners, a partner’s official Shopify store may not be verifiable, or the products reviewed may not show an evidence-grounded Bundle or Cross-Sell. Runs can also be partial because of time or catalog limits. No recommendation—especially from a partial run—doesn’t prove that no suitable partner or product pairing exists.
+
 ## License
 
 [MIT](LICENSE) © 2026 Huzaifa Aqeel.
